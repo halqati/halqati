@@ -5,7 +5,7 @@ import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, Al
 import { AlertTriangle } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData } from './utils/helpers';
-import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction } from './firebase';
+import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField } from './firebase';
 import { SEASONAL_MESSAGES, defaultMemberPermissions } from './constants';
 
 import Setup from './pages/Setup';
@@ -69,6 +69,7 @@ import ShareModal from './components/ShareModal';
 import FilenamePromptModal from './components/FilenamePromptModal';
 import PointsSettingsModal from './components/PointsSettingsModal';
 import BackupRestoreModal from './components/BackupRestoreModal';
+import BackupReviewModal from './components/BackupReviewModal';
 import TermsOfServiceModal from './components/TermsOfServiceModal';
 import NotificationSettingsModal from './components/NotificationSettingsModal';
 import StudentPointsLogModal from './components/StudentPointsLogModal';
@@ -85,7 +86,7 @@ import ManagementDashboard from './components/ManagementDashboard';
 import DeveloperDashboard from './components/DeveloperDashboard';
 import LoginModal from './components/LoginModal';
 import AuthScreen from './components/AuthScreen';
-import { FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaCloudUploadAlt, FaCloudDownloadAlt, FaSignInAlt, FaPlus, FaKey } from 'react-icons/fa';
+import { FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaCloudUploadAlt, FaCloudDownloadAlt, FaSignInAlt, FaPlus, FaKey, FaTimes } from 'react-icons/fa';
 
 const mainPages = ['home', 'students', 'sessions', 'records', 'settings'];
 
@@ -1348,7 +1349,34 @@ const App: React.FC = () => {
                     if (job.collection === 'circles') {
                         const ref = doc(db, 'circles', String(job.circleId));
                         if (job.action === 'set') {
-                            await setDoc(ref, job.data, { merge: true });
+                            // Since we use { merge: true }, deleted keys from the 'teachers' map on the client
+                            // won't be deleted on the Firestore server. To fix this, we fetch the existing doc,
+                            // find any keys in 'teachers' that are no longer present in job.data.teachers,
+                            // and mark them for deletion using deleteField().
+                            let finalData = { ...job.data };
+                            try {
+                                const currentDocSnap = await getDoc(ref);
+                                if (currentDocSnap.exists()) {
+                                    const currentDocData = currentDocSnap.data();
+                                    if (currentDocData && currentDocData.teachers && job.data.teachers) {
+                                        const mergedTeachers = { ...job.data.teachers };
+                                        let hasDeletions = false;
+                                        Object.keys(currentDocData.teachers).forEach(uid => {
+                                            if (job.data.teachers[uid] === undefined) {
+                                                mergedTeachers[uid] = deleteField();
+                                                hasDeletions = true;
+                                            }
+                                        });
+                                        if (hasDeletions) {
+                                            finalData.teachers = mergedTeachers;
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.error("Error checking for deleted teachers on server:", e);
+                            }
+
+                            await setDoc(ref, finalData, { merge: true });
                             addSyncEvent('upload_success', `تم رفع وتحديث بيانات حلقة التحفيظ بنجاح ✔`, 'success');
                             
                             // Align lastLocalState directly after successful upload
@@ -1651,6 +1679,7 @@ const App: React.FC = () => {
     const [backupRestoreModalOpen, setBackupRestoreModalOpen] = useState(false);
     const [textBackupModalOpen, setTextBackupModalOpen] = useState(false);
     const [textRestoreModalOpen, setTextRestoreModalOpen] = useState(false);
+    const [backupReviewModalData, setBackupReviewModalData] = useState<CircleData | null>(null);
     const [communityTermsModalState, setCommunityTermsModalState] = useState<{ isOpen: boolean; targetLink: string | null }>({ isOpen: false, targetLink: null });
     const [rewardsManagerOpen, setRewardsManagerOpen] = useState(false);
     const [shareSessionCodeModal, setShareSessionCodeModal] = useState<{ isOpen: boolean; session: Session | null }>({ isOpen: false, session: null });
@@ -1699,7 +1728,7 @@ const App: React.FC = () => {
 
             if (snapshot.empty) {
                 console.warn("Circle not found for ID:", sanitizedId);
-                addToast("لم يتم العثور على حلقة بهذا الرقم. يرجى التأكد من الرقم الصحيح.", 'error');
+                addToast("لا توجد حلقة بهذه البيانات. الرجاء التأكد وإعادة المحاولة.", 'error');
                 setIsImportingCircle(false);
                 return;
             }
@@ -1715,7 +1744,7 @@ const App: React.FC = () => {
 
             if (expectedPassword !== inputPassword) {
                 console.warn("Invalid password attempt for circle:", numericId, "Expected:", expectedPassword, "Got:", inputPassword);
-                addToast("كلمة المرور غير صحيحة. يرجى التأكد من الإدارة.", 'error');
+                addToast("لا توجد حلقة بهذه البيانات. الرجاء التأكد وإعادة المحاولة.", 'error');
                 setIsImportingCircle(false);
                 return;
             }
@@ -1773,6 +1802,7 @@ const App: React.FC = () => {
 
             // 2. Update Local State Immediately to ensure UI transition
             const updatedCircle: CircleData = {
+                ...defaultsForOptionalFields,
                 ...circleData,
                 id: circleDoc.id,
                 authorizedUserIds: updatedAuthorizedIds,
@@ -1780,7 +1810,7 @@ const App: React.FC = () => {
                 notifications: notifications,
                 dismissedNotificationIds: circleData.dismissedNotificationIds || [],
                 lastUpdated: now
-            };
+            } as CircleData;
 
             setAppData(prev => {
                 const existingIndex = prev.circles.findIndex(c => c.id === circleDoc.id);
@@ -1799,6 +1829,10 @@ const App: React.FC = () => {
                     activeCircleId: circleDoc.id
                 };
             });
+
+            // Update navigation state directly
+            setActivePage('home');
+            setActiveSettingsPage('main');
 
             if (isDirectEntry) {
                 addToast("تم استيراد الحلقة بنجاح!", 'success');
@@ -2413,6 +2447,69 @@ const App: React.FC = () => {
             setToasts(prev => prev.filter(t => t.id !== newToast.id));
         }, 3000);
     }, [sanitizeErrorMessage]);
+
+    // Listen to real-time changes in the user's status, role, and permissions in the current active circle
+    useEffect(() => {
+        if (!user || !activeCircle) return;
+        const currentTeacherState = activeCircle.teachers?.[user.uid];
+        if (!currentTeacherState) return;
+
+        const storageKey = `tahfeez_teacher_state_${user.uid}_${activeCircle.id}`;
+        const cachedStateRaw = localStorage.getItem(storageKey);
+        
+        if (!cachedStateRaw) {
+            // First time seeing this circle, initialize the state without notifying
+            localStorage.setItem(storageKey, JSON.stringify({
+                status: currentTeacherState.status,
+                role: currentTeacherState.role,
+                accessLevel: currentTeacherState.accessLevel
+            }));
+            return;
+        }
+
+        try {
+            const cachedState = JSON.parse(cachedStateRaw);
+            let hasChanges = false;
+            
+            // Check status change
+            if (cachedState.status !== currentTeacherState.status) {
+                hasChanges = true;
+                if (cachedState.status === 'pending' && currentTeacherState.status === 'active') {
+                    addToast(`🎉 تهانينا! تم قبول طلب انضمامك إلى حلقة '${activeCircle.circle}' بنجاح.`, 'success');
+                } else if (currentTeacherState.status === 'suspended') {
+                    addToast(`⚠️ تم تعليق حسابك مؤقتاً في حلقة '${activeCircle.circle}'.`, 'error');
+                } else if (currentTeacherState.status === 'rejected') {
+                    const reasonStr = currentTeacherState.rejectionReason ? ` بسبب: ${currentTeacherState.rejectionReason}` : '';
+                    addToast(`❌ تم رفض طلب انضمامك إلى حلقة '${activeCircle.circle}'${reasonStr}.`, 'error');
+                }
+            }
+
+            // Check role or accessLevel changes
+            if (cachedState.role !== currentTeacherState.role || cachedState.accessLevel !== currentTeacherState.accessLevel) {
+                hasChanges = true;
+                let roleLabel = 'معلم مساعد';
+                if (currentTeacherState.role === 'owner') {
+                    roleLabel = 'مالك الحلقة (صلاحيات كاملة)';
+                } else if (currentTeacherState.role === 'teacher') {
+                    roleLabel = currentTeacherState.accessLevel === 'full' ? 'مشرف رئيسي (صلاحيات كاملة)' : 'مشرف (صلاحيات قياسية)';
+                } else if (currentTeacherState.role === 'assistant') {
+                    roleLabel = 'مساعد مشرف (صلاحيات قياسية)';
+                }
+                
+                addToast(`🔔 تم تحديث رتبتك وصلاحياتك في حلقة '${activeCircle.circle}' إلى: ${roleLabel}`, 'info');
+            }
+
+            if (hasChanges) {
+                localStorage.setItem(storageKey, JSON.stringify({
+                    status: currentTeacherState.status,
+                    role: currentTeacherState.role,
+                    accessLevel: currentTeacherState.accessLevel
+                }));
+            }
+        } catch (e) {
+            console.error("Failed to parse cached teacher state:", e);
+        }
+    }, [user, activeCircle?.id, activeCircle?.teachers?.[user?.uid]?.status, activeCircle?.teachers?.[user?.uid]?.role, activeCircle?.teachers?.[user?.uid]?.accessLevel, addToast]);
     
     useEffect(() => {
         if (appData.circles.length > 1 && !appData.hasShownQuickSwitchToast) {
@@ -3728,6 +3825,8 @@ const App: React.FC = () => {
 
     const defaultsForOptionalFields: Partial<CircleData> = {
         logo: undefined,
+        students: [],
+        sessions: [],
         notifications: [],
         dismissedNotificationIds: [],
         settings: { 
@@ -3775,7 +3874,10 @@ const App: React.FC = () => {
         bulkRewards: []
     };
 
-    const handleRestoreAsNew = (importedData: CircleData) => {
+    const handleConfirmRestoreAsNew = (updatedCircleName: string) => {
+        if (!backupReviewModalData) return;
+
+        const importedData = backupReviewModalData;
         const importedSettings = importedData.settings || {} as AppSettings;
         const importedPointsSettings = (importedSettings.pointsSettings || {}) as any;
         const importedFollowUpSettings = (importedSettings.followUpSettings || {}) as any;
@@ -3801,126 +3903,66 @@ const App: React.FC = () => {
 
         const newCircle: CircleData = {
             ...defaultsForOptionalFields,
-            ...importedData,
             id: generateUniqueStringId(),
             numericId: generateNumericId(),
+            transferCode: generateTransferCode(),
+            transferPassword: Math.floor(1000 + Math.random() * 9000).toString(),
+            allowDirectEntry: true,
+            
+            circle: updatedCircleName,
+            center: importedData.center || 'مركز تحفيظ',
+            town: importedData.town || '',
+            studyStartDate: importedData.studyStartDate || new Date().toISOString().split('T')[0],
+            teacherGender: userProfile?.gender || importedData.teacherGender || 'male',
+            teacher: userProfile?.displayName || user?.displayName || 'المشرف',
+            logo: importedData.logo || '',
+
             ownerId: user?.uid, // Set current user as owner
             authorizedUserIds: user ? [user.uid] : [],
-            settings: mergedSettings,
-            teacher: userProfile?.displayName || user?.displayName || importedData.teacher || 'المشرف',
-            teacherGender: userProfile?.gender || importedData.teacherGender || 'male',
             teachers: user ? {
-                ...(importedData.teachers || {}),
                 [user.uid]: {
-                    name: userProfile?.displayName || user.displayName || importedData.teacher || 'المشرف',
-                    gender: userProfile?.gender || importedData.teacherGender || 'male',
+                    name: userProfile?.displayName || user.displayName || 'المشرف',
+                    gender: userProfile?.gender || 'male',
                     role: 'owner',
                     accessLevel: 'full',
                     status: 'active',
                     joinedAt: Date.now(),
                     permissions: defaultMemberPermissions.teacher
                 }
-            } : (importedData.teachers || {})
+            } : {},
+
+            settings: mergedSettings,
+            lessonTypes: importedData.lessonTypes || ['تسميع جديد', 'مراجعة قريبة', 'مراجعة بعيدة'],
+            lastWelcomeTipShow: Date.now(),
+            notifications: [],
+            dismissedNotificationIds: [],
+
+            students: importedData.students || [],
+            sessions: importedData.sessions || [],
+            plans: importedData.plans || [],
+            tests: importedData.tests || [],
+            activities: importedData.activities || [],
+            announcements: importedData.announcements || [],
+            bulkRewards: importedData.bulkRewards || [],
+            
+            studentReports: [],
+            supervisorReports: [],
+            deletedSessionIds: [],
+            deletedStudentIds: []
         } as CircleData;
 
         setAppData(prev => ({
             ...prev,
-            circles: [...prev.circles, newCircle]
+            circles: [...prev.circles, newCircle],
+            activeCircleId: newCircle.id
         }));
-        setChoiceModal(prev => ({ ...prev, isOpen: false }));
-        addToast('✅ تم استيراد الحلقة الجديدة بنجاح.');
-    };
-    
-    const handleRestoreAndReplace = (importedData: CircleData) => {
-        setChoiceModal(prev => ({ ...prev, isOpen: false }));
         
-        // Get current details for the message
-        const currentTeacherName = activeCircle?.teacher || 'المعلم';
-        const currentCircleName = activeCircle?.circle || 'الحالية';
-        const teacherTerm = activeCircle?.teacherGender === 'female' ? 'يا أستاذة' : 'يا أستاذ';
-
-        const warningMessage = `${teacherTerm} ${currentTeacherName}.. ركز جيداً ⚠️\n\n` +
-            `سيتم حذف جميع بيانات الحلقة "${currentCircleName}" نهائياً واستبدالها بالكامل بالنسخة التي تم استيرادها.\n\n` +
-            `لا يمكن التراجع عن هذه العملية أبداً.`;
-
-        setConfirmationModal({
-            isOpen: true,
-            title: '⚠️ تحذير: استبدال البيانات',
-            message: warningMessage,
-            onConfirm: () => {
-                if (!activeCircle) return;
-                
-                const importedSettings = importedData.settings || {} as AppSettings;
-                const importedPointsSettings = (importedSettings.pointsSettings || {}) as any;
-                const importedFollowUpSettings = (importedSettings.followUpSettings || {}) as any;
-                const defaultSettings = (defaultsForOptionalFields.settings || {}) as AppSettings;
-                const defaultSettingsPoints = (defaultSettings.pointsSettings || {}) as any;
-                const defaultSettingsFollowUp = (defaultSettings.followUpSettings || {}) as any;
-
-                const mergedSettings: AppSettings = {
-                    theme: 'dark',
-                    ...(defaultSettings as any || {}),
-                    ...(importedSettings as any || {}),
-                    pointsSettings: {
-                        ...defaultPointsSettings,
-                        ...(defaultSettingsPoints as any || {}),
-                        ...(importedPointsSettings as any || {})
-                    },
-                    followUpSettings: {
-                        ...defaultFollowUpSettings,
-                        ...(defaultSettingsFollowUp as any || {}),
-                        ...(importedFollowUpSettings as any || {})
-                    }
-                } as AppSettings;
-
-                setActiveCircleData(draft => ({
-                    ...defaultsForOptionalFields,
-                    ...importedData,
-                    settings: mergedSettings,
-                    id: draft.id,
-                    ownerId: user?.uid, // Set current user as owner
-                    authorizedUserIds: user ? [user.uid] : [], // Ensure current user is authorized
-                    teacher: userProfile?.displayName || user?.displayName || importedData.teacher || 'المشرف',
-                    teacherGender: userProfile?.gender || importedData.teacherGender || 'male',
-                    teachers: user ? {
-                        ...(importedData.teachers || {}),
-                        [user.uid]: {
-                            name: userProfile?.displayName || user.displayName || importedData.teacher || 'المشرف',
-                            gender: userProfile?.gender || importedData.teacherGender || 'male',
-                            role: 'owner',
-                            accessLevel: 'full',
-                            status: 'active',
-                            joinedAt: Date.now(),
-                            permissions: defaultMemberPermissions.teacher
-                        }
-                    } : (importedData.teachers || {})
-                }));
-                setConfirmationModal(prev => ({...prev, isOpen: false}));
-                addToast('✅ تم استبدال الحلقة بنجاح.');
-            },
-            delay: 3 // 3 seconds delay
-        });
-    };
-
-    const promptImportOptions = (importedData: CircleData) => {
-        setChoiceModal({
-            isOpen: true,
-            title: 'استيراد نسخة احتياطية',
-            message: 'كيف تريد استيراد هذه البيانات؟',
-            onCancel: () => setChoiceModal(prev => ({ ...prev, isOpen: false })),
-            actions: [
-                {
-                    text: 'إضافة كحلقة جديدة',
-                    onClick: () => handleRestoreAsNew(importedData),
-                    className: 'bg-primary text-white w-full py-4 text-lg font-bold shadow-lg hover:bg-primary-dark'
-                },
-                {
-                    text: 'استبدال بالحلقة الحالية',
-                    onClick: () => handleRestoreAndReplace(importedData),
-                    className: 'bg-transparent text-red-500 text-xs underline hover:text-red-700 mt-4'
-                }
-            ]
-        });
+        setActivePage('home');
+        setActiveSettingsPage('main');
+        setShowNewCircleForm(false);
+        setIsInitialising(false);
+        setBackupReviewModalData(null);
+        addToast('✅ تم استيراد الحلقة الجديدة بنجاح.');
     };
 
     const handleImportBackup = () => {
@@ -3956,7 +3998,8 @@ const App: React.FC = () => {
             
             // Close text restore modal if open
             setTextRestoreModalOpen(false);
-            promptImportOptions(dataToCheck as CircleData);
+            setBackupReviewModalData(dataToCheck as CircleData);
+            pushStateSafely();
 
         } catch (error) {
             console.error("Failed to import backup:", error);
@@ -4072,9 +4115,6 @@ const App: React.FC = () => {
         
         setTimeout(() => {
             setAppData(d => ({ ...d, activeCircleId: id }));
-            if (newCircleName) {
-                addToast(`✅ تم الانتقال إلى حلقة '${newCircleName}'`);
-            }
         }, 0);
     };
 
@@ -4479,6 +4519,7 @@ const App: React.FC = () => {
         if (backupRestoreModalOpen) { close(() => setBackupRestoreModalOpen(false)); return; }
         if (textBackupModalOpen) { close(() => setTextBackupModalOpen(false)); return; }
         if (textRestoreModalOpen) { close(() => setTextRestoreModalOpen(false)); return; }
+        if (backupReviewModalData) { close(() => setBackupReviewModalData(null)); return; }
         if (filenamePromptModal.isOpen) { close(() => setFilenamePromptModal(p => ({ ...p, isOpen: false }))); return; }
         if (shareModalData.isOpen) { close(() => setShareModalData({ isOpen: false })); return; }
         if (quickSwitchModalOpen) { close(() => setQuickSwitchModalOpen(false)); return; }
@@ -4798,7 +4839,12 @@ const App: React.FC = () => {
                     onLogout={handleLogout} 
                 />
                 <AnimatePresence>
-                    {confirmationModal.isOpen && <ConfirmationModal key="dev-modal-confirmation" {...confirmationModal} onCancel={() => setConfirmationModal(d => ({...d, isOpen: false, onCancel: undefined}))} />}
+                    {confirmationModal.isOpen && <ConfirmationModal key="dev-modal-confirmation" {...confirmationModal} onCancel={() => {
+                        if (confirmationModal.onCancel) {
+                            try { confirmationModal.onCancel(); } catch (e) { console.error(e); }
+                        }
+                        setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+                    }} />}
                     {alertModal.isOpen && <AlertModal key="dev-modal-alert" {...alertModal} onClose={() => setAlertModal(d => ({...d, isOpen: false}))} />}
                 </AnimatePresence>
                 <ToastContainer toasts={toasts} />
@@ -4836,15 +4882,30 @@ const App: React.FC = () => {
     // Removed the blocking isInitialSyncComplete check to allow immediate access to local data
 
     if (appData.circles.length === 0 && !showNewCircleForm) {
-        return <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleLogout} userProfile={userProfile} />;
+        return (
+            <>
+                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleLogout} userProfile={userProfile} />
+                <ToastContainer toasts={toasts} />
+            </>
+        );
     }
 
     if (isInitialising) {
-        return <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleLogout} userProfile={userProfile} />;
+        return (
+            <>
+                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleLogout} userProfile={userProfile} />
+                <ToastContainer toasts={toasts} />
+            </>
+        );
     }
 
     if (showNewCircleForm) {
-        return <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={true} isImporting={isImportingCircle} onBack={() => setShowNewCircleForm(false)} onLogout={handleLogout} userProfile={userProfile} />;
+        return (
+            <>
+                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={true} isImporting={isImportingCircle} onBack={() => setShowNewCircleForm(false)} onLogout={handleLogout} userProfile={userProfile} />
+                <ToastContainer toasts={toasts} />
+            </>
+        );
     }
 
     if (!activeCircle) {
@@ -5024,6 +5085,33 @@ const App: React.FC = () => {
                 createdAt: Date.now()
             };
             notifications = [approvalNotif, ...notifications];
+        } else if (oldStatus === 'pending' && updates.status === 'rejected') {
+            // Mark as rejected in notification metadata
+            notifications = notifications.map(n => {
+                if (n.metadata?.uid === supervisorUid && n.metadata?.actionType === 'join_request' && !n.metadata.handledBy) {
+                    return {
+                        ...n,
+                        metadata: {
+                            ...n.metadata,
+                            handledBy: {
+                                uid: user?.uid || '',
+                                name: userProfile?.displayName || 'مشرف',
+                                action: 'rejected' as const,
+                                at: Date.now()
+                            }
+                        }
+                    };
+                }
+                return n;
+            });
+            
+            const rejectionNotif: Notification = {
+                id: `rejected_${supervisorUid}_${Date.now()}`,
+                type: 'warning',
+                message: `تم رفض طلب انضمام المعلم (${teacherName}) إلى الحلقة.${updates.rejectionReason ? ` السبب: ${updates.rejectionReason}` : ''}`,
+                createdAt: Date.now()
+            };
+            notifications = [rejectionNotif, ...notifications];
         } else if (updates.accessLevel && updates.accessLevel !== activeCircle.teachers?.[supervisorUid]?.accessLevel) {
             const levelNotif: Notification = {
                 id: `level_${supervisorUid}_${Date.now()}`,
@@ -5087,8 +5175,8 @@ const App: React.FC = () => {
         addToast('✅ تم إرسال التنبيه بنجاح.', 'success');
     };
 
-    const pointsLogStudent = activeCircle.students.find(s => s.id === activePointsLogStudentId);
-    const pointAdjusterStudent = activeCircle.students.find(s => s.id === activePointAdjusterStudentId);
+    const pointsLogStudent = activeCircle ? activeCircle.students?.find(s => s.id === activePointsLogStudentId) : undefined;
+    const pointAdjusterStudent = activeCircle ? activeCircle.students?.find(s => s.id === activePointAdjusterStudentId) : undefined;
 
 
     const handleCancelJoinRequest = async () => {
@@ -5127,6 +5215,7 @@ const App: React.FC = () => {
     const userTeacherData = user && activeCircle ? activeCircle.teachers?.[user.uid] : null;
     const isSuspended = userTeacherData?.status === 'suspended';
     const isPending = userTeacherData?.status === 'pending';
+    const isRejected = userTeacherData?.status === 'rejected';
 
     const mainContent = (
         <>
@@ -5155,6 +5244,51 @@ const App: React.FC = () => {
                                     الانتقال لحلقة أخرى
                                 </button>
                             )}
+                            <button 
+                                onClick={handleLogout}
+                                className="w-full bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95 transition-all outline-none"
+                            >
+                                تسجيل الخروج
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
+            ) : isRejected ? (
+                <div className="flex flex-col items-center justify-center py-12 px-6 text-center bg-white dark:bg-gray-900/50 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm mt-8">
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-xs space-y-6"
+                    >
+                        <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-3xl flex items-center justify-center mx-auto border border-red-500/20">
+                            <FaTimes size={32} />
+                        </div>
+                        <div className="space-y-2">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">تم رفض طلب انضمامك</h2>
+                            <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
+                                نعتذر، لقد تم رفض طلب انضمامك إلى هذه الحلقة من قبل المشرفين.
+                            </p>
+                            {userTeacherData?.rejectionReason && (
+                                <div className="p-3 bg-red-50 dark:bg-red-500/5 rounded-xl border border-red-100 dark:border-red-500/10 text-xs text-red-600 dark:text-red-400 mt-2 font-medium">
+                                    السبب: {userTeacherData.rejectionReason}
+                                </div>
+                            )}
+                        </div>
+                        <div className="pt-4 space-y-3">
+                            {appData.circles.length > 1 && (
+                                <button 
+                                    onClick={handleQuickSwitch}
+                                    className="w-full bg-primary text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl shadow-primary/10 active:scale-95 transition-all outline-none mb-3"
+                                >
+                                    الانتقال لحلقة أخرى
+                                </button>
+                            )}
+                            <button 
+                                onClick={handleCancelJoinRequest}
+                                className="w-full bg-red-600 text-white px-8 py-3 rounded-2xl font-bold text-sm hover:bg-red-700 active:scale-95 transition-all outline-none"
+                            >
+                                حذف الحلقة والمحاولة مجدداً
+                            </button>
                             <button 
                                 onClick={handleLogout}
                                 className="w-full bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95 transition-all outline-none"
@@ -5514,7 +5648,12 @@ const App: React.FC = () => {
                 {editingSession && !isSuspended && <SessionForm key={`session-form-${editingSession.id}`} session={editingSession} setSession={setEditingSession} allStudents={activeCircleStudents} onUpdateMasterStudents={handleBulkUpdateMasterStudents} onSave={handleSaveSession} onBack={handleCloseSessionForm} setAlert={setAlertModal} lessonTypes={activeCircle.lessonTypes} onAddLessonType={(t) => setActiveCircleData(d => ({...d, lessonTypes: [...d.lessonTypes, t]}))} onDeleteLessonType={(t) => setActiveCircleData(d => ({...d, lessonTypes: d.lessonTypes.filter(lt => lt !== t)}))} setConfirmationModal={setConfirmationModal} onShowLastRecord={handleShowLastRecord} settings={activeCircle.settings} onResetDraft={handleResetDraft} addToast={addToast} isSubModalOpen={isSubModalOpen} onSubModalOpen={handleSubModalOpen} onSubModalClose={handleSubModalClose} circleId={activeCircle.id} />}
                 {reportSession && !isSuspended && <ReportModal key="modal-report-session" session={reportSession} data={activeCircle} onClose={() => setReportSession(null)} onNotifyParents={() => {setNotificationSession(reportSession); setReportSession(null);}} addToast={addToast} onOpenShare={handleOpenShare} onUpdateSupervisorSettings={handleUpdateSupervisorSettings} />}
                 {notificationSession && !isSuspended && <NotificationModal key="modal-notification" session={notificationSession} data={activeCircle} onClose={() => setNotificationSession(null)} onNotificationSent={handleNotificationSent} addToast={addToast} />}
-                {confirmationModal.isOpen && !isSuspended && <ConfirmationModal key="modal-confirmation" {...confirmationModal} onCancel={() => setConfirmationModal(d => ({...d, isOpen: false, onCancel: undefined}))} />}
+                {confirmationModal.isOpen && !isSuspended && <ConfirmationModal key="modal-confirmation" {...confirmationModal} onCancel={() => {
+                    if (confirmationModal.onCancel) {
+                        try { confirmationModal.onCancel(); } catch (e) { console.error(e); }
+                    }
+                    setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+                }} />}
                 {alertModal.isOpen && <AlertModal key="modal-alert" {...alertModal} onClose={() => setAlertModal(d => ({...d, isOpen: false}))} />}
                 
                 <LinkCirclesModal 
@@ -5563,6 +5702,15 @@ const App: React.FC = () => {
                 {backupRestoreModalOpen && <BackupRestoreModal key="modal-backup-restore" onClose={() => setBackupRestoreModalOpen(false)} onCreateBackup={handleCreateBackup} onImportBackup={handleImportBackup} onOpenTextBackup={() => {setBackupRestoreModalOpen(false); setTextBackupModalOpen(true); pushStateSafely();}} onOpenTextRestore={() => {setBackupRestoreModalOpen(false); setTextRestoreModalOpen(true); pushStateSafely();}} />}
                 {textBackupModalOpen && activeCircle && <TextBackupModal key="modal-text-backup" activeCircle={activeCircle} onClose={() => setTextBackupModalOpen(false)} addToast={addToast} />}
                 {textRestoreModalOpen && <TextRestoreModal key="modal-text-restore" onClose={() => setTextRestoreModalOpen(false)} onRestore={handleRestoreFromText} />}
+                {backupReviewModalData && (
+                    <BackupReviewModal 
+                        key="modal-backup-review" 
+                        isOpen={!!backupReviewModalData} 
+                        importedData={backupReviewModalData} 
+                        onClose={() => setBackupReviewModalData(null)} 
+                        onConfirm={handleConfirmRestoreAsNew} 
+                    />
+                )}
                 {communityTermsModalState.isOpen && <TermsOfServiceModal key="modal-community-terms" onClose={() => setCommunityTermsModalState({ isOpen: false, targetLink: null })} onAgree={handleAgreeToCommunityTerms} />}
 
                 {viewingTest && <TestReportModal key={`modal-view-test-${viewingTest.id}`} test={viewingTest} circleData={activeCircle} onClose={() => setViewingTest(null)} onNotify={() => { setNotifyingTest(viewingTest); setViewingTest(null); }} addToast={addToast} onOpenShare={handleOpenShare} />}

@@ -27,6 +27,17 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ title, message, o
 
     const isButtonDisabled = countdown > 0;
 
+    const handleConfirm = () => {
+        onCancel();
+        setTimeout(() => {
+            try {
+                onConfirm();
+            } catch (error) {
+                console.error("Error executing onConfirm:", error);
+            }
+        }, 0);
+    };
+
     return (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[200] p-4">
             <motion.div variants={modalVariants} initial="initial" animate="animate" exit="exit" className="bg-white dark:bg-gray-800 rounded-lg shadow-xl p-6 w-full max-w-sm text-center transition-colors duration-300">
@@ -35,7 +46,7 @@ const ConfirmationModal: React.FC<ConfirmationModalProps> = ({ title, message, o
                 <div className="flex justify-center gap-4">
                     <button onClick={onCancel} className="px-6 py-2 rounded-lg bg-gray-200 dark:bg-gray-600">إلغاء</button>
                     <button 
-                        onClick={onConfirm} 
+                        onClick={handleConfirm} 
                         disabled={isButtonDisabled}
                         className="px-6 py-2 rounded-lg bg-red-500 text-white disabled:bg-gray-400 dark:disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors"
                     >

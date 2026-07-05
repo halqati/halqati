@@ -36,6 +36,8 @@ const Notifications: React.FC<NotificationsProps> = ({
     const [dateFilter, setDateFilter] = useState<'all' | 'week' | 'month'>('all');
     const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState(false);
     const [broadcastMessage, setBroadcastMessage] = useState('');
+    const [rejectingUid, setRejectingUid] = useState<string | null>(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     const currentUserRole = data.teachers?.[currentUserId]?.role;
     const currentUserLevel = data.teachers?.[currentUserId]?.accessLevel;
@@ -368,7 +370,7 @@ const Notifications: React.FC<NotificationsProps> = ({
                                                                         <FaCheck /> قبول الطلب
                                                                     </button>
                                                                     <button 
-                                                                        onClick={() => onUpdateSupervisor(n.metadata!.uid!, { isDeleteAction: true } as any)}
+                                                                        onClick={() => setRejectingUid(n.metadata!.uid!)}
                                                                         className="flex-1 bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-red-500/10 hover:text-red-500 transition-all active:scale-95"
                                                                     >
                                                                         <FaTimes /> رفض الطلب
@@ -408,10 +410,7 @@ const Notifications: React.FC<NotificationsProps> = ({
                             <FaBellSlash size={40} />
                         </div>
                         <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2">لا توجد تنبيهات</h3>
-                        <p className="text-sm text-gray-500 max-w-xs leading-relaxed">
-                            {searchTerm ? 'لم يتم العثور على أي نتائج تطابق بحثك.' : 'كل شيء هادئ هنا! لا توجد تنبيهات جديدة في الوقت الحالي.'}
-                        </p>
-                        {searchTerm && (
+                             {searchTerm && (
                             <button 
                                 onClick={() => setSearchTerm('')}
                                 className="mt-6 text-primary text-xs font-bold hover:underline"
@@ -423,11 +422,11 @@ const Notifications: React.FC<NotificationsProps> = ({
                 )}
             </div>
 
-            {/* Broadcast Modal */}
+            {/* Modals */}
             <AnimatePresence>
                 {isBroadcastModalOpen && (
                     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
-                        <motion.div
+                        <motion.div 
                             initial={{ opacity: 0, scale: 0.95, y: 20 }}
                             animate={{ opacity: 1, scale: 1, y: 0 }}
                             exit={{ opacity: 0, scale: 0.95, y: 20 }}
@@ -474,6 +473,61 @@ const Notifications: React.FC<NotificationsProps> = ({
                                     <button
                                         onClick={() => setIsBroadcastModalOpen(false)}
                                         className="flex-1 bg-gray-100 dark:bg-white/5 text-gray-500 py-4 rounded-2xl font-black text-sm transition-all hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95"
+                                    >
+                                        إلغاء
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+
+                {rejectingUid && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6 bg-black/60 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                            animate={{ opacity: 1, scale: 1, y: 0 }}
+                            exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                            className="bg-white dark:bg-gray-800 w-full max-w-md rounded-[2.5rem] overflow-hidden shadow-2xl border border-gray-100 dark:border-gray-700"
+                        >
+                            <div className="p-8 space-y-6 text-right" dir="rtl">
+                                <div className="flex justify-between items-start">
+                                    <div>
+                                        <h2 className="text-xl font-black text-gray-900 dark:text-white tracking-tight">رفض طلب الانضمام</h2>
+                                        <p className="text-xs text-gray-500 font-medium mt-1">هل ترغب في إضافة سبب لرفض طلب انضمام المعلم؟</p>
+                                    </div>
+                                    <button 
+                                        onClick={() => { setRejectingUid(null); setRejectionReason(''); }}
+                                        className="p-2 text-gray-400 hover:text-gray-600 transition-colors"
+                                    >
+                                        <FaTimes size={18} />
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    <input
+                                        type="text"
+                                        value={rejectionReason}
+                                        onChange={(e) => setRejectionReason(e.target.value)}
+                                        placeholder="مثال: الحلقة مكتملة حالياً، يرجى التواصل مع الإدارة..."
+                                        className="w-full p-4 bg-gray-50 dark:bg-white/5 border border-gray-100 dark:border-white/10 rounded-2xl text-gray-800 dark:text-gray-100 outline-none focus:ring-2 focus:ring-red-500/20 text-xs font-medium"
+                                    />
+                                </div>
+
+                                <div className="flex gap-3 pt-2">
+                                    <button
+                                        onClick={() => {
+                                            onUpdateSupervisor(rejectingUid, { status: 'rejected', rejectionReason: rejectionReason.trim() } as any);
+                                            setRejectingUid(null);
+                                            setRejectionReason('');
+                                        }}
+                                        className="flex-1 bg-red-500 hover:bg-red-600 text-white py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-500/20 transition-all active:scale-95"
+                                    >
+                                        <FaTimes size={12} /> تأكيد الرفض
+                                    </button>
+                                    <button
+                                        onClick={() => { setRejectingUid(null); setRejectionReason(''); }}
+                                        className="flex-1 bg-gray-100 dark:bg-white/5 text-gray-500 py-3.5 rounded-2xl font-black text-xs transition-all hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95"
                                     >
                                         إلغاء
                                     </button>

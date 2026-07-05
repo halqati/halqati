@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaArrowRight, FaCopy, FaUsers, FaChalkboardTeacher, FaHashtag, FaKey, FaBuilding, FaCheckCircle, FaEdit, FaUserEdit, FaCheck, FaGlobe, FaEllipsisV, FaTrash, FaBan, FaShieldAlt, FaUserSlash, FaUserCheck, FaCog, FaUserShield, FaUserPlus, FaUserTie, FaFilePdf } from 'react-icons/fa';
+import { FaArrowRight, FaCopy, FaUsers, FaChalkboardTeacher, FaHashtag, FaKey, FaBuilding, FaCheckCircle, FaEdit, FaUserEdit, FaCheck, FaGlobe, FaEllipsisV, FaTrash, FaBan, FaShieldAlt, FaUserSlash, FaUserCheck, FaCog, FaUserShield, FaUserPlus, FaUserTie, FaFilePdf, FaTimes } from 'react-icons/fa';
 import { CircleData, TeacherPermissions, MemberPermissions } from '../types';
 import { defaultMemberPermissions } from '../constants';
 import SmartRecitationFormModal from '../components/SmartRecitationFormModal';
@@ -47,6 +47,8 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
     const [showSmartFormModal, setShowSmartFormModal] = useState(false);
     const [selectedTeacherUid, setSelectedTeacherUid] = useState<string | null>(null);
     const [editingDetails, setEditingDetails] = useState<{name: string, gender: 'male' | 'female'} | null>(null);
+    const [rejectingUid, setRejectingUid] = useState<string | null>(null);
+    const [rejectionReason, setRejectionReason] = useState('');
 
     const currentUserRole = data.teachers?.[currentUserId]?.role || 'member';
     const isOwnerOrTeacher = data.ownerId === currentUserId || currentUserRole === 'owner' || currentUserRole === 'teacher';
@@ -337,13 +339,22 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                             {isOwnerOrTeacher && (
                                 <div className="flex items-center gap-1">
                                     {teacher.status === 'pending' && (
-                                        <button 
-                                            onClick={() => handleAction(teacher.uid, { status: 'active' })}
-                                            className="p-2 text-emerald-500 hover:bg-emerald-500/10 rounded-lg transition-all"
-                                            title="قبول المعلم"
-                                        >
-                                            <FaCheck size={12} />
-                                        </button>
+                                        <>
+                                            <button 
+                                                onClick={() => handleAction(teacher.uid, { status: 'active' })}
+                                                className="p-2 text-emerald-500 hover:bg-emerald-500/10 rounded-lg transition-all"
+                                                title="قبول المعلم"
+                                            >
+                                                <FaCheck size={12} />
+                                            </button>
+                                            <button 
+                                                onClick={() => setRejectingUid(teacher.uid)}
+                                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                title="رفض المعلم"
+                                            >
+                                                <FaTimes size={12} />
+                                            </button>
+                                        </>
                                     )}
                                     {teacher.uid !== currentUserId && (
                                         <button 
@@ -505,26 +516,39 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                                     </button>
                                 )}
 
-                                {/* Delete Action */}
+                                {/* Delete / Reject Action */}
                                 {selectedTeacherUid !== data.ownerId && (
-                                   <button 
-                                       onClick={() => {
-                                           if (setConfirmationModal) {
-                                               setConfirmationModal({
-                                                   isOpen: true,
-                                                   title: 'حذف معلم',
-                                                   message: `هل أنت متأكد من حذف (${selectedTeacher.name}) من الحلقة بشكل نهائي؟`,
-                                                   onConfirm: () => handleAction(selectedTeacherUid, { isDeleteAction: true } as any)
-                                               });
-                                           } else if (window.confirm(`هل أنت متأكد من حذف (${selectedTeacher.name}) من الحلقة بشكل نهائي؟`)) {
-                                               handleAction(selectedTeacherUid, { isDeleteAction: true } as any);
-                                           }
-                                       }}
-                                       className="w-full flex items-center gap-3 p-3.5 rounded-2xl font-bold text-xs bg-red-600/10 text-red-500 border border-red-600/10 transition-all active:scale-95 outline-none"
-                                   >
-                                       <FaTrash size={14} />
-                                       <span>حذف من الحلقة نهائياً</span>
-                                   </button>
+                                    selectedTeacher.status === 'pending' ? (
+                                        <button 
+                                            onClick={() => {
+                                                setRejectingUid(selectedTeacherUid);
+                                                setSelectedTeacherUid(null);
+                                            }}
+                                            className="w-full flex items-center gap-3 p-3.5 rounded-2xl font-bold text-xs bg-red-600/10 text-red-500 border border-red-600/10 transition-all active:scale-95 outline-none"
+                                        >
+                                            <FaTimes size={14} />
+                                            <span>رفض طلب الانضمام</span>
+                                        </button>
+                                    ) : (
+                                        <button 
+                                            onClick={() => {
+                                                if (setConfirmationModal) {
+                                                    setConfirmationModal({
+                                                        isOpen: true,
+                                                        title: 'حذف معلم',
+                                                        message: `هل أنت متأكد من حذف (${selectedTeacher.name}) من الحلقة بشكل نهائي؟`,
+                                                        onConfirm: () => handleAction(selectedTeacherUid, { isDeleteAction: true } as any)
+                                                    });
+                                                } else if (window.confirm(`هل أنت متأكد من حذف (${selectedTeacher.name}) من الحلقة بشكل نهائي؟`)) {
+                                                    handleAction(selectedTeacherUid, { isDeleteAction: true } as any);
+                                                }
+                                            }}
+                                            className="w-full flex items-center gap-3 p-3.5 rounded-2xl font-bold text-xs bg-red-600/10 text-red-500 border border-red-600/10 transition-all active:scale-95"
+                                        >
+                                            <FaTrash size={14} />
+                                            <span>حذف من الحلقة نهائياً</span>
+                                        </button>
+                                    )
                                 )}
 
                                 {/* Ownership Management (Only for current owner) */}
@@ -688,6 +712,56 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                                 </button>
                                 <button 
                                     onClick={() => setIsEditingCode(false)}
+                                    className="px-4 bg-gray-800 text-gray-400 p-2.5 rounded-xl text-xs font-bold outline-none"
+                                >
+                                    إلغاء
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+
+                {rejectingUid && (
+                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                        <motion.div 
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            onClick={() => { setRejectingUid(null); setRejectionReason(''); }}
+                            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+                        />
+                        <motion.div 
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-[#111317] border border-gray-800 p-6 rounded-[2rem] w-full max-w-sm relative z-10 shadow-2xl text-right"
+                            dir="rtl"
+                        >
+                            <h3 className="text-base font-bold text-white mb-1">رفض طلب الانضمام</h3>
+                            <p className="text-[11px] text-gray-500 mb-4">هل ترغب في إضافة سبب لرفض طلب انضمام المعلم؟</p>
+                            
+                            <input 
+                                type="text"
+                                value={rejectionReason}
+                                onChange={(e) => setRejectionReason(e.target.value)}
+                                placeholder="مثال: الحلقة مكتملة حالياً..."
+                                className="w-full bg-gray-850 border border-gray-700 p-3 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-red-500/30 transition-all mb-4 font-medium"
+                                autoFocus
+                            />
+
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => {
+                                        handleAction(rejectingUid, { status: 'rejected', rejectionReason: rejectionReason.trim() } as any);
+                                        setRejectingUid(null);
+                                        setRejectionReason('');
+                                    }}
+                                    className="flex-1 bg-red-600 text-white p-2.5 rounded-xl text-xs font-bold shadow-lg shadow-red-500/10"
+                                >
+                                    تأكيد الرفض
+                                </button>
+                                <button 
+                                    onClick={() => { setRejectingUid(null); setRejectionReason(''); }}
                                     className="px-4 bg-gray-800 text-gray-400 p-2.5 rounded-xl text-xs font-bold outline-none"
                                 >
                                     إلغاء

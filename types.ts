@@ -414,10 +414,11 @@ export interface TeacherPermissions {
     gender: 'male' | 'female';
     role: 'owner' | 'teacher' | 'assistant' | 'member';
     accessLevel: 'standard' | 'full';
-    status: 'active' | 'suspended' | 'pending';
+    status: 'active' | 'suspended' | 'pending' | 'rejected';
     joinedAt: number;
     lastUpdated?: number; // For synchronization
     photo?: string;
+    rejectionReason?: string;
     permissions?: MemberPermissions;
 }
 
