@@ -1,0 +1,214 @@
+
+<!DOCTYPE html>
+<html lang="ar" dir="rtl" class="bg-gray-50 dark:bg-gray-900">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>نظام إدارة الحلقات القرآنية</title>
+    <link rel="manifest" href="/manifest.json">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      /* Base Resets */
+      html, body {
+        margin: 0;
+        padding: 0;
+        border: 0;
+        outline: 0;
+        height: 100%;
+        width: 100%;
+        font-family: 'Tajawal', sans-serif;
+        overscroll-behavior-y: contain;
+        /* Hide scrollbar for IE, Edge and Firefox */
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      
+      /* Ensure HTML background matches Body to avoid white frame on overscroll */
+      html:not(.dark) {
+        background-color: #F9FAFB; /* Gray-50 matches App background exactly */
+      }
+      
+      /* Hide scrollbar for Chrome, Safari and Opera */
+      ::-webkit-scrollbar {
+        display: none;
+      }
+      .dark .dark\:bg-gray-800 { background-color: #1f2937; }
+      .dark .dark\:bg-gray-900 { background-color: #111827; }
+      .dark .dark\:text-gray-200 { color: #e5e7eb; }
+      .dark .dark\:text-gray-400 { color: #9ca3af; }
+      .dark .dark\:border-gray-700 { border-color: #374151; }
+      
+      /* 
+         COLOR PALETTE DEFINITIONS 
+      */
+      :root {
+        /* Deep Emerald Green for Light Mode - Inspired by the images */
+        --color-primary: 16, 85, 65; 
+        --color-primary-light: 52, 144, 118;
+        --color-primary-dark: 10, 60, 45;
+        --color-accent: 234, 179, 8; /* Yellow-500 */
+      }
+
+      .dark {
+        /* Lighter Green for Dark Mode contrast */
+        --color-primary: 76, 175, 80;
+        --color-primary-light: 102, 187, 106;
+        --color-primary-dark: 56, 142, 60;
+        --color-accent: 255, 193, 7;
+      }
+
+      /* 
+         ========================================
+         LIGHT MODE VISUAL HIERARCHY REFINEMENTS
+         ========================================
+      */
+
+      /* 1. Main Background: Warm Off-White / Light Gray */
+      html:not(.dark) body {
+        background-color: #F8F9FA !important; /* Very light gray-white for comfort */
+      }
+
+      /* 2. Cards: Pure White to pop against the background */
+      html:not(.dark) .bg-white {
+        background-color: #FFFFFF !important;
+        border: 1px solid #E5E7EB; /* Gray-200 */
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.03), 0 4px 6px -2px rgba(0, 0, 0, 0.01) !important;
+        border-radius: 1rem !important; /* Softer corners */
+      }
+
+      /* 3. Button & Element Layering */
+      
+      /* Secondary/White buttons: Light gray background to separate from cards */
+      html:not(.dark) button.bg-white {
+        background-color: #F3F4F6 !important; /* Gray-100 */
+        border: 1px solid #D1D5DB !important; /* Gray-300 */
+        box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+      }
+      html:not(.dark) button.bg-white:active {
+        background-color: #E5E7EB !important; /* Gray-200 */
+      }
+
+      /* Darken bg-gray-50 elements (like list items) */
+      html:not(.dark) .bg-gray-50 {
+        background-color: #F3F4F6 !important; /* Gray-100 */
+      }
+
+      /* Darken bg-gray-100 elements (like headers) */
+      html:not(.dark) .bg-gray-100 {
+        background-color: #E5E7EB !important; /* Gray-200 */
+        color: #374151 !important; /* Gray-700 */
+        border: 1px solid #D1D5DB;
+      }
+
+      /* Global Button Shadow in Light Mode */
+      html:not(.dark) button {
+        box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08); 
+      }
+      
+      /* Primary Buttons: Deep Emerald with subtle shadow */
+      html:not(.dark) .bg-primary {
+         background-color: rgba(var(--color-primary), 1) !important;
+         border: 1px solid rgba(10, 60, 45, 0.1);
+         box-shadow: 0 4px 12px rgba(16, 85, 65, 0.15);
+      }
+
+      /* Inputs: Clean white with soft border */
+      html:not(.dark) input, 
+      html:not(.dark) select, 
+      html:not(.dark) textarea {
+        background-color: #FFFFFF !important;
+        border: 1px solid #D1D5DB !important; /* Gray-300 */
+        box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+        border-radius: 0.75rem !important;
+      }
+      
+      /* Radio buttons */
+      .custom-radio-input {
+        -webkit-appearance: none; -moz-appearance: none; appearance: none;
+        width: 1.5rem; height: 1.5rem; border-radius: 50%;
+        border: 2px solid #d1d5db; transition: all 0.2s;
+        cursor: pointer; background-color: transparent;
+        display: grid; place-content: center;
+      }
+      html:not(.dark) .custom-radio-input {
+          background-color: #FFFFFF;
+          border-color: #9CA3AF; /* Gray-400 */
+      }
+
+      .dark .custom-radio-input { border-color: #4b5563; }
+      .custom-radio-input:before {
+        content: ''; width: 1rem; height: 1rem;
+        border-radius: 50%; transform: scale(0);
+        transition: 120ms transform ease-in-out;
+        box-shadow: inset 1rem 1rem var(--radio-color);
+      }
+      .custom-radio-input:checked { border-color: var(--radio-color); }
+      .custom-radio-input:checked:before { transform: scale(1); }
+      
+      .custom-radio-input.radio-present { --radio-color: #16A34A; /* Green-600 */ }
+      .custom-radio-input.radio-late    { --radio-color: #D97706; /* Amber-600 */ }
+      .custom-radio-input.radio-absent  { --radio-color: #DC2626; /* Red-600 */ }
+      .custom-radio-input.radio-excused { --radio-color: #2563EB; /* Blue-600 */ }
+
+      /* Animation keyframes */
+      @keyframes highlight-fade {
+        from { background-color: rgba(16, 85, 65, 0.2); }
+        to { background-color: transparent; }
+      }
+      .highlight-session {
+        animation: highlight-fade 1.5s ease-out forwards;
+      }
+      .dark .highlight-session {
+        animation-name: highlight-fade-dark;
+      }
+      @keyframes highlight-fade-dark {
+        from { background-color: rgba(255, 193, 7, 0.15); }
+        to { background-color: transparent; }
+      }
+      
+      @keyframes new-session-pulse-light {
+        0% { box-shadow: 0 0 0 0 rgba(16, 85, 65, 0.4); border-color: rgba(16, 85, 65, 0.8); }
+        20% { box-shadow: 0 0 0 6px rgba(16, 85, 65, 0); border-color: rgba(16, 85, 65, 0.8); }
+        80% { box-shadow: 0 0 0 6px rgba(16, 85, 65, 0); border-color: rgba(16, 85, 65, 0.8); }
+        100% { box-shadow: 0 0 0 0 rgba(16, 85, 65, 0); border-color: transparent; }
+      }
+      .new-session-highlight {
+          border: 1px solid transparent;
+          animation: new-session-pulse-light 10s ease-out forwards;
+      }
+      .dark .new-session-highlight {
+          animation-name: new-session-pulse-dark;
+      }
+      @keyframes new-session-pulse-dark {
+          0% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0.4); border-color: rgba(255, 193, 7, 0.8); }
+          20% { box-shadow: 0 0 0 6px rgba(255, 193, 7, 0); border-color: rgba(255, 193, 7, 0.8); }
+          80% { box-shadow: 0 0 0 6px rgba(255, 193, 7, 0); border-color: rgba(255, 193, 7, 0.8); }
+          100% { box-shadow: 0 0 0 0 rgba(255, 193, 7, 0); border-color: transparent; }
+      }
+    </style>
+    <script>
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              primary: {
+                light: 'rgba(var(--color-primary-light), <alpha-value>)',
+                DEFAULT: 'rgba(var(--color-primary), <alpha-value>)',
+                dark: 'rgba(var(--color-primary-dark), <alpha-value>)',
+              },
+              accent: 'rgba(var(--color-accent), <alpha-value>)',
+            }
+          }
+        }
+      }
+    </script>
+</head>
+  <body class="bg-gray-50 dark:bg-gray-900 transition-colors duration-300 min-h-[100dvh] select-none m-0 p-0 border-0 outline-0">
+    <div id="root" class="w-full h-[100dvh] border-0 outline-0"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+</html>

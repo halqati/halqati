@@ -1,0 +1,215 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile",
+      "description": "Information about the teacher or admin.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["teacher", "admin", "superadmin", "developer"] },
+        "managementId": { "type": "string" },
+        "isManagementAdmin": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "blocked"] },
+        "blockedReason": { "type": "string" },
+        "maintenanceMode": { "type": "boolean" },
+        "maintenanceNote": { "type": "string" },
+        "plainPassword": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "SystemSettings": {
+      "title": "System Settings",
+      "description": "Global settings for the application managed by developers.",
+      "type": "object",
+      "properties": {
+        "registrationOpen": { "type": "boolean" },
+        "emergencyMode": { "type": "boolean" },
+        "emergencyMessage": { "type": "string" },
+        "appUpdate": { "type": "object" }
+      }
+    },
+    "Management": {
+      "title": "Management/Institution",
+      "description": "Information about the institution/mosque managing circles.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "managerName": { "type": "string" },
+        "email": { "type": "string" },
+        "logo": { "type": "string" },
+        "invitationCode": { "type": "string" },
+        "qrCode": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "settings": { "type": "object" }
+      },
+      "required": ["id", "name", "invitationCode"]
+    },
+    "ManagementRequest": {
+      "title": "Management Request",
+      "description": "Join requests or invitations between teachers and managements.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["pull", "push"] },
+        "status": { "type": "string", "enum": ["pending", "accepted", "rejected"] },
+        "managementId": { "type": "string" },
+        "teacherId": { "type": "string" },
+        "teacherEmail": { "type": "string" },
+        "circleIds": { "type": "array" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "type", "status", "managementId"]
+    },
+    "AuditLog": {
+      "title": "Audit Log",
+      "description": "Record of administrative actions within a management.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "managementId": { "type": "string" },
+        "action": { "type": "string" },
+        "actorId": { "type": "string" },
+        "actorName": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "number" }
+      }
+    },
+    "Broadcast": {
+      "title": "Broadcast Message",
+      "description": "Administrative messages sent to all teachers in a management.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "managementId": { "type": "string" },
+        "title": { "type": "string" },
+        "content": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "authorId": { "type": "string" }
+      }
+    },
+    "Circle": {
+      "title": "Quran Circle",
+      "description": "Metadata and settings for a Quran study circle.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "circle": { "type": "string" },
+        "teacher": { "type": "string" },
+        "center": { "type": "string" },
+        "centerId": { "type": "string" },
+        "managementId": { "type": "string" },
+        "logo": { "type": "string" },
+        "teacherGender": { "type": "string", "enum": ["male", "female"] },
+        "transferPassword": { "type": "string" },
+        "numericId": { "type": "string" },
+        "authorizedUserIds": { "type": "array" },
+        "settings": { "type": "object" },
+        "notificationSettings": { "type": "object" },
+        "studyStartDate": { "type": "string" },
+        "createdAt": { "type": "number" }
+      },
+      "required": ["id", "circle", "authorizedUserIds"]
+    },
+    "Student": {
+      "title": "Student",
+      "description": "A student in a Quran circle.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "name": { "type": "string" },
+        "gender": { "type": "string" },
+        "parentPhone": { "type": "string" }
+      }
+    },
+    "HomeworkRecord": {
+      "title": "Homework Record",
+      "description": "A structured homework assignment.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "type": { "type": "string", "enum": ["memorization", "review"] },
+        "fromSurah": { "type": "string" },
+        "fromAyah": { "type": "string" },
+        "toSurah": { "type": "string" },
+        "toAyah": { "type": "string" }
+      }
+    },
+    "Session": {
+      "title": "Session",
+      "description": "A daily attendance and memorization session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "date": { "type": "string" },
+        "students": { "type": "array" }
+      }
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles (الحسابات)"
+    },
+    "/managements/{managementId}": {
+      "schema": "Management",
+      "description": "Management entities (الإدارات)"
+    },
+    "/managementRequests/{requestId}": {
+      "schema": "ManagementRequest",
+      "description": "Join requests and invitations (طلبات الانضمام)"
+    },
+    "/auditLogs/{logId}": {
+      "schema": "AuditLog",
+      "description": "Administrative audit logs (سجل النشاطات)"
+    },
+    "/system/settings": {
+      "schema": "SystemSettings",
+      "description": "Global application settings"
+    },
+    "/broadcasts/{broadcastId}": {
+      "schema": "Broadcast",
+      "description": "Administrative broadcast messages (الرسائل العامة)"
+    },
+    "/circles/{circleId}": {
+      "schema": "Circle",
+      "description": "Circles metadata (الحلقات)"
+    },
+    "/circles/{circleId}/students/{studentId}": {
+      "schema": "Student",
+      "description": "Students in the circle (الطلاب)"
+    },
+    "/circles/{circleId}/sessions/{sessionId}": {
+      "schema": "Session",
+      "description": "Daily sessions (الحلقات اليومية)"
+    },
+    "/circles/{circleId}/plans/{planId}": {
+      "schema": "Plan",
+      "description": "Weekly/Monthly Plans"
+    },
+    "/circles/{circleId}/tests/{testId}": {
+      "schema": "Test",
+      "description": "Student tests and results"
+    },
+    "/circles/{circleId}/activities/{activityId}": {
+      "schema": "Activity",
+      "description": "Circle activities"
+    },
+    "/circles/{circleId}/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Circle announcements"
+    },
+    "/circles/{circleId}/studentReports/{reportId}": {
+      "schema": "StudentReport",
+      "description": "Generated reports for students"
+    },
+    "/circles/{circleId}/supervisorReports/{reportId}": {
+      "schema": "SupervisorReport",
+      "description": "Generated reports for supervisors"
+    }
+  }
+}

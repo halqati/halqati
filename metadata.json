@@ -1,0 +1,10 @@
+{
+  "name": "تجربة الاولاين في نظام حلقتي",
+  "description": "An elegant and comprehensive application for managing Quran study circles (Halaqat). It allows teachers to track student attendance, monitor memorization and review progress, manage sessions, and generate reports for parents.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

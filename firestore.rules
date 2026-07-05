@@ -1,0 +1,136 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 0. Default Deny - Security Pillar 0
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Helper Functions - Security Pillar 3 & 4
+    // ===============================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && (
+        request.auth.token.get('email_verified', false) == true || 
+        request.auth.token.get('email', '').matches('.*@quran\\.app$') ||
+        request.auth.token.get('email', '') == 'nova.kayanco@gmail.com'
+      );
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.get('email', '') == 'nova.kayanco@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') in ['admin', 'superadmin'])
+      );
+    }
+
+    function isDeveloper() {
+      return isSignedIn() && (
+        request.auth.token.get('email', '') == '779516077@quran.app' || 
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'developer')
+      );
+    }
+
+    function isManagementAdmin(managementId) {
+      return isVerified() && 
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('managementId', '') == managementId && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isManagementAdmin', false) == true;
+    }
+
+    function isAuthorized(circleData) {
+      return isVerified() && (
+        (circleData.get('authorizedUserIds', []) is list && request.auth.uid in circleData.get('authorizedUserIds', [])) ||
+        (circleData.get('managementId', '') != '' && isManagementAdmin(circleData.get('managementId', '')))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can read their own profile without isAdmin() to avoid recursion
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isDeveloper());
+      // On create, identify matching
+      allow create: if isSignedIn() && request.auth.uid == userId;
+      allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isDeveloper());
+    }
+
+    match /managements/{managementId} {
+      allow read: if isVerified() || isDeveloper();
+      allow create: if isVerified() || isDeveloper();
+      allow update, delete: if isDeveloper() || isManagementAdmin(managementId);
+    }
+
+    match /managementRequests/{requestId} {
+      allow read: if isVerified() || isDeveloper();
+      allow create: if isVerified() || isDeveloper();
+      allow update: if isVerified() || isDeveloper();
+      allow delete: if isVerified() || isDeveloper();
+    }
+
+    match /auditLogs/{logId} {
+      allow read, create: if isVerified() || isDeveloper();
+    }
+
+    match /broadcasts/{broadcastId} {
+      allow read: if isVerified() || isDeveloper();
+      allow write: if isVerified() || isDeveloper();
+    }
+
+    match /system/settings {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isDeveloper();
+    }
+
+    match /circles/{circleId} {
+      // Secure List Queries - Pillar 8: Enforce membership in read
+      allow read: if isVerified() && (isAuthorized(resource.data) || isAdmin() || isDeveloper());
+      
+      allow create: if isVerified() && isValidId(circleId) && (
+        request.resource.data.get('authorizedUserIds', []).hasAll([request.auth.uid]) || 
+        isAdmin() || 
+        isDeveloper()
+      );
+      
+      allow update: if isVerified() && (
+        isAuthorized(resource.data) ||
+        isAdmin() ||
+        isDeveloper() ||
+        // Case: New user joining via transferPassword or transferCode
+        (
+          (
+            (resource.data.get('transferPassword', '') != "" && request.resource.data.get('transferPassword', '') == resource.data.transferPassword) ||
+            (resource.data.get('transferCode', '') != "" && request.resource.data.get('transferCode', '') == resource.data.transferCode)
+          ) &&
+          request.resource.data.get('authorizedUserIds', []).hasAll([request.auth.uid])
+        )
+      );
+      
+      allow delete: if isVerified() && (isAuthorized(resource.data) || isAdmin() || isDeveloper());
+
+      // Relational Sync - Pillar 1: Subcollections check parent authorization
+      match /{allSubcollections=**} {
+        allow read: if isVerified() && (isAuthorized(get(/databases/$(database)/documents/circles/$(circleId)).data) || isAdmin() || isDeveloper());
+        allow write: if isVerified() && (isAuthorized(get(/databases/$(database)/documents/circles/$(circleId)).data) || isAdmin() || isDeveloper());
+      }
+    }
+  }
+}
+
