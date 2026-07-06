@@ -131,6 +131,10 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
     };
     
     const isAdmin = userProfile?.role === 'admin' || userProfile?.role === 'superadmin';
+    const isOwner = data.ownerId === user?.uid;
+    const teacher = data.teachers?.[user?.uid || ''];
+    const isFullAccess = teacher?.accessLevel === 'full';
+    const hasFullManagement = isOwner || isFullAccess;
     const hasUnlinkedCircles = allCircles.some(c => !c.authorizedUserIds || c.authorizedUserIds.length === 0);
     const whatsappLink = "https://chat.whatsapp.com/H6cCssqCUsIIbWjICk6YDK";
     const telegramLink = "https://t.me/nur_alquran_q";
@@ -261,68 +265,72 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                 <FaChevronLeft size={10} className="text-accent group-hover:-translate-x-1 transition-transform" />
                             </button>
                         )}
-                        <SettingButton label="بيانات الحلقة" icon={FaBookOpen} onClick={onNavigateToCircleInfo} />
-                        <SettingButton label="الاختبارات والخطط والنشاطات" icon={FaClipboardList} onClick={onNavigateToTestsAndPlans} />
+                        {hasFullManagement && <SettingButton label="بيانات الحلقة" icon={FaBookOpen} onClick={onNavigateToCircleInfo} />}
+                        {hasFullManagement && <SettingButton label="الاختبارات والخطط والنشاطات" icon={FaClipboardList} onClick={onNavigateToTestsAndPlans} />}
                         <SettingButton label="الإضافات والمظهر" icon={FaWrench} onClick={onOpenAddonsModal} />
                     </SettingCard>
                 </div>
 
                 <div className="space-y-4">
-                    <SettingCard title="إدارة الحلقات" icon={FaUsers}>
-                        <div className="space-y-1.5">
-                            {allCircles.map(circle => (
-                                <div 
-                                    key={circle.id} 
-                                    className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
-                                        circle.id === data.id 
-                                        ? 'bg-primary/5 border-primary/20 dark:bg-accent/5 dark:border-accent/20' 
-                                        : 'bg-gray-50 dark:bg-gray-700/20 border-transparent'
-                                    }`}
-                                >
-                                    <div className="flex items-center gap-2">
-                                        <div className={`w-1 h-1 rounded-full ${circle.id === data.id ? 'bg-primary dark:bg-accent' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
-                                        <span className={`text-xs font-bold ${circle.id === data.id ? 'text-primary dark:text-accent' : 'text-gray-700 dark:text-gray-200'}`}>{circle.circle}</span>
-                                        {/* Role Indicators */}
-                                        {circle.ownerId === user?.uid ? (
-                                            <FaUserShield size={10} className="text-amber-500" title="أنت منشئ هذه الحلقة" />
-                                        ) : circle.authorizedUserIds?.includes(user?.uid || '') ? (
-                                            <FaChalkboardTeacher size={10} className="text-blue-500" title="أنت معلم في هذه الحلقة" />
-                                        ) : null}
+                    {hasFullManagement && (
+                        <SettingCard title="إدارة الحلقات" icon={FaUsers}>
+                            <div className="space-y-1.5">
+                                {allCircles.map(circle => (
+                                    <div 
+                                        key={circle.id} 
+                                        className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
+                                            circle.id === data.id 
+                                            ? 'bg-primary/5 border-primary/20 dark:bg-accent/5 dark:border-accent/20' 
+                                            : 'bg-gray-50 dark:bg-gray-700/20 border-transparent'
+                                        }`}
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <div className={`w-1 h-1 rounded-full ${circle.id === data.id ? 'bg-primary dark:bg-accent' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                                            <span className={`text-xs font-bold ${circle.id === data.id ? 'text-primary dark:text-accent' : 'text-gray-700 dark:text-gray-200'}`}>{circle.circle}</span>
+                                            {/* Role Indicators */}
+                                            {circle.ownerId === user?.uid ? (
+                                                <FaUserShield size={10} className="text-amber-500" title="أنت منشئ هذه الحلقة" />
+                                            ) : circle.authorizedUserIds?.includes(user?.uid || '') ? (
+                                                <FaChalkboardTeacher size={10} className="text-blue-500" title="أنت معلم في هذه الحلقة" />
+                                            ) : null}
+                                        </div>
+                                        <div className="flex items-center gap-2">
+                                        {circle.id !== data.id ? (
+                                            <button 
+                                                onClick={() => onSwitchCircle(circle.id)} 
+                                                className="text-[9px] px-2 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md shadow-sm border border-gray-200 dark:border-gray-600 font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                                            >
+                                                تفعيل
+                                            </button>
+                                        ) : (
+                                            <span className="text-[9px] px-1.5 py-0.5 bg-primary/10 dark:bg-accent/10 text-primary dark:text-accent rounded-md font-bold">الحالية</span>
+                                        )}
+                                        {allCircles.length > 1 && (
+                                            <button 
+                                                onClick={() => onDeleteCircle(circle.id)} 
+                                                className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                                            >
+                                                <FaTrash size={10} />
+                                            </button>
+                                        )}
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-2">
-                                    {circle.id !== data.id ? (
-                                        <button 
-                                            onClick={() => onSwitchCircle(circle.id)} 
-                                            className="text-[9px] px-2 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md shadow-sm border border-gray-200 dark:border-gray-600 font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                        >
-                                            تفعيل
-                                        </button>
-                                    ) : (
-                                        <span className="text-[9px] px-1.5 py-0.5 bg-primary/10 dark:bg-accent/10 text-primary dark:text-accent rounded-md font-bold">الحالية</span>
-                                    )}
-                                    {allCircles.length > 1 && (
-                                        <button 
-                                            onClick={() => onDeleteCircle(circle.id)} 
-                                            className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                                        >
-                                            <FaTrash size={10} />
-                                        </button>
-                                    )}
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                        <button 
-                            onClick={onCreateNewCircle} 
-                            className="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 p-1.5 rounded-lg font-bold mt-1 text-[10px] transition-all active:scale-[0.98]"
-                        >
-                            + إنشاء حلقة جديدة
-                        </button>
-                    </SettingCard>
+                                ))}
+                            </div>
+                            <button 
+                                onClick={onCreateNewCircle} 
+                                className="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 p-1.5 rounded-lg font-bold mt-1 text-[10px] transition-all active:scale-[0.98]"
+                            >
+                                + إنشاء حلقة جديدة
+                            </button>
+                        </SettingCard>
+                    )}
 
-                    <SettingCard title="البيانات" icon={FaSave}>
-                        <SettingButton label="النسخة الاحتياطية والاستعادة" icon={FaSave} onClick={onOpenBackupRestore} />
-                    </SettingCard>
+                    {hasFullManagement && (
+                        <SettingCard title="البيانات" icon={FaSave}>
+                            <SettingButton label="النسخة الاحتياطية والاستعادة" icon={FaSave} onClick={onOpenBackupRestore} />
+                        </SettingCard>
+                    )}
 
                     <SettingCard title="الدعم والمجتمع" icon={FaUsers}>
                         <SettingButton label="الانتساب والدعم" icon={FaAward} onClick={onNavigateToSupport} />

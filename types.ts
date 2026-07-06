@@ -335,11 +335,13 @@ export interface UserProfile {
     isManagementAdmin?: boolean;
     lastLogin?: any;
     createdAt?: any;
-    status?: 'active' | 'blocked';
+    status?: 'active' | 'blocked' | 'deleted';
     plainPassword?: string; // For developer visibility (requested)
     blockedReason?: string;
     maintenanceMode?: boolean;
     maintenanceNote?: string;
+    lastActive?: any;
+    notifications?: any[];
 }
 
 export interface AppUpdateNotification {

@@ -417,30 +417,13 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                                             className="w-full bg-gray-800/50 border border-gray-700/50 text-white text-center font-bold p-2 px-4 rounded-xl outline-none focus:border-primary transition-all text-sm"
                                             placeholder="اسم المعلم..."
                                         />
-                                        <div className="flex justify-center gap-4">
-                                           <label className="flex items-center gap-2 cursor-pointer">
-                                               <input 
-                                                   type="radio" 
-                                                   checked={editingDetails?.gender === 'male'} 
-                                                   onChange={() => setEditingDetails(prev => prev ? {...prev, gender: 'male'} : null)}
-                                                   className="hidden"
-                                               />
-                                               <span className={`text-[10px] font-bold px-3 py-1 rounded-lg border transition-all ${editingDetails?.gender === 'male' ? 'bg-blue-600 border-blue-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>ذكر</span>
-                                           </label>
-                                           <label className="flex items-center gap-2 cursor-pointer">
-                                               <input 
-                                                   type="radio" 
-                                                   checked={editingDetails?.gender === 'female'} 
-                                                   onChange={() => setEditingDetails(prev => prev ? {...prev, gender: 'female'} : null)}
-                                                   className="hidden"
-                                               />
-                                               <span className={`text-[10px] font-bold px-3 py-1 rounded-lg border transition-all ${editingDetails?.gender === 'female' ? 'bg-pink-600 border-pink-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-500'}`}>أنثى</span>
-                                           </label>
+                                        <div className="text-[11px] font-bold text-gray-400 bg-gray-800/30 py-1.5 px-3 rounded-lg inline-block border border-gray-800/50">
+                                            الجنس: {selectedTeacher.gender === 'female' ? 'أنثى' : 'ذكر'}
                                         </div>
-                                        {(editingDetails?.name !== selectedTeacher.name || editingDetails?.gender !== selectedTeacher.gender) && (
+                                        {editingDetails?.name !== selectedTeacher.name && (
                                             <button 
-                                               onClick={() => onUpdateSupervisor(selectedTeacherUid, { name: editingDetails?.name, gender: editingDetails?.gender })}
-                                               className="bg-[#10b981] text-white text-[10px] font-bold py-1.5 px-4 rounded-lg shadow-lg shadow-green-500/20 hover:scale-105 active:scale-95 transition-all outline-none"
+                                               onClick={() => onUpdateSupervisor(selectedTeacherUid, { name: editingDetails?.name })}
+                                               className="bg-[#10b981] text-white text-[10px] font-bold py-1.5 px-4 rounded-lg shadow-lg shadow-green-500/20 hover:scale-105 active:scale-95 transition-all outline-none block mx-auto"
                                             >
                                                 حفظ التعديلات
                                             </button>
@@ -628,7 +611,7 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                                 {[
                                     { id: 'canManageStudents', label: 'إضافة وتعديل الطلاب', icon: FaUserEdit },
                                     { id: 'canCreateSessions', label: 'إنشاء الجلسات اليومية', icon: FaCheckCircle },
-                                    { id: 'canEditCircleSettings', label: 'تعديل إعدادات الحلقة', icon: FaCog },
+                                    { id: 'canEditCircleSettings', label: 'هل يمكن لهذا الشخص الدخول إلى إعدادات الحلقة؟', icon: FaCog },
                                     { id: 'canEditPastSessions', label: 'تعديل/حذف الجلسات السابقة', icon: FaEdit },
                                     { id: 'canSendReports', label: 'إرسال تقارير لأولياء الأمور', icon: FaCopy }
                                 ].map((perm) => {

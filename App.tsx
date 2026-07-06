@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData } from './utils/helpers';
 import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField } from './firebase';
@@ -218,7 +218,35 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.removeItem('auth_saving_prompt_pending');
         localStorage.removeItem('auth_loading_in_progress');
+        
+        // Show permanent deletion alert if applicable
+        if (localStorage.getItem('account_permanently_deleted') === 'true') {
+            setTimeout(() => {
+                addToast('⚠️ تم حذف حسابك بالكامل من قبل المطور وتصفية جميع بياناتك بنجاح بطلب من المطور.', 'error');
+                localStorage.removeItem('account_permanently_deleted');
+            }, 1000);
+        }
     }, []);
+
+    // Real-time Presence / lastActive Updater
+    useEffect(() => {
+        if (!user || !db) return;
+        
+        const updatePresence = async () => {
+            try {
+                const userRef = doc(db, 'users', user.uid);
+                await updateDoc(userRef, {
+                    lastActive: serverTimestamp()
+                });
+            } catch (err) {
+                console.error("Error updating presence:", err);
+            }
+        };
+        
+        updatePresence();
+        const interval = setInterval(updatePresence, 3 * 60 * 1000);
+        return () => clearInterval(interval);
+    }, [user, db]);
 
     useEffect(() => {
         if (!db) return;
@@ -347,8 +375,8 @@ const App: React.FC = () => {
                 unsubProfileRef.current = onSnapshot(userRef, async (docSnap) => {
                     if (docSnap.exists()) {
                         const profileData = docSnap.data() as UserProfile;
-                        if (profileData.status === 'blocked') {
-                            addToast('تم حظر هذا الحساب، يرجى التواصل مع الإدارة', 'error');
+                        if (profileData.status === 'deleted') {
+                            localStorage.setItem('account_permanently_deleted', 'true');
                             handleLogout();
                             return;
                         }
@@ -1737,6 +1765,22 @@ const App: React.FC = () => {
             const circleData = circleDoc.data() as CircleData;
             console.log("Circle found:", circleData.circle);
 
+            const isCloudDuplicate = appData.circles.some(c => 
+                c.id === circleDoc.id || 
+                c.numericId === circleData.numericId ||
+                c.circle.trim().toLowerCase() === circleData.circle.trim().toLowerCase()
+            );
+
+            if (isCloudDuplicate) {
+                setAlertModal({ 
+                    isOpen: true, 
+                    title: 'تنبيه: حلقة مكررة', 
+                    message: `عذراً، الحلقة "${circleData.circle}" موجودة مسبقاً في حسابك. لا يمكن استيراد نفس الحلقة مرتين لتجنب تكرار البيانات.` 
+                });
+                setIsImportingCircle(false);
+                return;
+            }
+
             // Validate password (check transferPassword or fallback to transferCode)
             // Sanitize both input and stored passwords to ensure comparison works regardless of numeral type
             const inputPassword = sanitizeToEnglishNumber(password || '').trim();
@@ -2527,6 +2571,16 @@ const App: React.FC = () => {
 
 
     const handleSaveSetup = (newCircleData: Pick<CircleData, 'teacher' | 'circle' | 'center' | 'logo' | 'teacherGender' | 'transferPassword' | 'town'>) => {
+        const isDuplicate = appData.circles.some(c => c.circle.trim().toLowerCase() === newCircleData.circle.trim().toLowerCase());
+        if (isDuplicate) {
+            setAlertModal({ 
+                isOpen: true, 
+                title: 'تنبيه: حلقة مكررة', 
+                message: `عذراً، الحلقة "${newCircleData.circle}" موجودة مسبقاً في حسابك. لا يمكن إنشاء حلقة بنفس الاسم لتجنب تكرار البيانات.` 
+            });
+            return;
+        }
+
         const isFirstTimeSetup = appData.circles.length === 0;
 
         const now = new Date();
@@ -3996,6 +4050,21 @@ const App: React.FC = () => {
                 throw new Error("Invalid backup file format.");
             }
             
+            const isDuplicate = appData.circles.some(c => 
+                c.id === dataToCheck.id || 
+                c.circle.trim().toLowerCase() === dataToCheck.circle.trim().toLowerCase()
+            );
+
+            if (isDuplicate) {
+                setAlertModal({ 
+                    isOpen: true, 
+                    title: 'تنبيه: حلقة مكررة', 
+                    message: `عذراً، الحلقة "${dataToCheck.circle}" موجودة مسبقاً في حسابك. لا يمكن استيراد نفس الحلقة مرتين لتجنب تكرار البيانات.` 
+                });
+                setTextRestoreModalOpen(false);
+                return;
+            }
+            
             // Close text restore modal if open
             setTextRestoreModalOpen(false);
             setBackupReviewModalData(dataToCheck as CircleData);
@@ -4028,6 +4097,18 @@ const App: React.FC = () => {
     };
 
     const handleNavigate = useCallback((page: string) => {
+        if (page === 'settings') {
+            const isOwner = activeCircle?.ownerId === user?.uid;
+            const teacher = activeCircle?.teachers?.[user?.uid || ''];
+            const isFullAccess = teacher?.accessLevel === 'full';
+            const canEditCircleSettings = teacher?.permissions?.canEditCircleSettings !== false;
+
+            if (!isOwner && !isFullAccess && !canEditCircleSettings) {
+                addToast("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى إعدادات الحلقة.", "error");
+                return;
+            }
+        }
+
         // Feature: Scroll to top if clicking the same tab
         if (page === activePage) {
             if (mainContainerRef.current) {
@@ -4739,6 +4820,29 @@ const App: React.FC = () => {
         }
     };
 
+    const handleMarkDevNotificationRead = async (notificationId: string) => {
+        if (!user || !db || !userProfile) return;
+        try {
+            const updatedNotifications = (userProfile.notifications || []).map((n: any) => 
+                n.id === notificationId ? { ...n, read: true } : n
+            );
+            const userRef = doc(db, 'users', user.uid);
+            await updateDoc(userRef, {
+                notifications: updatedNotifications
+            });
+            setUserProfile(prev => prev ? { ...prev, notifications: updatedNotifications } : null);
+            addToast('تم تأكيد استلام وقراءة الرسالة بنجاح.', 'success');
+        } catch (e) {
+            console.error("Error marking dev notification as read:", e);
+            addToast('❌ فشل تحديث الإشعار.', 'error');
+        }
+    };
+
+    const unreadDevNotification = useMemo(() => {
+        if (!userProfile || !userProfile.notifications) return null;
+        return userProfile.notifications.find((n: any) => !n.read);
+    }, [userProfile?.notifications]);
+
     // Show loading screen only if specifically requested (like auto-login)
     const isAutoLoggingIn = !!localStorage.getItem('auto_login_creds');
     const isExpectingDeveloper = localStorage.getItem('developer_acting_as_user') === 'true';
@@ -4750,6 +4854,92 @@ const App: React.FC = () => {
             <div className="min-h-screen bg-[#050807] flex flex-col items-center justify-center text-white" dir="rtl">
                 <div className="w-16 h-16 border-4 border-[#105541]/20 border-t-[#105541] rounded-full animate-spin mb-6"></div>
                 <div className="text-sm font-bold font-mono tracking-widest animate-pulse text-[#105541]">جاري تشغيل لوحة التحكم...</div>
+            </div>
+        );
+    }
+
+    // Real-time Account Blocked / Suspended Screen
+    if (user && userProfile && userProfile.status === 'blocked' && userProfile.role !== 'developer') {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0c0e12] flex flex-col items-center justify-center p-6 text-center" dir="rtl">
+                <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-red-500/5 dark:bg-red-500/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="w-20 h-20 bg-red-500/10 rounded-2xl flex items-center justify-center mb-6 text-red-500 animate-pulse border border-red-500/20">
+                    <AlertTriangle size={40} />
+                </div>
+                <h1 className="text-xl md:text-2xl font-black text-slate-900 dark:text-white mb-3">حسابك موقوف مؤقتاً</h1>
+                
+                <div className="bg-white dark:bg-[#151922] border border-slate-100 dark:border-gray-800/80 rounded-[2rem] p-6 max-w-md shadow-xl text-right mb-6">
+                    <p className="text-xs font-bold text-red-500 mb-2">🔴 سبب إيقاف الحساب:</p>
+                    <p className="text-slate-700 dark:text-gray-300 text-xs md:text-sm leading-relaxed font-semibold">
+                        {userProfile.blockedReason || 'لم يتم تحديد سبب للإيقاف من قبل الإدارة.'}
+                    </p>
+                    <div className="border-t border-slate-100 dark:border-gray-800/50 mt-4 pt-3 flex items-center justify-between text-[10px] text-slate-400">
+                        <span>نوع الحساب: {userProfile.role === 'admin' ? 'مدير' : 'معلم حلقة'}</span>
+                        <span>معرف المستخدم: {userProfile.uid}</span>
+                    </div>
+                </div>
+
+                <p className="text-xs text-slate-500 dark:text-gray-400 max-w-xs mb-8 leading-relaxed">
+                    إذا كنت تعتقد أن هذا الإيقاف تم بالخطأ، أو تود طلب مراجعة الحساب وتفعيله، يرجى التواصل مباشرة مع المطور.
+                </p>
+
+                <div className="flex flex-col gap-2.5 w-full max-w-xs">
+                    <a 
+                        href={`https://wa.me/967779516077?text=${encodeURIComponent(`السلام عليكم ورحمة الله وبركاته\nحسابي موقوف في نظام حلقتي.\nالاسم: ${userProfile.displayName || ''}\nالبريد: ${userProfile.email || ''}\nالمعرف: ${userProfile.uid}`)}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-l from-red-500 to-rose-600 hover:opacity-95 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg shadow-red-500/10 hover:shadow-red-500/20 transition-all text-xs"
+                    >
+                        <span>تواصل مع المطور للمراجعة</span>
+                    </a>
+                    
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-200 dark:bg-[#1d222e] text-slate-700 dark:text-gray-300 font-bold py-3.5 px-4 rounded-xl transition-all text-xs"
+                    >
+                        <span>تسجيل الخروج</span>
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
+    // Real-time Maintenance Mode Screen for specific User
+    if (user && userProfile && userProfile.maintenanceMode && userProfile.role !== 'developer') {
+        return (
+            <div className="min-h-screen bg-slate-50 dark:bg-[#0c0e12] flex flex-col items-center justify-center p-6 text-center" dir="rtl">
+                <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-amber-500/5 dark:bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
+                <div className="w-20 h-20 bg-amber-500/10 rounded-2xl flex items-center justify-center mb-6 text-amber-500 animate-spin border border-amber-500/20" style={{ animationDuration: '6s' }}>
+                    <RefreshCw size={40} />
+                </div>
+                <h1 className="text-xl md:text-2xl font-black text-slate-900 dark:text-white mb-3">حسابك في وضع الصيانة</h1>
+                
+                <div className="bg-white dark:bg-[#151922] border border-slate-100 dark:border-gray-800/80 rounded-[2rem] p-6 max-w-md shadow-xl text-right mb-6">
+                    <p className="text-xs font-bold text-amber-500 mb-2">🛠️ ملاحظة المطور / الصيانة:</p>
+                    <p className="text-slate-700 dark:text-gray-300 text-xs md:text-sm leading-relaxed">
+                        {userProfile.maintenanceNote || 'يتم حالياً فحص وتحديث بيانات حسابك وحلقتك لتسريع الأداء وتحسين جودة التجربة.'}
+                    </p>
+                </div>
+
+                <p className="text-xs text-slate-500 dark:text-gray-400 max-w-xs mb-8 leading-relaxed">
+                    لا تقلق، جميع حلقاتك ومستويات طلابك آمنة تماماً. هذه الصيانة مخصصة لحسابك وسيتم الانتهاء منها قريباً لتتمكن من المتابعة.
+                </p>
+
+                <div className="flex flex-col gap-2.5 w-full max-w-xs">
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="w-full flex items-center justify-center gap-2 bg-[#105541] hover:bg-[#105541]/90 text-white font-bold py-3.5 px-4 rounded-xl shadow-lg transition-all text-xs"
+                    >
+                        <span>تحديث الصفحة والتحقق من انتهاء الصيانة</span>
+                    </button>
+                    
+                    <button
+                        onClick={handleLogout}
+                        className="w-full flex items-center justify-center gap-2 bg-slate-200 dark:bg-[#1d222e] text-slate-700 dark:text-gray-300 font-bold py-3.5 px-4 rounded-xl transition-all text-xs"
+                    >
+                        <span>تسجيل الخروج</span>
+                    </button>
+                </div>
             </div>
         );
     }
@@ -5808,6 +5998,32 @@ const App: React.FC = () => {
                     </motion.div>
                 )}
             </AnimatePresence>
+            {unreadDevNotification && (
+                <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-50 animate-fade-in" dir="rtl">
+                    <motion.div 
+                        initial={{ scale: 0.9, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        className="bg-white dark:bg-[#151922] border border-slate-100 dark:border-gray-800 rounded-[2.5rem] p-6 max-w-md w-full shadow-2xl relative"
+                    >
+                        <div className="w-14 h-14 bg-amber-500/10 dark:bg-amber-500/20 text-amber-500 rounded-2xl flex items-center justify-center mb-4 border border-amber-500/20 mx-auto">
+                            <Megaphone size={28} />
+                        </div>
+                        <h2 className="text-base font-black text-center text-slate-900 dark:text-white mb-2">تنبيه إداري عاجل</h2>
+                        <p className="text-xs text-center text-slate-500 dark:text-gray-400 mb-4">لقد تلقيت تنبيهاً خاصاً من مطوري ومسؤولي النظام:</p>
+                        
+                        <div className="bg-slate-50 dark:bg-[#0c0e12] p-4 rounded-2xl border border-slate-100 dark:border-gray-800 text-slate-700 dark:text-gray-300 text-xs md:text-sm leading-relaxed mb-6">
+                            {unreadDevNotification.message}
+                        </div>
+
+                        <button 
+                            onClick={() => handleMarkDevNotificationRead(unreadDevNotification.id)}
+                            className="w-full bg-[#105541] hover:bg-[#126049] text-white text-xs font-black py-3 rounded-2xl shadow-lg transition-all"
+                        >
+                            تأكيد القراءة واستلام التنبيه
+                        </button>
+                    </motion.div>
+                </div>
+            )}
             <ToastContainer toasts={toasts} />
             {shareModalData.isOpen && <ShareModal {...shareModalData} onClose={() => setShareModalData({ isOpen: false })} addToast={addToast} />}
         </div>

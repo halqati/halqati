@@ -51,7 +51,7 @@ import {
     ChevronRight,
     CheckCircle2
 } from 'lucide-react';
-import { db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp } from '../firebase';
+import { db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion } from '../firebase';
 import { Management, AuditLog, UserProfile, CircleData, Student, SystemSettings, AppUpdateNotification } from '../types';
 
 interface DeveloperDashboardProps {
@@ -71,6 +71,12 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const [activeTab, setActiveTab] = useState<TabType>('overview');
     const [searchQuery, setSearchQuery] = useState('');
     const [showPasswords, setShowPasswords] = useState<{[key: string]: boolean}>({});
+    
+    // User sorting and filtering states
+    const [sortOption, setSortOption] = useState<'newest' | 'oldest' | 'most_active' | 'least_active' | 'circles_count' | 'last_login'>('newest');
+    const [genderFilter, setGenderFilter] = useState<'all' | 'male' | 'female'>('all');
+    const [roleFilter, setRoleFilter] = useState<'all' | 'teacher' | 'admin' | 'manager'>('all');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
     
     // User Details Sub-view
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
@@ -169,6 +175,72 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         }
     };
 
+    const sendPrivateMessage = async (user: UserProfile, message: string) => {
+        if (!message || !message.trim()) return;
+        try {
+            const userRef = doc(db, 'users', user.uid);
+            const msgObj = {
+                id: Math.random().toString(36).substring(2, 9) + Date.now(),
+                message: message.trim(),
+                read: false,
+                createdAt: Date.now()
+            };
+            
+            await updateDoc(userRef, {
+                notifications: arrayUnion(msgObj)
+            });
+
+            addToast('🚀 تم إرسال التنبيه الخاص إلى المعلم بنجاح!', 'success');
+            
+            if (selectedUser?.uid === user.uid) {
+                setSelectedUser({
+                    ...selectedUser,
+                    notifications: [...(selectedUser.notifications || []), msgObj]
+                });
+            }
+        } catch (error) {
+            console.error("Error sending private message:", error);
+            addToast('❌ فشل إرسال التنبيه الخاص للمعلم', 'error');
+        }
+    };
+
+    const deleteUserAccount = async (user: UserProfile) => {
+        const confirmDelete = window.confirm(`⚠️ تحذير شديد الخطورة:\nهل أنت متأكد تماماً من حذف حساب المعلم "${user.displayName}" نهائياً من قاعدة البيانات وتصفية جميع ارتباطاته؟\n\nهذا الإجراء غير قابل للتراجع وسيتم تسجيل خروجه فوراً وتنبيهه.`);
+        if (!confirmDelete) return;
+
+        try {
+            // Update status to 'deleted' in Firestore first so they get logged out reactively
+            await updateDoc(doc(db, 'users', user.uid), {
+                status: 'deleted'
+            });
+
+            // Disassociate from circles
+            const userCirclesToCleanup = circles.filter(c => c.authorizedUserIds?.includes(user.uid));
+            for (const circle of userCirclesToCleanup) {
+                const updatedAuthorized = (circle.authorizedUserIds || []).filter(uid => uid !== user.uid);
+                await updateDoc(doc(db, 'circles', circle.id), {
+                    authorizedUserIds: updatedAuthorized,
+                    ...(circle.ownerId === user.uid ? { ownerId: '' } : {})
+                });
+            }
+
+            // Finally delete user document after a small timeout to allow sync to propagate
+            setTimeout(async () => {
+                try {
+                    await deleteDoc(doc(db, 'users', user.uid));
+                    addToast('🗑️ تم حذف وتصفية حساب المستخدم بالكامل بنجاح', 'success');
+                    setSelectedUser(null);
+                } catch (e) {
+                    console.error("Firestore deleteDoc error:", e);
+                }
+            }, 1500);
+
+        } catch (error) {
+            console.error("Error deleting user:", error);
+            addToast('❌ فشل تصفية وحذف الحساب', 'error');
+        }
+    };
+
     const toggleMaintenanceMode = async (circleId: string, current: boolean) => {
         try {
             await updateDoc(doc(db, 'circles', circleId), { isMaintenance: !current });
@@ -228,10 +300,83 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         limitWrites: 20000,
     };
 
-    const filteredUsers = users.filter(u => 
-        (u.displayName?.includes(searchQuery) || u.email?.includes(searchQuery)) && 
-        u.role !== 'developer'
-    );
+    const getTimestampMs = (val: any) => {
+        if (!val) return 0;
+        if (typeof val === 'number') return val;
+        if (val.seconds) return val.seconds * 1000;
+        if (val.toMillis) return val.toMillis();
+        const parsed = Date.parse(val);
+        return isNaN(parsed) ? 0 : parsed;
+    };
+
+    const processedUsers = useMemo(() => {
+        let list = users.filter(u => u.role !== 'developer');
+
+        // Search Query
+        if (searchQuery.trim()) {
+            const query = searchQuery.toLowerCase().trim();
+            list = list.filter(u => {
+                const nameMatch = u.displayName?.toLowerCase().includes(query) || false;
+                const emailMatch = u.email?.toLowerCase().includes(query) || false;
+                const uidMatch = u.uid?.toLowerCase().includes(query) || false;
+                
+                // Username extraction (ends with @quran.app)
+                let username = '';
+                if (u.email && u.email.endsWith('@quran.app')) {
+                    username = u.email.split('@')[0];
+                }
+                const usernameMatch = username.toLowerCase().includes(query);
+
+                return nameMatch || emailMatch || uidMatch || usernameMatch;
+            });
+        }
+
+        // Gender Filter
+        if (genderFilter !== 'all') {
+            list = list.filter(u => u.gender === genderFilter);
+        }
+
+        // Role Filter
+        if (roleFilter !== 'all') {
+            list = list.filter(u => u.role === roleFilter);
+        }
+
+        // Status Filter
+        if (statusFilter !== 'all') {
+            list = list.filter(u => u.status === statusFilter);
+        }
+
+        // Sorting
+        list.sort((a, b) => {
+            if (sortOption === 'newest') {
+                return getTimestampMs(b.createdAt) - getTimestampMs(a.createdAt);
+            }
+            if (sortOption === 'oldest') {
+                return getTimestampMs(a.createdAt) - getTimestampMs(b.createdAt);
+            }
+            if (sortOption === 'most_active') {
+                const actA = getTimestampMs(a.lastActive) || getTimestampMs(a.lastLogin) || getTimestampMs(a.createdAt);
+                const actB = getTimestampMs(b.lastActive) || getTimestampMs(b.lastLogin) || getTimestampMs(b.createdAt);
+                return actB - actA;
+            }
+            if (sortOption === 'least_active') {
+                const actA = getTimestampMs(a.lastActive) || getTimestampMs(a.lastLogin) || getTimestampMs(a.createdAt);
+                const actB = getTimestampMs(b.lastActive) || getTimestampMs(b.lastLogin) || getTimestampMs(b.createdAt);
+                return actA - actB;
+            }
+            if (sortOption === 'last_login') {
+                return getTimestampMs(b.lastLogin) - getTimestampMs(a.lastLogin);
+            }
+            if (sortOption === 'circles_count') {
+                const countA = circles.filter(c => c.authorizedUserIds?.includes(a.uid)).length;
+                const countB = circles.filter(c => c.authorizedUserIds?.includes(b.uid)).length;
+                return countB - countA;
+            }
+            return 0;
+        });
+
+        return list;
+    }, [users, searchQuery, genderFilter, roleFilter, statusFilter, sortOption, circles]);
 
     if (isLoading) {
         return (
@@ -417,207 +562,425 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                 </div>
                             )}
 
-                            {activeTab === 'users' && !selectedUser && (
+                             {activeTab === 'users' && !selectedUser && (
                                 <div className="space-y-4">
-                                    <div className="relative">
-                                        <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600" size={14} />
-                                        <input 
-                                            type="text" 
-                                            placeholder="بحث بالمستخدم..." 
-                                            value={searchQuery}
-                                            onChange={(e) => setSearchQuery(e.target.value)}
-                                            className="w-full bg-[#050807] border border-[#105541]/20 rounded-xl py-2 pr-9 pl-3 text-xs outline-none focus:ring-1 focus:ring-[#105541] text-white"
-                                        />
+                                    {/* Advanced Search, Filtering, and Sorting Header */}
+                                    <div className="bg-[#0a0f0d] border border-[#105541]/10 p-4 rounded-2xl space-y-3">
+                                        <div className="relative">
+                                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                                            <input 
+                                                type="text" 
+                                                placeholder="بحث بالاسم الكامل، اسم المستخدم، البريد، أو معرف المستخدم..." 
+                                                value={searchQuery}
+                                                onChange={(e) => setSearchQuery(e.target.value)}
+                                                className="w-full bg-[#050807] border border-[#105541]/20 rounded-xl py-2.5 pr-9 pl-3 text-xs outline-none focus:ring-1 focus:ring-[#105541] text-white font-medium"
+                                            />
+                                        </div>
+                                        
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-[10px]">
+                                            {/* Sort Option */}
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-gray-500 font-bold">ترتيب الحسابات:</span>
+                                                <select
+                                                    value={sortOption}
+                                                    onChange={(e: any) => setSortOption(e.target.value)}
+                                                    className="bg-[#050807] border border-[#105541]/20 text-gray-300 rounded-lg p-1.5 outline-none font-medium"
+                                                >
+                                                    <option value="newest">الأحدث تسجيلاً</option>
+                                                    <option value="oldest">الأقدم تسجيلاً</option>
+                                                    <option value="most_active">الأكثر نشاطاً (حضور)</option>
+                                                    <option value="least_active">الأقل نشاطاً</option>
+                                                    <option value="circles_count">عدد الحلقات التابعة</option>
+                                                    <option value="last_login">آخر تسجيل دخول</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Role Filter */}
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-gray-500 font-bold">نوع الحساب:</span>
+                                                <select
+                                                    value={roleFilter}
+                                                    onChange={(e: any) => setRoleFilter(e.target.value)}
+                                                    className="bg-[#050807] border border-[#105541]/20 text-gray-300 rounded-lg p-1.5 outline-none font-medium"
+                                                >
+                                                    <option value="all">الكل</option>
+                                                    <option value="teacher">معلم حلقة</option>
+                                                    <option value="admin">مدير</option>
+                                                    <option value="manager">مشرف عام</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Gender Filter */}
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-gray-500 font-bold">الجنس:</span>
+                                                <select
+                                                    value={genderFilter}
+                                                    onChange={(e: any) => setGenderFilter(e.target.value)}
+                                                    className="bg-[#050807] border border-[#105541]/20 text-gray-300 rounded-lg p-1.5 outline-none font-medium"
+                                                >
+                                                    <option value="all">الكل</option>
+                                                    <option value="male">رجال / بنين</option>
+                                                    <option value="female">نساء / بنات</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Status Filter */}
+                                            <div className="flex flex-col gap-1">
+                                                <span className="text-gray-500 font-bold">حالة الحساب:</span>
+                                                <select
+                                                    value={statusFilter}
+                                                    onChange={(e: any) => setStatusFilter(e.target.value)}
+                                                    className="bg-[#050807] border border-[#105541]/20 text-gray-300 rounded-lg p-1.5 outline-none font-medium"
+                                                >
+                                                    <option value="all">الكل</option>
+                                                    <option value="active">نشط</option>
+                                                    <option value="blocked">موقوف</option>
+                                                </select>
+                                            </div>
+                                        </div>
                                     </div>
 
-                                    <div className="divide-y divide-[#105541]/10">
-                                        {filteredUsers.map(user => (
-                                            <div key={user.uid} className="py-3 flex items-center justify-between group">
+                                    {/* Users count & results */}
+                                    <div className="flex justify-between items-center px-1 text-[10px] text-gray-500">
+                                        <span>عدد النتائج المطابقة: <strong className="text-[#105541]">{processedUsers.length}</strong> مستخدم</span>
+                                        {searchQuery || genderFilter !== 'all' || roleFilter !== 'all' || statusFilter !== 'all' ? (
+                                            <button 
+                                                onClick={() => {
+                                                    setSearchQuery('');
+                                                    setGenderFilter('all');
+                                                    setRoleFilter('all');
+                                                    setStatusFilter('all');
+                                                    setSortOption('newest');
+                                                }}
+                                                className="text-red-400 hover:underline animate-pulse"
+                                            >
+                                                إعادة تعيين الفلاتر
+                                            </button>
+                                        ) : null}
+                                    </div>
+
+                                    {/* Users Cards Grid */}
+                                    <div className="space-y-2.5">
+                                        {processedUsers.map(user => {
+                                            const circlesCount = circles.filter(c => c.authorizedUserIds?.includes(user.uid)).length;
+                                            const username = (user.email && user.email.endsWith('@quran.app')) ? user.email.split('@')[0] : 'لا يوجد';
+                                            
+                                            return (
                                                 <div 
-                                                    className="flex items-center gap-2 cursor-pointer transition-all hover:translate-x-1"
-                                                    onClick={() => {
-                                                        setSelectedUser(user);
-                                                        setUserCircles(circles.filter(c => c.authorizedUserIds?.includes(user.uid)));
-                                                    }}
+                                                    key={user.uid} 
+                                                    className="bg-[#0a0f0d] border border-[#105541]/10 p-3.5 rounded-2xl flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 hover:border-[#105541]/30 transition-all duration-300 group relative"
                                                 >
-                                                    <div className="w-8 h-8 bg-gray-800 rounded-lg flex items-center justify-center text-gray-500 group-hover:text-emerald-500 transition-colors">
-                                                        <UserCheck size={16} />
-                                                    </div>
-                                                    <div>
-                                                        <div className="flex items-center gap-2">
-                                                            <p className="text-xs font-bold text-white">{user.displayName}</p>
-                                                            <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
-                                                                user.status === 'blocked' ? 'bg-red-500/20 text-red-400' : 
-                                                                user.maintenanceMode ? 'bg-amber-500/20 text-amber-400' : 'bg-emerald-500/20 text-emerald-400'
-                                                            }`}>
-                                                                {user.status === 'blocked' ? 'موقوف' : user.maintenanceMode ? 'صيانة' : 'نشط'}
-                                                            </span>
-                                                        </div>
-                                                        <p className="text-[9px] text-gray-500 font-mono">{user.email}</p>
-                                                    </div>
-                                                </div>
-                                                <div className="flex items-center gap-1.5 focus-within:z-10">
-                                                    <button 
+                                                    {/* User basic info */}
+                                                    <div 
+                                                        className="flex items-center gap-3 cursor-pointer transition-all hover:translate-x-1"
                                                         onClick={() => {
-                                                            const isVisible = showPasswords[user.uid];
-                                                            if (!isVisible) {
-                                                                setShowPasswords({ ...showPasswords, [user.uid]: true });
-                                                                setTimeout(() => setShowPasswords(prev => ({ ...prev, [user.uid]: false })), 5000);
-                                                            } else {
-                                                                setShowPasswords({ ...showPasswords, [user.uid]: false });
-                                                            }
+                                                            setSelectedUser(user);
+                                                            setUserCircles(circles.filter(c => c.authorizedUserIds?.includes(user.uid)));
                                                         }}
-                                                        className="p-1.5 bg-gray-800/50 text-gray-500 rounded-lg hover:text-emerald-500 transition-colors"
-                                                        title="كشف كلمة المرور"
                                                     >
-                                                        {showPasswords[user.uid] ? <EyeOff size={14} /> : <Eye size={14} />}
-                                                    </button>
-
-                                                    <AnimatePresence>
-                                                        {showPasswords[user.uid] && (
-                                                            <motion.div 
-                                                                initial={{ opacity: 0, x: 20 }}
-                                                                animate={{ opacity: 1, x: 0 }}
-                                                                className="absolute left-0 mr-4 bg-[#105541] px-3 py-1.5 rounded-lg border border-white/20 text-[10px] font-mono font-bold shadow-2xl z-50 whitespace-nowrap"
-                                                            >
-                                                                P: {user.plainPassword || 'N/A'}
-                                                            </motion.div>
+                                                        {/* Avatar / Profile Image */}
+                                                        {user.photoURL ? (
+                                                            <img 
+                                                                src={user.photoURL} 
+                                                                alt="" 
+                                                                referrerPolicy="no-referrer"
+                                                                className="w-10 h-10 rounded-xl object-cover border border-[#105541]/20"
+                                                            />
+                                                        ) : (
+                                                            <div className="w-10 h-10 bg-[#105541]/10 text-[#105541] rounded-xl flex items-center justify-center font-black text-xs border border-[#105541]/20">
+                                                                {(user.displayName || '؟')[0]}
+                                                            </div>
                                                         )}
-                                                    </AnimatePresence>
+                                                        
+                                                        <div>
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <p className="text-xs font-black text-white group-hover:text-[#127055] transition-colors">{user.displayName}</p>
+                                                                <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                                                    user.role === 'admin' ? 'bg-indigo-500/10 text-indigo-400' :
+                                                                    user.role === 'manager' ? 'bg-purple-500/10 text-purple-400' : 'bg-gray-800 text-gray-400'
+                                                                }`}>
+                                                                    {user.role === 'admin' ? 'مدير' : user.role === 'manager' ? 'مشرف عام' : 'معلم حلقة'}
+                                                                </span>
+                                                                <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-bold uppercase ${
+                                                                    user.status === 'blocked' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 
+                                                                    user.maintenanceMode ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                                                }`}>
+                                                                    {user.status === 'blocked' ? 'موقوف' : user.maintenanceMode ? 'صيانة' : 'نشط'}
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-1.5 text-[9px] text-gray-500 font-medium mt-1">
+                                                                <span className="font-mono">U: @{username}</span>
+                                                                <span>•</span>
+                                                                <span className="font-mono">{user.email}</span>
+                                                            </div>
+                                                        </div>
+                                                    </div>
 
-                                                    <button 
-                                                        onClick={() => handleAutoLogin(user)}
-                                                        className="bg-[#105541]/10 hover:bg-[#105541]/20 text-[#105541] p-1.5 rounded-lg border border-[#105541]/20 transition-all"
-                                                        title="الدخول السريع"
-                                                    >
-                                                        <Zap size={14} />
-                                                    </button>
+                                                    {/* Right side stats & quick actions */}
+                                                    <div className="flex items-center justify-between sm:justify-end gap-3 border-t sm:border-t-0 border-[#105541]/5 pt-2 sm:pt-0">
+                                                        <div className="text-left font-sans sm:block hidden">
+                                                            <p className="text-[10px] font-black text-white">{circlesCount} حلقات</p>
+                                                            <p className="text-[8px] text-gray-500 mt-0.5">مسجل بتاريخ {user.createdAt ? new Date(getTimestampMs(user.createdAt)).toLocaleDateString('ar-EG') : 'غير متوفر'}</p>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5 focus-within:z-10">
+                                                            <button 
+                                                                onClick={() => {
+                                                                    const isVisible = showPasswords[user.uid];
+                                                                    if (!isVisible) {
+                                                                        setShowPasswords({ ...showPasswords, [user.uid]: true });
+                                                                        setTimeout(() => setShowPasswords(prev => ({ ...prev, [user.uid]: false })), 5000);
+                                                                    } else {
+                                                                        setShowPasswords({ ...showPasswords, [user.uid]: false });
+                                                                    }
+                                                                }}
+                                                                className="p-2 bg-gray-800/50 hover:bg-[#105541]/10 text-gray-400 hover:text-emerald-500 rounded-xl transition-all border border-white/5"
+                                                                title="كشف كلمة المرور"
+                                                            >
+                                                                {showPasswords[user.uid] ? <EyeOff size={13} /> : <Eye size={13} />}
+                                                            </button>
+
+                                                            <AnimatePresence>
+                                                                {showPasswords[user.uid] && (
+                                                                    <motion.div 
+                                                                        initial={{ opacity: 0, scale: 0.95 }}
+                                                                        animate={{ opacity: 1, scale: 1 }}
+                                                                        exit={{ opacity: 0, scale: 0.95 }}
+                                                                        className="absolute left-10 bg-[#105541] px-3 py-2 rounded-xl border border-white/15 text-[10px] font-mono font-black shadow-2xl z-50 text-white whitespace-nowrap"
+                                                                    >
+                                                                        P: {user.plainPassword || 'N/A'}
+                                                                    </motion.div>
+                                                                )}
+                                                            </AnimatePresence>
+
+                                                            <button 
+                                                                onClick={() => handleAutoLogin(user)}
+                                                                className="bg-[#105541]/10 hover:bg-[#105541]/25 text-[#105541] p-2 rounded-xl border border-[#105541]/20 transition-all flex items-center justify-center"
+                                                                title="الدخول السريع بحساب هذا المستخدم"
+                                                            >
+                                                                <Zap size={13} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
+                                            );
+                                        })}
+
+                                        {processedUsers.length === 0 && (
+                                            <div className="text-center py-10 bg-[#0a0f0d] border border-dashed border-[#105541]/15 rounded-2xl">
+                                                <Users className="mx-auto text-gray-600 mb-2 animate-pulse" size={24} />
+                                                <p className="text-[11px] text-gray-500">لا يوجد مستخدمين مطابقين لمعايير البحث الحالية.</p>
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
                                 </div>
                             )}
 
                             {activeTab === 'users' && selectedUser && (
                                 <div className="space-y-4">
-                                    <div className="flex items-center gap-2 mb-4">
+                                    {/* Sub-view Header */}
+                                    <div className="flex items-center gap-3 bg-[#0a0f0d] border border-[#105541]/10 p-3.5 rounded-2xl">
                                         <button 
                                             onClick={() => setSelectedUser(null)}
-                                            className="p-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-all"
+                                            className="p-2.5 bg-gray-800 rounded-xl hover:bg-gray-700 transition-all text-gray-300 hover:text-white"
                                         >
                                             <ArrowLeft size={16} />
                                         </button>
-                                        <div>
-                                            <h3 className="text-sm font-bold text-white">{selectedUser.displayName}</h3>
-                                            <p className="text-[10px] text-gray-500">{selectedUser.email}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <div className="bg-[#050807] p-3 rounded-xl border border-[#105541]/10">
-                                            <span className="text-[9px] text-gray-500 uppercase font-bold block mb-1">إجمالي الطلاب</span>
-                                            <p className="text-xl font-bold text-white">{userCircles.reduce((acc, c) => acc + (c.students?.length || 0), 0)}</p>
-                                        </div>
-                                        <div className="bg-[#050807] p-3 rounded-xl border border-[#105541]/10">
-                                            <span className="text-[9px] text-gray-500 uppercase font-bold block mb-1">عدد الحلقات</span>
-                                            <p className="text-xl font-bold text-white">{userCircles.length}</p>
-                                        </div>
-                                    </div>
-
-                                    <div className="bg-[#050807] p-4 rounded-xl border border-[#105541]/10 space-y-3">
-                                        <h4 className="text-[10px] font-bold text-[#105541] uppercase tracking-wider">تفاصيل الحساب</h4>
-                                        <div className="space-y-2">
-                                            <div className="flex justify-between text-[11px]">
-                                                <span className="text-gray-500">كلمة المرور</span>
-                                                <span className="text-white font-mono">{selectedUser.plainPassword || 'غير متوفرة'}</span>
-                                            </div>
-                                            <div className="flex justify-between text-[11px]">
-                                                <span className="text-gray-500">حالة الحساب</span>
-                                                <span className={`font-bold ${selectedUser.status === 'blocked' ? 'text-red-500' : 'text-emerald-500'}`}>
-                                                    {selectedUser.status === 'blocked' ? 'موقوف' : 'نشط'}
-                                                </span>
-                                            </div>
-                                            <div className="flex justify-between text-[11px]">
-                                                <span className="text-gray-500">آخر تسجيل دخول</span>
-                                                <span className="text-white font-mono">{selectedUser.lastLogin ? new Date(selectedUser.lastLogin.seconds * 1000).toLocaleString('ar-EG') : 'غير متوفر'}</span>
-                                            </div>
-                                            {selectedUser.blockedReason && (
-                                                <div className="p-2 bg-red-500/5 border border-red-500/10 rounded-lg text-red-400 text-[10px]">
-                                                    <p className="font-bold mb-1">سبب الإيقاف:</p>
-                                                    <p className="opacity-80">{selectedUser.blockedReason}</p>
+                                        <div className="flex items-center gap-2.5">
+                                            {selectedUser.photoURL ? (
+                                                <img 
+                                                    src={selectedUser.photoURL} 
+                                                    alt="" 
+                                                    referrerPolicy="no-referrer"
+                                                    className="w-10 h-10 rounded-xl object-cover border border-[#105541]/20"
+                                                />
+                                            ) : (
+                                                <div className="w-10 h-10 bg-[#105541]/10 text-[#105541] rounded-xl flex items-center justify-center font-black text-xs border border-[#105541]/20">
+                                                    {(selectedUser.displayName || '؟')[0]}
                                                 </div>
                                             )}
+                                            <div>
+                                                <h3 className="text-xs font-black text-white">{selectedUser.displayName}</h3>
+                                                <p className="text-[9px] text-gray-500 font-mono mt-0.5">{selectedUser.email}</p>
+                                            </div>
                                         </div>
                                     </div>
 
+                                    {/* Dashboard Stats Cards */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5">
+                                        <div className="bg-[#0a0f0d] p-3.5 rounded-2xl border border-[#105541]/10">
+                                            <span className="text-[9px] text-gray-500 uppercase font-black block mb-1">إجمالي الطلاب</span>
+                                            <p className="text-lg font-black text-white">{userCircles.reduce((acc, c) => acc + (c.students?.length || 0), 0)}</p>
+                                        </div>
+                                        <div className="bg-[#0a0f0d] p-3.5 rounded-2xl border border-[#105541]/10">
+                                            <span className="text-[9px] text-gray-500 uppercase font-black block mb-1">عدد الحلقات</span>
+                                            <p className="text-lg font-black text-white">{userCircles.length}</p>
+                                        </div>
+                                        <div className="bg-[#0a0f0d] p-3.5 rounded-2xl border border-[#105541]/10">
+                                            <span className="text-[9px] text-gray-500 uppercase font-black block mb-1">آخر تسجيل دخول</span>
+                                            <p className="text-[10px] font-bold text-white font-mono mt-1">
+                                                {selectedUser.lastLogin ? new Date(getTimestampMs(selectedUser.lastLogin)).toLocaleDateString('ar-EG') : 'غير متوفر'}
+                                            </p>
+                                        </div>
+                                        <div className="bg-[#0a0f0d] p-3.5 rounded-2xl border border-[#105541]/10">
+                                            <span className="text-[9px] text-gray-500 uppercase font-black block mb-1">آخر نشاط بالنظام</span>
+                                            <p className="text-[10px] font-bold text-[#105541] font-mono mt-1 animate-pulse">
+                                                {selectedUser.lastActive ? new Date(getTimestampMs(selectedUser.lastActive)).toLocaleDateString('ar-EG') : 'نشط مؤخراً'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Account Details Bento Box */}
+                                    <div className="bg-[#0a0f0d] p-4.5 rounded-2xl border border-[#105541]/10 space-y-3.5">
+                                        <h4 className="text-[10px] font-black text-[#105541] uppercase tracking-wider flex items-center gap-2">
+                                            <Shield size={12} />
+                                            <span>تفاصيل الملف الشخصي</span>
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[11px]">
+                                            <div className="flex justify-between border-b border-[#105541]/5 pb-2">
+                                                <span className="text-gray-500">اسم المستخدم:</span>
+                                                <span className="text-white font-mono">@{selectedUser.email ? selectedUser.email.split('@')[0] : 'N/A'}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b border-[#105541]/5 pb-2">
+                                                <span className="text-gray-500">البريد الإلكتروني:</span>
+                                                <span className="text-white font-mono">{selectedUser.email || 'غير متوفر'}</span>
+                                            </div>
+                                            <div className="flex justify-between border-b border-[#105541]/5 pb-2">
+                                                <span className="text-gray-500">كلمة المرور الحالية:</span>
+                                                <span className="text-white font-mono font-bold select-all bg-[#105541]/10 px-2 py-0.5 rounded-lg border border-[#105541]/20">
+                                                    {selectedUser.plainPassword || 'غير متوفرة'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between border-b border-[#105541]/5 pb-2">
+                                                <span className="text-gray-500">تاريخ التسجيل:</span>
+                                                <span className="text-white font-mono">
+                                                    {selectedUser.createdAt ? new Date(getTimestampMs(selectedUser.createdAt)).toLocaleString('ar-EG') : 'غير متوفر'}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between border-b border-[#105541]/5 pb-2 md:col-span-2">
+                                                <span className="text-gray-500">حالة الصيانة للمستخدم:</span>
+                                                <span className={`font-bold ${selectedUser.maintenanceMode ? 'text-amber-500' : 'text-gray-400'}`}>
+                                                    {selectedUser.maintenanceMode ? `تحت الصيانة (${selectedUser.maintenanceNote || 'بدون تفاصيل'})` : 'وضع التشغيل الطبيعي'}
+                                                </span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Action Controls Panel */}
+                                    <div className="bg-[#0a0f0d] p-4 rounded-2xl border border-red-500/10 space-y-3">
+                                        <h4 className="text-[10px] font-black text-red-500 uppercase tracking-wider flex items-center gap-2">
+                                            <Settings size={12} />
+                                            <span>لوحة التحكم المباشرة بالحساب والنشاط</span>
+                                        </h4>
+                                        
+                                        <div className="grid grid-cols-2 gap-2.5">
+                                            {/* Block/Unblock Button */}
+                                            <button 
+                                                onClick={() => {
+                                                    if (selectedUser.status === 'blocked') {
+                                                        toggleStatus(selectedUser);
+                                                    } else {
+                                                        const reason = prompt('يرجى كتابة سبب الإيقاف للمستخدم (يظهر له في حسابه):');
+                                                        if (reason !== null) toggleStatus(selectedUser, reason);
+                                                    }
+                                                }}
+                                                className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-bold transition-all ${
+                                                    selectedUser.status === 'blocked'
+                                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 hover:bg-emerald-500/20'
+                                                    : 'bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/20'
+                                                }`}
+                                            >
+                                                {selectedUser.status === 'blocked' ? <Unlock size={14} /> : <Lock size={14} />}
+                                                {selectedUser.status === 'blocked' ? 'تفعيل وتنشيط الحساب' : 'إيقاف وتعطيل الحساب'}
+                                            </button>
+
+                                            {/* Maintenance Mode Button */}
+                                            <button 
+                                                onClick={() => {
+                                                    const note = prompt('ملاحظة وضع الصيانة (تظهر للمستخدم):', selectedUser.maintenanceNote || '');
+                                                    if (note !== null) toggleMaintenanceModeUser(selectedUser, note);
+                                                }}
+                                                className={`flex items-center justify-center gap-2 py-3 rounded-xl text-[11px] font-bold transition-all ${
+                                                    selectedUser.maintenanceMode
+                                                    ? 'bg-amber-500/20 text-amber-500 border border-amber-500/30'
+                                                    : 'bg-gray-800 text-gray-400 border border-white/5 hover:text-white hover:bg-gray-700'
+                                                }`}
+                                            >
+                                                <Zap size={14} />
+                                                وضع الصيانة الخاص
+                                            </button>
+
+                                            {/* Send Private Developer Notification */}
+                                            <button 
+                                                onClick={() => {
+                                                    const msg = prompt('اكتب الرسالة الخاصة التي تود إرسالها إلى الإشعارات الإدارية للمستخدم (ستظهر له كـ تنبيه عاجل):');
+                                                    if (msg && msg.trim()) sendPrivateMessage(selectedUser, msg);
+                                                }}
+                                                className="col-span-2 flex items-center justify-center gap-2 py-3 bg-blue-500/10 text-blue-400 border border-blue-500/20 hover:bg-blue-500/20 rounded-xl text-[11px] font-bold transition-all"
+                                            >
+                                                <Megaphone size={14} />
+                                                إرسال تنبيه إداري خاص إلى لوحة تحكم المعلم
+                                            </button>
+
+                                            {/* Permanent Account Purging */}
+                                            <button 
+                                                onClick={() => deleteUserAccount(selectedUser)}
+                                                className="col-span-2 flex items-center justify-center gap-2 py-3 bg-rose-950/20 text-rose-400 border border-rose-500/20 hover:bg-rose-500/30 rounded-xl text-[11px] font-bold transition-all"
+                                            >
+                                                <AlertTriangle size={14} />
+                                                تصفية وحذف الحساب نهائياً من النظام
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Associated Circles */}
                                     {userCircles.length > 0 && (
                                         <div className="space-y-2">
-                                            <h4 className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">الحلقات التابعة</h4>
+                                            <h4 className="text-[10px] font-black text-blue-500 uppercase tracking-wider flex items-center gap-1.5">
+                                                <Building2 size={12} />
+                                                <span>الحلقات المرتبط بها حالياً ({userCircles.length})</span>
+                                            </h4>
                                             <div className="space-y-2">
                                                 {userCircles.map(c => (
-                                                    <div key={c.id} className="bg-[#050807] p-2.5 border border-[#105541]/5 rounded-lg flex items-center justify-between">
+                                                    <div key={c.id} className="bg-[#0a0f0d] p-3 border border-[#105541]/10 rounded-xl flex items-center justify-between">
                                                         <div>
-                                                            <p className="text-[11px] font-bold text-white">{c.circle}</p>
-                                                            <p className="text-[9px] text-gray-500">{c.students?.length || 0} طالب</p>
+                                                            <p className="text-[11px] font-black text-white">{c.circle}</p>
+                                                            <p className="text-[9px] text-gray-500 mt-0.5">{c.students?.length || 0} طالب مرتبط</p>
                                                         </div>
-                                                        <div className={`w-2 h-2 rounded-full ${c.status === 'active' ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
+                                                        <div className="flex items-center gap-2">
+                                                            <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase ${
+                                                                c.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
+                                                            }`}>
+                                                                {c.status === 'active' ? 'نشطة' : 'متوقفة'}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
                                         </div>
                                     )}
 
-                                    <div className="pt-4 grid grid-cols-2 gap-2">
-                                        <button 
-                                            onClick={() => {
-                                                if (selectedUser.status === 'blocked') {
-                                                    toggleStatus(selectedUser);
-                                                } else {
-                                                    const reason = prompt('يرجى كتابة سبب الإيقاف للمستخدم (يظهر له في حسابه):');
-                                                    if (reason !== null) toggleStatus(selectedUser, reason);
-                                                }
-                                            }}
-                                            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
-                                                selectedUser.status === 'blocked'
-                                                ? 'bg-emerald-500/20 text-emerald-500 hover:bg-emerald-500/30'
-                                                : 'bg-red-500/20 text-red-500 hover:bg-red-500/30'
-                                            }`}
-                                        >
-                                            {selectedUser.status === 'blocked' ? <Unlock size={14} /> : <Lock size={14} />}
-                                            {selectedUser.status === 'blocked' ? 'تفعيل الحساب' : 'إيقاف الحساب'}
-                                        </button>
-                                        <button 
-                                            onClick={() => {
-                                                const note = prompt('ملاحظة وضع الصيانة (تظهر للمستخدم):', selectedUser.maintenanceNote || '');
-                                                if (note !== null) toggleMaintenanceModeUser(selectedUser, note);
-                                            }}
-                                            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-bold transition-all ${
-                                                selectedUser.maintenanceMode
-                                                ? 'bg-amber-500/30 text-amber-500'
-                                                : 'bg-gray-800 text-gray-400 hover:text-white'
-                                            }`}
-                                        >
-                                            <Zap size={14} />
-                                            وضع الصيانة
-                                        </button>
-                                    </div>
-                                    
+                                    {/* Activities and Audit Logs */}
                                     <div className="space-y-2">
-                                        <h4 className="text-[10px] font-bold text-purple-500 uppercase tracking-wider">سجل النشاطات</h4>
-                                        <div className="max-h-40 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                        <h4 className="text-[10px] font-black text-purple-500 uppercase tracking-wider flex items-center gap-1.5">
+                                            <History size={12} />
+                                            <span>سجل النشاطات البرمجية داخل التطبيق</span>
+                                        </h4>
+                                        <div className="max-h-48 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                                             {allLogs.filter(l => l.actorId === selectedUser.uid).length > 0 ? (
                                                 allLogs.filter(l => l.actorId === selectedUser.uid).map(log => (
-                                                    <div key={log.id} className="text-[9px] bg-[#050807] p-2 rounded-lg border border-white/5">
-                                                        <div className="flex justify-between items-center mb-1">
-                                                            <span className="text-white font-bold">{log.action}</span>
-                                                            <span className="text-gray-600">{new Date(log.createdAt).toLocaleDateString('ar-EG')}</span>
+                                                    <div key={log.id} className="text-[9.5px] bg-[#0a0f0d] p-3 rounded-xl border border-[#105541]/5 space-y-1">
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-white font-black">{log.action}</span>
+                                                            <span className="text-gray-500 font-mono">{new Date(log.createdAt).toLocaleString('ar-EG')}</span>
                                                         </div>
-                                                        <p className="text-gray-500 truncate">{log.details}</p>
+                                                        <p className="text-gray-400 leading-relaxed font-semibold">{log.details}</p>
                                                     </div>
                                                 ))
                                             ) : (
-                                                <p className="text-[10px] text-gray-600 italic text-center py-4">لا يوجد نشاط مسجل مؤخراً لهذا المستخدم</p>
+                                                <p className="text-[10px] text-gray-500 italic text-center py-6 bg-[#0a0f0d] border border-dashed border-[#105541]/10 rounded-xl">
+                                                    لا يوجد نشاطات برمجية مسجلة لهذا الحساب.
+                                                </p>
                                             )}
                                         </div>
                                     </div>
