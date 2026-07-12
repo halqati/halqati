@@ -6197,6 +6197,7 @@ const App: React.FC = () => {
                 )}
                 {activePage === 'reports' && (
                     <Reports 
+                        activeCircle={activeCircle}
                         onBack={() => handleNavigate('services')} 
                     />
                 )}
