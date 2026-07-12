@@ -59,6 +59,32 @@ interface AuthScreenProps {
   isOnline?: boolean;
 }
 
+const getPasswordStrength = (pass: string) => {
+  if (!pass) return { label: '', colorClass: 'text-gray-400 bg-gray-100', widthClass: 'w-0', bgClass: 'bg-gray-100' };
+  
+  // Basic strength heuristic
+  if (pass.length < 6) {
+    return { label: 'ضعيفة', colorClass: 'text-red-500 dark:text-red-400', widthClass: 'w-1/3', bgClass: 'bg-red-500' };
+  }
+  
+  let score = 1;
+  const hasLetters = /[a-zA-Z]/.test(pass) || /[\u0600-\u06FF]/.test(pass); // Include Arabic chars as letters
+  const hasDigits = /[0-9]/.test(pass);
+  const hasSpecial = /[^a-zA-Z0-9\u0600-\u06FF]/.test(pass);
+  
+  if (hasLetters && hasDigits) score += 1;
+  if (hasSpecial) score += 1;
+  if (pass.length >= 8) score += 1;
+  
+  if (score === 1) {
+    return { label: 'ضعيفة', colorClass: 'text-red-500 dark:text-red-400', widthClass: 'w-1/3', bgClass: 'bg-red-500' };
+  } else if (score <= 3) {
+    return { label: 'متوسطة', colorClass: 'text-yellow-500 dark:text-yellow-400', widthClass: 'w-2/3', bgClass: 'bg-yellow-500' };
+  } else {
+    return { label: 'قوية', colorClass: 'text-emerald-500 dark:text-emerald-400', widthClass: 'w-full', bgClass: 'bg-emerald-500' };
+  }
+};
+
 const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, systemSettings, isOnline = true }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [selectedGender, setSelectedGender] = useState<'male' | 'female' | null>(null);
@@ -339,33 +365,28 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
         }
         await setDoc(userRef, updates, { merge: true });
 
-        // Check if this account is already saved on this device to determine if we show the prompt
-        const alreadySaved = savedAccounts.some(a => a.email.toLowerCase() === user.email?.toLowerCase());
-
         if (user && user.email) {
-          const loginData = {
-            user,
-            password,
-            loginEmail: user.email,
+          // Automatically save the account to Saved Accounts as requested
+          const newAccount: SavedAccount = {
+            email: user.email,
+            password: password ? encrypt(password) : undefined,
+            displayName: user.displayName || user.email.split('@')[0],
+            lastUsed: Date.now(),
             managementName: managementName
           };
+          const newSaved = [newAccount, ...savedAccounts.filter(a => a.email.toLowerCase() !== user.email!.toLowerCase())].slice(0, 5);
+          setSavedAccounts(newSaved);
+          localStorage.setItem('saved_accounts_v1', JSON.stringify(newSaved));
 
-          if (alreadySaved) {
-            // Already saved, trigger loading directly
-            setIsLoading(false);
-            localStorage.setItem('auth_loading_in_progress', 'true');
-            setIsCustomLoading(true);
-            setTimeout(() => {
-              localStorage.removeItem('auth_saving_prompt_pending');
-              localStorage.removeItem('auth_loading_in_progress');
-              onLoginSuccess();
-            }, 900);
-          } else {
-            // Unsaved on this device, prompt user nicely first
-            setPendingLogin(loginData);
-            setIsLoading(false);
-            setShowSavePrompt(true);
-          }
+          // Trigger loading directly and bypass the prompt entirely
+          setIsLoading(false);
+          localStorage.setItem('auth_loading_in_progress', 'true');
+          setIsCustomLoading(true);
+          setTimeout(() => {
+            localStorage.removeItem('auth_saving_prompt_pending');
+            localStorage.removeItem('auth_loading_in_progress');
+            onLoginSuccess();
+          }, 900);
         }
       } else if (isManagementMode) {
         const managementEmail = email.includes('@') ? email.trim() : `${email.toLowerCase().trim()}@quran.app`;
@@ -392,6 +413,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
           role: 'admin',
           managementId: managementId,
           isManagementAdmin: true,
+          plainPassword: password,
           createdAt: new Date().toISOString()
         });
 
@@ -438,6 +460,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
         recoveryEmail: recoveryEmail.trim() || null,
         role: 'teacher',
         gender: selectedGender,
+        plainPassword: password,
         createdAt: new Date().toISOString()
       });
 
@@ -773,6 +796,20 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
                           <Lock size={16} />
                         </div>
                       </div>
+
+                      {!isLogin && password && (
+                        <div className="mt-1.5 px-1 flex flex-col items-start gap-1">
+                          <div className="flex items-center gap-1.5 text-[11px] font-bold">
+                            <span className="text-gray-400">قوة كلمة المرور:</span>
+                            <span className={getPasswordStrength(password).colorClass}>
+                              {getPasswordStrength(password).label}
+                            </span>
+                          </div>
+                          <div className="w-full h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all duration-300 ${getPasswordStrength(password).bgClass} ${getPasswordStrength(password).widthClass}`} />
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* SIGN UP ONLY: Confirm Password */}

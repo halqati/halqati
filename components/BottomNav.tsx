@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { FaHome, FaUsers, FaCalendarAlt, FaBook, FaCog } from 'react-icons/fa';
+import { FaHome, FaUsers, FaCalendarAlt, FaThLarge, FaCog } from 'react-icons/fa';
 
 interface BottomNavProps {
     activePage: string;
@@ -11,7 +11,7 @@ const navItems = [
     { id: 'home', icon: FaHome, label: 'الرئيسية' },
     { id: 'students', icon: FaUsers, label: 'الطلاب' },
     { id: 'sessions', icon: FaCalendarAlt, label: 'الجلسات' },
-    { id: 'records', icon: FaBook, label: 'السجل' },
+    { id: 'services', icon: FaThLarge, label: 'الخدمات' },
     { id: 'settings', icon: FaCog, label: 'الإعدادات' },
 ];
 
@@ -25,7 +25,9 @@ const BottomNav: React.FC<BottomNavProps> = ({ activePage, setActivePage }) => {
                         id={`${item.id}-nav-button`}
                         onClick={() => setActivePage(item.id)}
                         className={`flex flex-col items-center justify-center p-2 text-sm transition-colors ${
-                            activePage === item.id || (activePage === 'about' && item.id === 'settings')
+                            activePage === item.id || 
+                            (item.id === 'services' && ['services', 'records', 'parentFollowUp', 'tests', 'plans', 'activities', 'announcements', 'reports'].includes(activePage)) ||
+                            (item.id === 'settings' && ['settings', 'about', 'support', 'profile', 'circleInfo', 'syncDiagnostics'].includes(activePage))
                                 ? 'text-primary dark:text-accent' 
                                 : 'text-gray-500 dark:text-gray-400'
                         }`}

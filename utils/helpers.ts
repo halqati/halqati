@@ -1,6 +1,7 @@
 
 import { MemorizationRecord, ReviewRecord, HomeworkRecord, Session, CircleData, SessionStudent, Student, Test, Plan, StudentPlan, Activity, PointsSettings, Announcement, Notification, StudentReport, SupervisorReport, BulkReward, TeacherPermissions } from '../types';
 import { surahs } from '../constants';
+import { quranMetadata } from './quranMetadata';
 
 // Add type definitions for File System Access API
 declare global {
@@ -1634,4 +1635,147 @@ export const mergeCircleData = (local: CircleData, remote: CircleData): CircleDa
     result.students = mergeStudents(local.students, remote.students, finalDeletedStudentIds);
 
     return result;
+};
+
+export const roundToQuranFraction = (val: number): number => {
+    if (val <= 0) return 0;
+    const integerPart = Math.floor(val);
+    const fractionalPart = val - integerPart;
+    
+    // Increased precision: 0.05 steps as requested
+    const targets = [0, 0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.33, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 0.85, 0.90, 0.95, 1.0];
+    let closestFraction = targets[0];
+    let minDiff = Math.abs(fractionalPart - targets[0]);
+    
+    for (let i = 1; i < targets.length; i++) {
+        const diff = Math.abs(fractionalPart - targets[i]);
+        if (diff < minDiff) {
+            minDiff = diff;
+            closestFraction = targets[i];
+        }
+    }
+    
+    let rounded = integerPart + closestFraction;
+    if (val > 0 && rounded === 0) {
+        rounded = 0.05; 
+    }
+    return parseFloat(rounded.toFixed(2));
+};
+
+export const calculatePagesCount = (
+    fromSurahName: string,
+    fromAyahStr: string | number,
+    toSurahName: string,
+    toAyahStr: string | number
+): number => {
+    if (!fromSurahName) return 0;
+    
+    const fromSurahNum = surahs.findIndex(s => normalizeText(s.name) === normalizeText(fromSurahName)) + 1;
+    const toSurahNum = toSurahName 
+        ? (surahs.findIndex(s => normalizeText(s.name) === normalizeText(toSurahName)) + 1)
+        : fromSurahNum;
+
+    if (fromSurahNum === 0 || toSurahNum === 0) return 0;
+
+    const startSurahObj = surahs[fromSurahNum - 1];
+    const endSurahObj = surahs[toSurahNum - 1];
+
+    let fromAyah = 1;
+    let toAyah = 1;
+
+    const hasFromAyah = fromAyahStr !== undefined && fromAyahStr !== null && fromAyahStr.toString().trim() !== '';
+    const hasToAyah = toAyahStr !== undefined && toAyahStr !== null && toAyahStr.toString().trim() !== '';
+
+    if (fromSurahNum === toSurahNum) {
+        if (!hasFromAyah && !hasToAyah) {
+            fromAyah = 1;
+            toAyah = startSurahObj.verses;
+        } else if (!hasFromAyah && hasToAyah) {
+            fromAyah = 1;
+            toAyah = parseInt(sanitizeToEnglishNumber(toAyahStr)) || 1;
+        } else if (hasFromAyah && !hasToAyah) {
+            fromAyah = parseInt(sanitizeToEnglishNumber(fromAyahStr)) || 1;
+            toAyah = fromAyah;
+        } else {
+            fromAyah = parseInt(sanitizeToEnglishNumber(fromAyahStr)) || 1;
+            toAyah = parseInt(sanitizeToEnglishNumber(toAyahStr)) || fromAyah;
+        }
+    } else {
+        if (!hasFromAyah) {
+            fromAyah = 1;
+        } else {
+            fromAyah = parseInt(sanitizeToEnglishNumber(fromAyahStr)) || 1;
+        }
+
+        if (!hasToAyah) {
+            toAyah = endSurahObj.verses;
+        } else {
+            toAyah = parseInt(sanitizeToEnglishNumber(toAyahStr)) || 1;
+        }
+    }
+
+    let startSurah = fromSurahNum;
+    let startAyah = fromAyah;
+    let endSurah = toSurahNum;
+    let endAyah = toAyah;
+
+    if (startSurah > endSurah || (startSurah === endSurah && startAyah > endAyah)) {
+        startSurah = toSurahNum;
+        startAyah = toAyah;
+        endSurah = fromSurahNum;
+        endAyah = fromAyah;
+    }
+
+    const isVerseInRange = (s: number, a: number): boolean => {
+        if (s < startSurah || s > endSurah) return false;
+        if (s > startSurah && s < endSurah) return true;
+        if (s === startSurah && s === endSurah) return a >= startAyah && a <= endAyah;
+        if (s === startSurah) return a >= startAyah;
+        if (s === endSurah) return a <= endAyah;
+        return false;
+    };
+
+    const rangeVerses = quranMetadata.filter(v => isVerseInRange(v.surah_number, v.ayah_number));
+    if (rangeVerses.length === 0) return 0;
+
+    const pageToSavedWordsMap: { [page: number]: number } = {};
+    for (const v of rangeVerses) {
+        if (!pageToSavedWordsMap[v.page_number]) {
+            pageToSavedWordsMap[v.page_number] = 0;
+        }
+        pageToSavedWordsMap[v.page_number] += v.words_count;
+    }
+
+    const affectedPages = Object.keys(pageToSavedWordsMap).map(Number);
+    const pageToTotalWordsMap: { [page: number]: number } = {};
+    for (const v of quranMetadata) {
+        if (affectedPages.includes(v.page_number)) {
+            if (!pageToTotalWordsMap[v.page_number]) {
+                pageToTotalWordsMap[v.page_number] = 0;
+            }
+            pageToTotalWordsMap[v.page_number] += v.words_count;
+        }
+    }
+
+    let totalRatios = 0;
+    for (const page of affectedPages) {
+        const savedWords = pageToSavedWordsMap[page] || 0;
+        const totalWords = pageToTotalWordsMap[page] || 1;
+        totalRatios += (savedWords / totalWords);
+    }
+
+    return roundToQuranFraction(totalRatios);
+};
+
+export const formatPagesCountArabic = (count: number): string => {
+    const formattedCount = parseFloat(count.toFixed(2));
+    if (formattedCount === 1 || (formattedCount > 1 && formattedCount < 2)) {
+        return `${formattedCount} صفحة`;
+    } else if (formattedCount >= 2 && formattedCount <= 10) {
+        return `${formattedCount} صفحات`;
+    } else if (formattedCount > 10) {
+        return `${formattedCount} صفحة`;
+    } else {
+        return `${formattedCount} صفحة`;
+    }
 };

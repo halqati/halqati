@@ -128,6 +128,8 @@ export interface MemorizationRecord {
     toSurah: string;
     toAyah: string;
     rating?: number;
+    pages_count?: number;
+    highlights?: { [key: string]: { color: string; size: number } };
 }
 
 export interface ReviewRecord {
@@ -137,6 +139,8 @@ export interface ReviewRecord {
     toSurah: string;
     toAyah: string;
     rating?: number;
+    pages_count?: number;
+    highlights?: { [key: string]: { color: string; size: number } };
 }
 
 export interface HomeworkRecord {
@@ -202,12 +206,36 @@ export interface Session {
 
 export interface Notification {
     id: string;
-    type: 'warning' | 'danger' | 'info' | 'success' | 'special' | 'special_white' | 'seasonal';
+    type: 'warning' | 'danger' | 'info' | 'success' | 'special' | 'special_white' | 'seasonal' | 'update' | 'maintenance' | 'announcement' | 'alert' | 'note';
     category?: 'system' | 'student' | 'management'; // Optional classification
     message: string;
     createdAt: number;
     lastUpdated?: number; // Timestamp for sync
     readBy?: string[]; // Array of user UIDs who have read this notification
+    title?: string;
+    description?: string;
+    imageUrl?: string;
+    imageUrls?: string[];
+    scheduledAt?: number;
+    expiresAt?: number;
+    endDate?: string;
+    startDate?: string;
+    targetType?: 'all' | 'circles' | 'users';
+    targetCircleIds?: string[];
+    excludeCircleIds?: string[];
+    targetUids?: string[];
+    excludeUids?: string[];
+    isClosable?: boolean;
+    isMandatory?: boolean;
+    disappearAfterRead?: boolean;
+    active?: boolean;
+    buttons?: Array<{ id: string; text: string; action: string; link?: string; page?: string }>;
+    stats?: {
+        delivered?: string[];
+        viewed?: string[];
+        closed?: string[];
+        buttonClicks?: { [buttonId: string]: string[] };
+    };
     metadata?: {
         uid?: string;
         userName?: string;
@@ -338,6 +366,7 @@ export interface UserProfile {
     status?: 'active' | 'blocked' | 'deleted';
     plainPassword?: string; // For developer visibility (requested)
     blockedReason?: string;
+    suspendCirclesOnBlock?: boolean;
     maintenanceMode?: boolean;
     maintenanceNote?: string;
     lastActive?: any;
@@ -491,6 +520,9 @@ export interface CircleData {
     lastUpdated: number; // Timestamp of last modification for sync
     time?: string;
     isMaintenance?: boolean;
+    isStopped?: boolean;
+    suspendedByTeacherUid?: string;
+    suspendedByTeacherReason?: string;
     status?: 'active' | 'inactive';
 }
 

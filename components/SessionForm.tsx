@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Session, SessionStudent, MemorizationRecord, ReviewRecord, AlertModalData, ConfirmationModalData, LastRecordModalData, Settings, Student, HomeworkRecord, ManualPointAdjustment, AppliedBulkAction, PointsSettings } from '../types';
 import { FaTimes, FaUserCheck, FaUserClock, FaUserTimes, FaUserGraduate, FaTrash, FaPlus, FaHistory, FaChevronDown, FaChevronUp, FaBook, FaSave, FaCheckCircle, FaSearch, FaUndo, FaRegCommentDots, FaCopy, FaUsers, FaCheckSquare, FaRegSquare, FaQuestionCircle, FaChartBar, FaBookOpen, FaExclamationTriangle, FaThLarge, FaEllipsisV, FaPlusCircle, FaMinusCircle, FaStickyNote, FaPause, FaPlay, FaMicrophone, FaTools, FaLayerGroup, FaRobot } from 'react-icons/fa';
 import { IconType } from 'react-icons';
-import { getGenderedTerm, formatDate, normalizeText, formatSurahAyah, sanitizeToEnglishNumber, generateUniqueId } from '../utils/helpers';
+import { getGenderedTerm, formatDate, normalizeText, formatSurahAyah, sanitizeToEnglishNumber, generateUniqueId, calculatePagesCount, formatPagesCountArabic } from '../utils/helpers';
 import StudentAvatar from './StudentAvatar';
 import SurahSelectorModal from './SurahSelectorModal';
 import StudentGroupSelector from './StudentGroupSelector';
@@ -12,6 +12,7 @@ import { surahs } from '../constants';
 import SessionDatePickerModal from './SessionDatePickerModal';
 import BulkActionsModal from './BulkActionsModal';
 import SmartScanModal from './SmartScanModal';
+import { MiniQuranModal } from './MiniQuranModal';
 
 const modalVariants = {
     initial: { x: '100%' },
@@ -413,6 +414,7 @@ const HomeworkInput: React.FC<HomeworkInputProps> = ({ record, onChange, onDelet
 };
 
 const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspended, onChange, onDelete, onShowLastRecord, settings, pointsSettings, onOpenSelector }) => {
+    const [isViewerOpen, setIsViewerOpen] = useState(false);
     const hasRecordKey = type === 'memorization' ? 'hasMemorization' : 'hasReview';
     const hasRecord = (record as any)[hasRecordKey];
 
@@ -438,6 +440,19 @@ const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspen
                 newRecord.rating = undefined;
             }
         }
+
+        const isCurrentlyActive = (field === hasRecordKey) ? !!value : !!(newRecord as any)[hasRecordKey];
+        if (isCurrentlyActive && newRecord.fromSurah) {
+            newRecord.pages_count = calculatePagesCount(
+                newRecord.fromSurah,
+                newRecord.fromAyah || '',
+                newRecord.toSurah || '',
+                newRecord.toAyah || ''
+            );
+        } else {
+            newRecord.pages_count = 0;
+        }
+
         onChange(newRecord);
     };
 
@@ -462,6 +477,17 @@ const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspen
                     />
                     <span className="font-semibold text-gray-800 dark:text-white select-none">{label}</span>
                 </div>
+                
+                {hasRecord && record.pages_count !== undefined && record.pages_count > 0 && (
+                    <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setIsViewerOpen(true); }}
+                        className="text-[10px] font-medium text-gray-400 dark:text-gray-500 hover:text-primary dark:hover:text-accent transition-colors duration-200 cursor-pointer flex items-center gap-1 select-none underline decoration-dashed underline-offset-2 bg-transparent border-none p-0 shadow-none hover:shadow-none focus:outline-hidden"
+                    >
+                        <FaBookOpen size={10} className="shrink-0 text-gray-400 dark:text-gray-500" />
+                        <span>{formatPagesCountArabic(record.pages_count)}</span>
+                    </button>
+                )}
                 
                 <div className="mr-auto flex items-center gap-3">
                     {onShowLastRecord && hasRecord && (
@@ -545,6 +571,24 @@ const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspen
                     </motion.div>
                 )}
             </AnimatePresence>
+            {isViewerOpen && (
+                <MiniQuranModal
+                    isOpen={isViewerOpen}
+                    onClose={() => setIsViewerOpen(false)}
+                    fromSurahName={record.fromSurah || ''}
+                    fromAyah={record.fromAyah || ''}
+                    toSurahName={record.toSurah || ''}
+                    toAyah={record.toAyah || ''}
+                    pagesCount={record.pages_count || 0}
+                    highlights={record.highlights}
+                    onHighlightsChange={(newHighlights) => {
+                        onChange({
+                            ...record,
+                            highlights: newHighlights
+                        });
+                    }}
+                />
+            )}
         </div>
     );
 };

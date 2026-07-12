@@ -266,7 +266,6 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                             </button>
                         )}
                         {hasFullManagement && <SettingButton label="بيانات الحلقة" icon={FaBookOpen} onClick={onNavigateToCircleInfo} />}
-                        {hasFullManagement && <SettingButton label="الاختبارات والخطط والنشاطات" icon={FaClipboardList} onClick={onNavigateToTestsAndPlans} />}
                         <SettingButton label="الإضافات والمظهر" icon={FaWrench} onClick={onOpenAddonsModal} />
                     </SettingCard>
                 </div>

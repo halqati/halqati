@@ -1,6 +1,6 @@
 import React, { ErrorInfo, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, Home, LogOut, Calendar, ShieldAlert, Lock, SendHorizontal } from 'lucide-react';
+import { ChevronDown, ChevronUp, Home, LogOut, LogIn, Calendar, ShieldAlert, Lock, SendHorizontal } from 'lucide-react';
 import { auth } from '../firebase';
 
 interface Props {
@@ -56,6 +56,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
         localStorage.setItem('tahfeezMultiCircleApp_v1', JSON.stringify(data));
       }
       localStorage.removeItem('tahfeezUserProfile_v1');
+      localStorage.removeItem('tahfeezAuthUser_v1');
+      localStorage.removeItem('app_authenticated_permanently');
+      localStorage.removeItem('logging_out_active');
+      localStorage.removeItem('developer_acting_as_user');
+      localStorage.removeItem('auth_saving_prompt_pending');
+      localStorage.removeItem('auth_loading_in_progress');
       if (auth) {
         const { signOut } = await import('firebase/auth');
         await signOut(auth);
@@ -213,7 +219,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                   id="error-login-btn"
                   type="button"
                 >
-                  <LogOut className="w-3.5 h-3.5" />
+                  <LogIn className="w-3.5 h-3.5" />
                   <span>تسجيل الدخول</span>
                 </button>
               </div>

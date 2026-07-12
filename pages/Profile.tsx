@@ -22,6 +22,32 @@ interface ProfileProps {
 
 const pageVariants = { initial: {opacity: 0, x: 20}, animate: {opacity: 1, x: 0}, exit: {opacity: 0, x: -20} };
 
+const getPasswordStrength = (pass: string) => {
+    if (!pass) return { label: '', colorClass: 'text-gray-400 bg-gray-100', widthClass: 'w-0', bgClass: 'bg-gray-100' };
+    
+    // Basic strength heuristic
+    if (pass.length < 6) {
+        return { label: 'ضعيفة', colorClass: 'text-red-500 dark:text-red-400', widthClass: 'w-1/3', bgClass: 'bg-red-500' };
+    }
+    
+    let score = 1;
+    const hasLetters = /[a-zA-Z]/.test(pass) || /[\u0600-\u06FF]/.test(pass); // Include Arabic chars as letters
+    const hasDigits = /[0-9]/.test(pass);
+    const hasSpecial = /[^a-zA-Z0-9\u0600-\u06FF]/.test(pass);
+    
+    if (hasLetters && hasDigits) score += 1;
+    if (hasSpecial) score += 1;
+    if (pass.length >= 8) score += 1;
+    
+    if (score === 1) {
+        return { label: 'ضعيفة', colorClass: 'text-red-500 dark:text-red-400', widthClass: 'w-1/3', bgClass: 'bg-red-500' };
+    } else if (score <= 3) {
+        return { label: 'متوسطة', colorClass: 'text-yellow-500 dark:text-yellow-400', widthClass: 'w-2/3', bgClass: 'bg-yellow-500' };
+    } else {
+        return { label: 'قوية', colorClass: 'text-emerald-500 dark:text-emerald-400', widthClass: 'w-full', bgClass: 'bg-emerald-500' };
+    }
+};
+
 const Profile: React.FC<ProfileProps> = ({ mode, data, allCircles, onSave, onUpdateAccountDetails, onBack, setConfirmationModal, userProfile, onToggleAdminMode, addToast, isOnline }) => {
     const isAdmin = userProfile?.role === 'admin' || userProfile?.role === 'superadmin';
     const currentUserId = userProfile?.uid || '';
@@ -433,6 +459,19 @@ const Profile: React.FC<ProfileProps> = ({ mode, data, allCircles, onSave, onUpd
                                                     onChange={(e) => setNewPassword(e.target.value)}
                                                     className="w-full p-3 border border-gray-100 dark:border-gray-700 rounded-xl bg-white dark:bg-gray-900 outline-none focus:border-primary text-sm"
                                                 />
+                                                {newPassword && (
+                                                    <div className="mt-1 px-1 flex flex-col items-start gap-1">
+                                                        <div className="flex items-center gap-1.5 text-xs font-bold text-right w-full justify-start">
+                                                            <span className="text-gray-400 dark:text-gray-500">قوة كلمة المرور:</span>
+                                                            <span className={getPasswordStrength(newPassword).colorClass}>
+                                                                {getPasswordStrength(newPassword).label}
+                                                            </span>
+                                                        </div>
+                                                        <div className="w-full h-1 bg-gray-100 dark:bg-gray-800 rounded-full overflow-hidden">
+                                                            <div className={`h-full rounded-full transition-all duration-300 ${getPasswordStrength(newPassword).bgClass} ${getPasswordStrength(newPassword).widthClass}`} />
+                                                        </div>
+                                                    </div>
+                                                )}
                                                 <input 
                                                     type="password" 
                                                     placeholder="تأكيد كلمة المرور الجديدة" 

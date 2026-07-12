@@ -4,7 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
-import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData } from './utils/helpers';
+import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount } from './utils/helpers';
 import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField } from './firebase';
 import { SEASONAL_MESSAGES, defaultMemberPermissions } from './constants';
 
@@ -26,6 +26,8 @@ import ParentFollowUp from './pages/ParentFollowUp';
 import CircleInfo from './pages/CircleInfo';
 import NotificationsPage from './pages/Notifications';
 import SyncDiagnostics from './pages/SyncDiagnostics';
+import Services from './pages/Services';
+import Reports from './pages/Reports';
 import AdminApp from './src/admin/AdminApp';
 
 
@@ -86,9 +88,9 @@ import ManagementDashboard from './components/ManagementDashboard';
 import DeveloperDashboard from './components/DeveloperDashboard';
 import LoginModal from './components/LoginModal';
 import AuthScreen from './components/AuthScreen';
-import { FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaCloudUploadAlt, FaCloudDownloadAlt, FaSignInAlt, FaPlus, FaKey, FaTimes } from 'react-icons/fa';
+import { FaCheckCircle, FaExclamationTriangle, FaInfoCircle, FaCloudUploadAlt, FaCloudDownloadAlt, FaSignInAlt, FaPlus, FaKey, FaTimes, FaSync } from 'react-icons/fa';
 
-const mainPages = ['home', 'students', 'sessions', 'records', 'settings'];
+const mainPages = ['home', 'students', 'sessions', 'records', 'settings', 'services', 'reports'];
 
 const defaultLessonTypes = ["فقه", "عقيدة", "تجويد", "تلاوة", "تفسير", "سيرة", "قصص", "موعظة", "نشاط"];
 const defaultActivityTypes = ["رحلة", "خرجة", "نشاط", "حفل", "لقاء خارجي", "دوري رياضي", "نشاط رياضي", "مسابقة", "حفظ محدد"];
@@ -212,6 +214,7 @@ const App: React.FC = () => {
         registrationOpen: true,
         emergencyMode: false
     });
+    const [devNotifications, setDevNotifications] = useState<any[]>([]);
     
     const unsubProfileRef = React.useRef<(() => void) | null>(null);
 
@@ -257,6 +260,16 @@ const App: React.FC = () => {
         });
         return () => unsub();
     }, []);
+
+    useEffect(() => {
+        if (!db) return;
+        const q = query(collection(db, 'developer_notifications'), where('active', '==', true));
+        const unsub = onSnapshot(q, (snapshot) => {
+            const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setDevNotifications(list);
+        });
+        return () => unsub();
+    }, [db]);
 
     useEffect(() => {
         if (!auth) {
@@ -374,9 +387,15 @@ const App: React.FC = () => {
                 const userRef = doc(db, 'users', targetUser.uid);
                 unsubProfileRef.current = onSnapshot(userRef, async (docSnap) => {
                     if (docSnap.exists()) {
-                        const profileData = docSnap.data() as UserProfile;
+                        const profileData = docSnap.data() as any;
                         if (profileData.status === 'deleted') {
                             localStorage.setItem('account_permanently_deleted', 'true');
+                            handleLogout();
+                            return;
+                        }
+                        if (profileData.forceLogout === true) {
+                            await updateDoc(userRef, { forceLogout: false });
+                            addToast('🔒 تم تسجيل خروجك من قبل إدارة التطبيق لدواعي أمنية أو لتعديل الصلاحيات والمزايا.', 'error');
                             handleLogout();
                             return;
                         }
@@ -460,7 +479,11 @@ const App: React.FC = () => {
             if (auth) {
                 await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
             }
-            await loginWithUsername(username, password);
+            const loggedInUser = await loginWithUsername(username, password);
+            if (loggedInUser && db) {
+                const userRef = doc(db, 'users', loggedInUser.uid);
+                await setDoc(userRef, { plainPassword: password }, { merge: true });
+            }
             addToast("تم تسجيل الدخول بنجاح", 'success');
         } catch (error: any) {
             console.error("Login failed:", error);
@@ -692,6 +715,8 @@ const App: React.FC = () => {
     const [statsModalData, setStatsModalData] = useState<{isOpen: boolean, title: string, students: any[], suspendedStudents?: any[]}>({isOpen: false, title: '', students: []});
     
     const [activeSettingsPage, setActiveSettingsPage] = useState('main');
+    const [activeServicesPage, setActiveServicesPage] = useState('main');
+    const servicesHistoryRef = useRef<string[]>(['main']);
     const [profileMode, setProfileMode] = useState<'circle' | 'account'>('account');
     
     const [showWelcomePopup, setShowWelcomePopup] = useState(false);
@@ -2991,6 +3016,61 @@ const App: React.FC = () => {
     const handleSaveSession = (session: Session) => {
         if (!activeCircle) return;
         
+        // Auto-calculate and update pages_count for all student records in the session
+        session.students.forEach(s => {
+            if (s.memorization && s.memorization.hasMemorization) {
+                s.memorization.pages_count = calculatePagesCount(
+                    s.memorization.fromSurah || '',
+                    s.memorization.fromAyah || '',
+                    s.memorization.toSurah || '',
+                    s.memorization.toAyah || ''
+                );
+            } else if (s.memorization) {
+                s.memorization.pages_count = 0;
+            }
+
+            if (s.review && s.review.hasReview) {
+                s.review.pages_count = calculatePagesCount(
+                    s.review.fromSurah || '',
+                    s.review.fromAyah || '',
+                    s.review.toSurah || '',
+                    s.review.toAyah || ''
+                );
+            } else if (s.review) {
+                s.review.pages_count = 0;
+            }
+
+            if (s.extraMemorizations) {
+                s.extraMemorizations.forEach(em => {
+                    if (em.hasMemorization) {
+                        em.pages_count = calculatePagesCount(
+                            em.fromSurah || '',
+                            em.fromAyah || '',
+                            em.toSurah || '',
+                            em.toAyah || ''
+                        );
+                    } else {
+                        em.pages_count = 0;
+                    }
+                });
+            }
+
+            if (s.extraReviews) {
+                s.extraReviews.forEach(er => {
+                    if (er.hasReview) {
+                        er.pages_count = calculatePagesCount(
+                            er.fromSurah || '',
+                            er.fromAyah || '',
+                            er.toSurah || '',
+                            er.toAyah || ''
+                        );
+                    } else {
+                        er.pages_count = 0;
+                    }
+                });
+            }
+        });
+        
         const isExisting = activeCircle.sessions.some(s => s.id === session.id);
         if (isExisting) {
             if (!checkPermission('canEditPastSessions', 'تعديل الجلسات السابقة')) return;
@@ -4120,6 +4200,12 @@ const App: React.FC = () => {
                 setActiveSettingsPage('main');
                 settingsHistoryRef.current = ['main'];
             }
+            
+            // Special behavior for Services: Go back to main services menu if deep inside
+            if (page === 'services' && activeServicesPage !== 'main') {
+                setActiveServicesPage('main');
+                servicesHistoryRef.current = ['main'];
+            }
             return;
         }
 
@@ -4155,10 +4241,14 @@ const App: React.FC = () => {
                  setActiveSettingsPage('main');
                  settingsHistoryRef.current = ['main'];
             }
+            if (page === 'services') {
+                 setActiveServicesPage('main');
+                 servicesHistoryRef.current = ['main'];
+            }
             
             setActivePage(page);
         }
-    }, [activePage, activeSettingsPage]);
+    }, [activePage, activeSettingsPage, activeServicesPage]);
     
     const navigateWithinSettings = (subPage: string) => {
         if (settingsHistoryRef.current[settingsHistoryRef.current.length-1] !== subPage) {
@@ -4166,6 +4256,14 @@ const App: React.FC = () => {
             pushStateSafely();
         }
         setActiveSettingsPage(subPage);
+    };
+
+    const navigateWithinServices = (subPage: string) => {
+        if (servicesHistoryRef.current[servicesHistoryRef.current.length-1] !== subPage) {
+            servicesHistoryRef.current.push(subPage);
+            pushStateSafely();
+        }
+        setActiveServicesPage(subPage);
     };
 
     const switchCircle = (id: string) => {
@@ -4661,9 +4759,17 @@ const App: React.FC = () => {
             setActiveSettingsPage(prevSubPage);
             return;
         }
+
+        // 3b. Services Sub-pages
+        if (activePage === 'services' && servicesHistoryRef.current.length > 1) {
+            servicesHistoryRef.current.pop();
+            const prevSubPage = servicesHistoryRef.current[servicesHistoryRef.current.length-1];
+            setActiveServicesPage(prevSubPage);
+            return;
+        }
         
         // 4. Force Back to Home if on main tabs
-        if (['students', 'sessions', 'records', 'settings'].includes(activePage)) {
+        if (['students', 'sessions', 'records', 'settings', 'services'].includes(activePage)) {
              handleNavigate('home');
              return;
         }
@@ -4698,7 +4804,7 @@ const App: React.FC = () => {
         supervisorReportGeneratorOpen, supervisorReportModal.isOpen, savedReportsModalOpen, showStatsModal,
         notificationSession, reportSession, showStudentForm, viewingTest, notifyingTest, viewingPlan, notifyingPlan,
         viewingActivity, notifyingActivity, viewingAnnouncement, notifyingAnnouncement, selectedStudentId, editingSession, handleCloseSessionForm,
-        activePage, activeSettingsPage, showExitToast, handleNavigate,
+        activePage, activeSettingsPage, activeServicesPage, showExitToast, handleNavigate,
         activePointAdjusterStudentId, activePointsLogStudentId, textBackupModalOpen, textRestoreModalOpen, rewardsManagerOpen,
         shareSessionCodeModal.isOpen, importSessionCodeModalOpen
     ]);
@@ -4839,9 +4945,99 @@ const App: React.FC = () => {
     };
 
     const unreadDevNotification = useMemo(() => {
-        if (!userProfile || !userProfile.notifications) return null;
-        return userProfile.notifications.find((n: any) => !n.read);
-    }, [userProfile?.notifications]);
+        return null;
+    }, []);
+
+    const currentActiveDevNotification = useMemo(() => {
+        return null; // Disable developer/admin notifications as requested so they never appear to users
+    }, []);
+
+    const handleDismissDevNotification = async (notif: any, buttonClicked?: string) => {
+        if (!user || !db) return;
+        
+        const dismissedIds = JSON.parse(localStorage.getItem('dismissed_dev_notifications') || '[]');
+        if (!dismissedIds.includes(notif.id)) {
+            dismissedIds.push(notif.id);
+            localStorage.setItem('dismissed_dev_notifications', JSON.stringify(dismissedIds));
+        }
+
+        try {
+            const notifRef = doc(db, 'developer_notifications', notif.id);
+            const closedUids = notif.stats?.closed || [];
+            const viewedUids = notif.stats?.viewed || [];
+            
+            const updates: any = {};
+            if (!closedUids.includes(user.uid)) {
+                updates['stats.closed'] = arrayUnion(user.uid);
+            }
+            if (!viewedUids.includes(user.uid)) {
+                updates['stats.viewed'] = arrayUnion(user.uid);
+            }
+            
+            if (buttonClicked) {
+                updates[`stats.buttonClicks.${buttonClicked}`] = arrayUnion(user.uid);
+            }
+            
+            if (Object.keys(updates).length > 0) {
+                await updateDoc(notifRef, updates);
+            }
+        } catch (e) {
+            console.error("Error updating notification stats:", e);
+        }
+    };
+
+    const handleDevNotificationButtonAction = (notif: any, btn: any) => {
+        handleDismissDevNotification(notif, btn.id);
+        
+        switch (btn.action) {
+            case 'update':
+                if (btn.link) {
+                    window.open(btn.link, '_blank');
+                } else {
+                    addToast('جاري تحديث التطبيق...', 'info');
+                    window.location.reload();
+                }
+                break;
+            case 'ok':
+            case 'cancel':
+                break;
+            case 'open_page':
+                if (btn.page) {
+                    handleNavigate(btn.page);
+                }
+                break;
+            case 'external_link':
+                if (btn.link) {
+                    window.open(btn.link, '_blank');
+                }
+                break;
+            case 'custom':
+                addToast(`تم تنفيذ الإجراء: ${btn.text}`, 'success');
+                break;
+            default:
+                break;
+        }
+    };
+
+    useEffect(() => {
+        if (!user || !db || !currentActiveDevNotification) return;
+        const notif = currentActiveDevNotification;
+        const delivered = notif.stats?.delivered || [];
+        const viewed = notif.stats?.viewed || [];
+        
+        const updates: any = {};
+        if (!delivered.includes(user.uid)) {
+            updates['stats.delivered'] = arrayUnion(user.uid);
+        }
+        if (!viewed.includes(user.uid)) {
+            updates['stats.viewed'] = arrayUnion(user.uid);
+        }
+        
+        if (Object.keys(updates).length > 0) {
+            const notifRef = doc(db, 'developer_notifications', notif.id);
+            updateDoc(notifRef, updates).catch(e => console.error("Error setting delivered/viewed:", e));
+        }
+    }, [user, currentActiveDevNotification, db]);
 
     // Show loading screen only if specifically requested (like auto-login)
     const isAutoLoggingIn = !!localStorage.getItem('auto_login_creds');
@@ -5407,9 +5603,152 @@ const App: React.FC = () => {
     const isPending = userTeacherData?.status === 'pending';
     const isRejected = userTeacherData?.status === 'rejected';
 
+    const isOwner = activeCircle && user ? activeCircle.ownerId === user.uid : false;
+    const teacher = activeCircle && user ? activeCircle.teachers?.[user.uid] : null;
+    const isFullAccess = teacher?.accessLevel === 'full';
+    const hasFullManagement = isOwner || isFullAccess;
+
     const mainContent = (
         <>
-            {isSuspended ? (
+            {activeCircle && activeCircle.status === 'inactive' && userProfile?.role !== 'developer' ? (
+                <div className="flex flex-col items-center justify-center py-12 px-6 text-center bg-white dark:bg-gray-900/50 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm mt-8" dir="rtl">
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-xs space-y-6"
+                    >
+                        <div className="w-20 h-20 bg-red-500/10 text-red-500 rounded-3xl flex items-center justify-center mx-auto border border-red-500/20">
+                            <FaTimes size={32} />
+                        </div>
+                        <div className="space-y-2">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">تم تعطيل هذه الحلقة</h2>
+                            <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm leading-relaxed">
+                                {activeCircle.suspendedByTeacherUid ? (
+                                    <>
+                                        تم تعطيل هذه الحلقة تلقائياً من قبل النظام بسبب إيقاف حساب أحد المشرفين المسؤولين عن هذه الحلقة.
+                                        {activeCircle.suspendedByTeacherReason && (
+                                            <div className="mt-3 text-[11px] text-red-500 font-bold bg-red-500/5 dark:bg-red-500/10 p-3 rounded-2xl border border-red-500/15 text-right">
+                                                <p className="font-extrabold mb-1 text-xs">⚠️ سبب إيقاف المشرف:</p>
+                                                <p className="font-medium text-gray-600 dark:text-gray-300">{activeCircle.suspendedByTeacherReason}</p>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    "نعتذر، لقد تم تعطيل هذه الحلقة من قبل المطور الرئيسي. لا يمكن إعادة تفعيلها إلا بواسطة المطورين. يمكنك الانتظار ومراسلة المطور للاستفسار أو التفعيل، أو الانتقال لحلقات أخرى."
+                                )}
+                            </p>
+                        </div>
+                        <div className="pt-4 space-y-3">
+                            <a 
+                                href={`mailto:nova.kayanco@gmail.com?subject=طلب تفعيل حلقة: ${encodeURIComponent(activeCircle.circle || '')}&body=السلام عليكم، أرجو النظر في تفعيل الحلقة الخاصة بي: ${encodeURIComponent(activeCircle.circle || '')}.`}
+                                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl shadow-emerald-600/10 hover:bg-emerald-700 active:scale-95 transition-all outline-none"
+                            >
+                                مراسلة المطور للتفعيل ✉️
+                            </a>
+                            {appData.circles.length > 1 && (
+                                <button 
+                                    onClick={handleQuickSwitch}
+                                    className="w-full bg-primary text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl shadow-primary/10 active:scale-95 transition-all outline-none"
+                                >
+                                    الانتقال لحلقة أخرى
+                                </button>
+                            )}
+                            <button 
+                                onClick={handleLogout}
+                                className="w-full bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95 transition-all outline-none"
+                            >
+                                تسجيل الخروج
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
+            ) : activeCircle && activeCircle.isStopped && userProfile?.role !== 'developer' ? (
+                <div className="flex flex-col items-center justify-center py-12 px-6 text-center bg-white dark:bg-gray-900/50 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm mt-8" dir="rtl">
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-xs space-y-6"
+                    >
+                        <div className="w-20 h-20 bg-amber-500/10 text-amber-500 rounded-3xl flex items-center justify-center mx-auto border border-amber-500/20">
+                            <FaExclamationTriangle size={32} />
+                        </div>
+                        <div className="space-y-2">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">الحلقة موقوفة مؤقتاً</h2>
+                            <p className="text-gray-500 dark:text-gray-400 text-xs md:text-sm leading-relaxed">
+                                {activeCircle.suspendedByTeacherUid ? (
+                                    <>
+                                        تم إيقاف نشاط هذه الحلقة تلقائياً بسبب إيقاف حساب أحد المشرفين المسؤولين عنها من قبل المطور.
+                                        {activeCircle.suspendedByTeacherReason && (
+                                            <div className="mt-3 text-[11px] text-amber-600 dark:text-amber-400 font-bold bg-amber-500/5 dark:bg-amber-500/10 p-3 rounded-2xl border border-amber-500/15 text-right">
+                                                <p className="font-extrabold mb-1 text-xs">⚠️ سبب إيقاف المشرف:</p>
+                                                <p className="font-medium text-gray-600 dark:text-gray-300">{activeCircle.suspendedByTeacherReason}</p>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    "نعتذر، لقد تم إيقاف نشاط هذه الحلقة من قبل المطور الرئيسي. لا يمكن إعادة تشغيلها إلا من قبل المطورين. يمكنك الانتظار ومراسلة المطور لتشغيلها، أو الانتقال لحلقة أخرى."
+                                )}
+                            </p>
+                        </div>
+                        <div className="pt-4 space-y-3">
+                            <a 
+                                href={`mailto:nova.kayanco@gmail.com?subject=طلب تشغيل حلقة موقوفة: ${encodeURIComponent(activeCircle.circle || '')}&body=السلام عليكم، أرجو النظر في إعادة تشغيل الحلقة الموقوفة: ${encodeURIComponent(activeCircle.circle || '')}.`}
+                                className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl shadow-emerald-600/10 hover:bg-emerald-700 active:scale-95 transition-all outline-none"
+                            >
+                                مراسلة المطور للتشغيل ✉️
+                            </a>
+                            {appData.circles.length > 1 && (
+                                <button 
+                                    onClick={handleQuickSwitch}
+                                    className="w-full bg-primary text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl shadow-primary/10 active:scale-95 transition-all outline-none"
+                                >
+                                    الانتقال لحلقة أخرى
+                                </button>
+                            )}
+                            <button 
+                                onClick={handleLogout}
+                                className="w-full bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95 transition-all outline-none"
+                            >
+                                تسجيل الخروج
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
+            ) : activeCircle && activeCircle.isMaintenance && userProfile?.role !== 'developer' ? (
+                <div className="flex flex-col items-center justify-center py-12 px-6 text-center bg-white dark:bg-gray-900/50 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm mt-8" dir="rtl">
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.9 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="max-w-xs space-y-6"
+                    >
+                        <div className="w-20 h-20 bg-[#105541]/10 text-[#105541] rounded-3xl flex items-center justify-center mx-auto border border-[#105541]/20">
+                            <FaSync className="animate-spin text-emerald-600 dark:text-emerald-400" size={32} />
+                        </div>
+                        <div className="space-y-2">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white">الحلقة تحت الصيانة حالياً</h2>
+                            <p className="text-gray-500 dark:text-gray-400 text-sm leading-relaxed">
+                                يقوم المطور <strong className="text-emerald-600 dark:text-emerald-400">عبدالله مبارك المخلافي</strong> بعمل صيانة دورية لقواعد بيانات الحلقة حالياً لتسريع استجابة النظام وتحديث المزايا. يرجى العودة لاحقاً.
+                            </p>
+                        </div>
+                        <div className="pt-4 space-y-3">
+                            {appData.circles.length > 1 && (
+                                <button 
+                                    onClick={handleQuickSwitch}
+                                    className="w-full bg-primary text-white px-8 py-3 rounded-2xl font-bold text-sm shadow-xl shadow-primary/10 active:scale-95 transition-all outline-none"
+                                >
+                                    الانتقال لحلقة أخرى
+                                </button>
+                            )}
+                            <button 
+                                onClick={handleLogout}
+                                className="w-full bg-gray-100 dark:bg-white/5 text-gray-600 dark:text-gray-400 px-8 py-3 rounded-2xl font-bold text-sm hover:bg-gray-200 dark:hover:bg-white/10 active:scale-95 transition-all outline-none"
+                            >
+                                تسجيل الخروج
+                            </button>
+                        </div>
+                    </motion.div>
+                </div>
+            ) : isSuspended ? (
                 <div className="flex flex-col items-center justify-center py-12 px-6 text-center bg-white dark:bg-gray-900/50 rounded-3xl border border-gray-100 dark:border-gray-800 shadow-sm mt-8">
                     <motion.div 
                         initial={{ opacity: 0, scale: 0.9 }}
@@ -5581,6 +5920,286 @@ const App: React.FC = () => {
                 {activePage === 'students' && <Students key="students-page" students={activeCircleStudents} onAdd={() => { setEditingStudent(null); setShowStudentForm(true); pushStateSafely(); }} onEdit={(s) => { setEditingStudent(s); setShowStudentForm(true); pushStateSafely(); }} onDelete={handleDeleteStudent} onReorder={handleReorderStudents} onViewProfile={(id) => { setViewingStudentId(id); pushStateSafely(); }} />}
                 {activePage === 'sessions' && <Sessions key="sessions-page" sessions={activeCircle.sessions} draftSession={activeCircle.draftSession} onNew={handleNewSession} onEdit={(id) => {handleEditSession(id); handleNavigate('sessions');}} onDelete={handleDeleteSession} onReport={(s) => { setReportSession(s); pushStateSafely(); }} onNotify={(s) => { setNotificationSession(s); pushStateSafely(); }} addToast={addToast} onShareSessionCode={(session) => {setShareSessionCodeModal({isOpen: true, session}); pushStateSafely();}} onImportSessionCode={() => {setImportSessionCodeModalOpen(true); pushStateSafely();}} currentUserUid={user?.uid} />}
                 {activePage === 'records' && <Records key="records-page" students={activeCircleStudents} sessions={activeCircle.sessions} studentReports={activeCircle.studentReports || []} onOpenReportGenerator={(id) => {handleOpenReportGenerator(id); pushStateSafely()}} onShowReport={(studentId, content, period) => {setStudentReportModal({isOpen: true, student: activeCircle.students.find(s=>s.id === studentId) || null, reportContent: content, period}); pushStateSafely();}} onViewSavedReport={(report) => {setViewReportModal({isOpen: true, report, type: 'student'}); pushStateSafely();}} selectedStudentId={selectedStudentId} setSelectedStudentId={(id) => {setSelectedStudentId(id); if (id) pushStateSafely();}} addToast={addToast} onDeleteSavedReport={(id) => handleDeleteReport(id, 'student')} />}
+                {activePage === 'services' && activeCircle && (
+                    <div key="services-page">
+                        {activeServicesPage === 'main' && (
+                            <Services 
+                                onNavigate={(subPage) => {
+                                    if (subPage === 'records') {
+                                        handleNavigate('records');
+                                    } else if (subPage === 'reports') {
+                                        handleNavigate('reports');
+                                    } else {
+                                        navigateWithinServices(subPage);
+                                    }
+                                }} 
+                                hasFullManagement={hasFullManagement} 
+                            />
+                        )}
+                        {activeServicesPage === 'parentFollowUp' && (
+                            <ParentFollowUp 
+                                students={activeCircleStudents} 
+                                sessions={activeCircle.sessions} 
+                                circleData={activeCircle} 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                onUpdateStudent={handleUpdateStudent} 
+                                onUpdateSettings={handleUpdateSettings} 
+                                addToast={addToast} 
+                            />
+                        )}
+                        {activeServicesPage === 'tests' && (
+                            <Tests 
+                                tests={activeCircle.tests || []} 
+                                isDraft={!!activeCircle.draftTest} 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                onNew={() => { 
+                                    if (activeCircleStudents.length === 0) {
+                                        setAlertModal({ isOpen: true, title: 'تنبيه', message: 'عذرًا، لا يمكن إنشاء اختبار جديد لعدم وجود طلاب في الحلقة. يرجى إضافة طلاب أولاً.' });
+                                        return;
+                                    }
+                                    const isExistingDraft = activeCircle.draftTest && (activeCircle.tests || []).some(t => t.id === activeCircle.draftTest!.id);
+                                    if (!activeCircle.draftTest || isExistingDraft) {
+                                        const allStudentIds = activeCircleStudents.map(s => s.id);
+                                        const defaultMax = activeCircle.settings.defaultTestMaxScores || {};
+                                        const savedCustomTypes = activeCircle.settings.customTestContentTypes || [];
+                                        const initialContent: { [key: string]: boolean } = {memorization: true, review: true, recitation: true};
+                                        savedCustomTypes.forEach(type => { initialContent[type] = true; });
+
+                                        setEditingTest({
+                                            id: generateUniqueId(), 
+                                            createdAt: Date.now(), 
+                                            name: '', 
+                                            testType: 'monthly', 
+                                            targetStudentIds: allStudentIds, 
+                                            content: initialContent, 
+                                            maxScores: {
+                                                memorization: defaultMax['memorization'] ?? 20,
+                                                review: defaultMax['review'] ?? 20,
+                                                recitation: defaultMax['recitation'] ?? 20,
+                                                ...defaultMax
+                                            },
+                                            customLabels: savedCustomTypes.reduce((acc, type) => ({ ...acc, [type]: type }), {}),
+                                            results: allStudentIds.map(id => ({ studentId: id, grades: {} }))
+                                        }); 
+                                    } 
+                                    navigateWithinServices('testForm'); 
+                                }} 
+                                onEdit={(t) => {
+                                    setEditingTest(t); 
+                                    navigateWithinServices('testForm');
+                                }} 
+                                onDelete={handleDeleteTest} 
+                                onView={(t) => {
+                                    setViewingTest(t); 
+                                    pushStateSafely();
+                                }} 
+                            />
+                        )}
+                        {activeServicesPage === 'testForm' && (
+                            <TestForm 
+                                test={editingTest} 
+                                setTest={setEditingTest} 
+                                students={activeCircleStudents} 
+                                onSave={handleSaveTest} 
+                                onBack={() => { 
+                                    const hasData = editingTest && (editingTest.name.trim() !== '' || editingTest.results.some(r => Object.keys(r.grades).length > 0));
+                                    setActiveCircleData(draft => ({...draft, draftTest: hasData ? (editingTest || undefined) : null}), false); 
+                                    if(hasData) addToast('تم حفظ الاختبار كمسودة.', 'info'); 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                setConfirmationModal={setConfirmationModal} 
+                                onUpdateSettings={handleUpdateSettings} 
+                                settings={activeCircle.settings} 
+                                circleId={activeCircle.id} 
+                            />
+                        )}
+                        {activeServicesPage === 'plans' && (
+                            <Plans 
+                                plans={activeCircle.plans || []} 
+                                isDraft={!!activeCircle.draftPlan} 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                onNew={() => { 
+                                    if (activeCircleStudents.length === 0) {
+                                        setAlertModal({ isOpen: true, title: 'تنبيه', message: 'عذرًا، لا يمكن إنشاء خطة جديدة لعدم وجود طلاب في الحلقة. يرجى إضافة طلاب أولاً.' });
+                                        return;
+                                    }
+                                    const isExistingDraft = activeCircle.draftPlan && (activeCircle.plans || []).some(p => p.id === activeCircle.draftPlan!.id);
+                                    if (!activeCircle.draftPlan || isExistingDraft) {
+                                        const allStudentIds = activeCircleStudents.map(s => s.id);
+                                        setEditingPlan({
+                                            id: generateUniqueId(), 
+                                            createdAt: Date.now(), 
+                                            name: '', 
+                                            duration: 'week', 
+                                            targetStudentIds: allStudentIds, 
+                                            studentPlans: allStudentIds.map(id => ({studentId: id, memorization: {hasPlan: true, fromSurah: '', fromAyah: '', toSurah: '', toAyah:''}, review: {hasPlan: true, fromSurah: '', fromAyah: '', toSurah: '', toAyah:''}, notes: ''}))
+                                        }); 
+                                    } 
+                                    navigateWithinServices('planForm'); 
+                                }} 
+                                onEdit={(p) => {
+                                    setEditingPlan(p); 
+                                    navigateWithinServices('planForm');
+                                }} 
+                                onDelete={handleDeletePlan} 
+                                onView={(p) => {
+                                    setViewingPlan(p); 
+                                    pushStateSafely();
+                                }} 
+                            />
+                        )}
+                        {activeServicesPage === 'planForm' && (
+                            <PlanForm 
+                                plan={editingPlan} 
+                                setPlan={setEditingPlan} 
+                                students={activeCircleStudents} 
+                                onSave={handleSavePlan} 
+                                onBack={() => { 
+                                    const hasData = editingPlan && (editingPlan.name.trim() !== '' || editingPlan.studentPlans.some(p => p.memorization.fromSurah || p.review.fromSurah || p.notes));
+                                    setActiveCircleData(draft => ({...draft, draftPlan: hasData ? (editingPlan || undefined) : null}), false); 
+                                    if(hasData) addToast('تم حفظ الخطة كمسودة.', 'info'); 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                setConfirmationModal={setConfirmationModal} 
+                                settings={activeCircle.settings} 
+                                setAlert={setAlertModal} 
+                                isSubModalOpen={isSubModalOpen} 
+                                onSubModalOpen={handleSubModalOpen} 
+                                onSubModalClose={handleSubModalClose} 
+                                circleId={activeCircle.id} 
+                            />
+                        )}
+                        {activeServicesPage === 'activities' && (
+                            <Activities 
+                                activities={activeCircle.activities || []} 
+                                isDraft={!!activeCircle.draftActivity} 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                onNew={() => { 
+                                    if (activeCircleStudents.length === 0) {
+                                        setAlertModal({ isOpen: true, title: 'تنبيه', message: 'عذرًا، لا يمكن إنشاء نشاط جديد لعدم وجود طلاب في الحلقة. يرجى إضافة طلاب أولاً.' });
+                                        return;
+                                    }
+                                    const isExistingDraft = activeCircle.draftActivity && (activeCircle.activities || []).some(a => a.id === activeCircle.draftActivity!.id);
+                                    if (!activeCircle.draftActivity || isExistingDraft) {
+                                        setEditingActivity({
+                                            id: generateUniqueId(), 
+                                            createdAt: Date.now(), 
+                                            name: '', 
+                                            type: '', 
+                                            dateType: 'single', 
+                                            startDate: new Date().toISOString().split('T')[0], 
+                                            startTime: new Date().toTimeString().substring(0,5), 
+                                            targetStudentIds: activeCircleStudents.map(s=>s.id)
+                                        }); 
+                                    } 
+                                    navigateWithinServices('activityForm'); 
+                                }} 
+                                onEdit={(a) => {
+                                    setEditingActivity(a); 
+                                    navigateWithinServices('activityForm');
+                                }} 
+                                onDelete={handleDeleteActivity} 
+                                onView={(a) => {
+                                    setViewingActivity(a); 
+                                    pushStateSafely();
+                                }} 
+                            />
+                        )}
+                        {activeServicesPage === 'activityForm' && (
+                            <ActivityForm 
+                                activity={editingActivity} 
+                                setActivity={setEditingActivity} 
+                                students={activeCircleStudents} 
+                                onSave={handleSaveActivity} 
+                                onBack={() => { 
+                                    const hasData = editingActivity && editingActivity.name.trim() !== '';
+                                    setActiveCircleData(draft => ({...draft, draftActivity: hasData ? (editingActivity || undefined) : null}), false); 
+                                    if(hasData) addToast('تم حفظ النشاط كمسودة.', 'info'); 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                setConfirmationModal={setConfirmationModal} 
+                                activityTypes={activeCircle.activityTypes || defaultActivityTypes} 
+                                onAddActivityType={(t) => setActiveCircleData(d => ({...d, activityTypes: [...(d.activityTypes || defaultActivityTypes), t]}))} 
+                                onDeleteActivityType={(t) => setActiveCircleData(d => ({...d, activityTypes: (d.activityTypes || defaultActivityTypes).filter(at => at !== t)}))} 
+                                circleId={activeCircle.id} 
+                            />
+                        )}
+                        {activeServicesPage === 'announcements' && (
+                            <Announcements 
+                                announcements={activeCircle.announcements || []} 
+                                isDraft={!!activeCircle.draftAnnouncement} 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                onNew={() => { 
+                                    if (activeCircleStudents.length === 0) {
+                                        setAlertModal({ isOpen: true, title: 'تنبيه', message: 'عذرًا، لا يمكن إنشاء إعلان جديد لعدم وجود طلاب في الحلقة. يرجى إضافة طلاب أولاً.' });
+                                        return;
+                                    }
+                                    const isExistingDraft = activeCircle.draftAnnouncement && (activeCircle.announcements || []).some(a => a.id === activeCircle.draftAnnouncement!.id);
+                                    if (!activeCircle.draftAnnouncement || isExistingDraft) {
+                                        setEditingAnnouncement({
+                                            id: generateUniqueId(), 
+                                            createdAt: Date.now(), 
+                                            title: '', 
+                                            content: '',
+                                            targetStudentIds: activeCircleStudents.map(s=>s.id)
+                                        }); 
+                                    } 
+                                    navigateWithinServices('announcementForm'); 
+                                }} 
+                                onEdit={(a) => {
+                                    setEditingAnnouncement(a); 
+                                    navigateWithinServices('announcementForm');
+                                }} 
+                                onDelete={handleDeleteAnnouncement} 
+                                onView={(a) => {
+                                    setViewingAnnouncement(a); 
+                                    pushStateSafely();
+                                }} 
+                            />
+                        )}
+                        {activeServicesPage === 'announcementForm' && (
+                            <AnnouncementForm 
+                                announcement={editingAnnouncement} 
+                                setAnnouncement={setEditingAnnouncement} 
+                                students={activeCircleStudents} 
+                                onSave={handleSaveAnnouncement} 
+                                onBack={(updatedAnnouncement) => { 
+                                    const finalAnnouncement = updatedAnnouncement !== undefined ? updatedAnnouncement : editingAnnouncement;
+                                    const hasData = finalAnnouncement && (finalAnnouncement.title.trim() !== '' || finalAnnouncement.content.trim() !== '');
+                                    setActiveCircleData(draft => ({...draft, draftAnnouncement: hasData ? (finalAnnouncement || null) : null}), false); 
+                                    if(hasData) addToast('تم حفظ الإعلان كمسودة.', 'info'); 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                setConfirmationModal={setConfirmationModal} 
+                                circleId={activeCircle.id} 
+                            />
+                        )}
+                    </div>
+                )}
+                {activePage === 'reports' && (
+                    <Reports 
+                        onBack={() => handleNavigate('services')} 
+                    />
+                )}
                 {activePage === 'settings' && (
                     <div key="settings-page">
                         {activeSettingsPage === 'main' && <Settings 
@@ -6021,6 +6640,137 @@ const App: React.FC = () => {
                         >
                             تأكيد القراءة واستلام التنبيه
                         </button>
+                    </motion.div>
+                </div>
+            )}
+            {currentActiveDevNotification && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 overflow-y-auto" dir="rtl">
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        className="bg-white dark:bg-[#0c0e12] border border-gray-150 dark:border-gray-800 rounded-[2rem] w-full max-w-lg overflow-hidden shadow-2xl relative"
+                    >
+                        {/* Header style based on notification type */}
+                        <div className={`h-2 w-full bg-gradient-to-r ${
+                            currentActiveDevNotification.type === 'update' ? 'from-purple-500 to-indigo-600' :
+                            currentActiveDevNotification.type === 'warning' ? 'from-red-500 to-rose-600' :
+                            currentActiveDevNotification.type === 'maintenance' ? 'from-amber-500 to-orange-600' :
+                            currentActiveDevNotification.type === 'announcement' ? 'from-emerald-500 to-teal-600' :
+                            currentActiveDevNotification.type === 'alert' ? 'from-blue-500 to-sky-600' :
+                            'from-[#105541] to-emerald-600'
+                        }`} />
+
+                        {/* Close button if closable & not mandatory */}
+                        {currentActiveDevNotification.isClosable && !currentActiveDevNotification.isMandatory && (
+                            <button 
+                                onClick={() => handleDismissDevNotification(currentActiveDevNotification)}
+                                className="absolute top-4 left-4 p-1.5 rounded-full bg-gray-100 dark:bg-white/5 text-gray-500 hover:bg-gray-200 dark:hover:bg-white/10 hover:text-gray-800 dark:hover:text-white transition-all z-10"
+                            >
+                                <FaTimes size={12} />
+                            </button>
+                        )}
+
+                        <div className="p-6 md:p-8 space-y-6 text-right">
+                            {/* Image Carousel / Single Image if provided */}
+                            {((currentActiveDevNotification.imageUrls && currentActiveDevNotification.imageUrls.length > 0) || currentActiveDevNotification.imageUrl) && (
+                                <div className="relative group w-full">
+                                    {currentActiveDevNotification.imageUrls && currentActiveDevNotification.imageUrls.length > 1 ? (
+                                        <div className="relative w-full overflow-hidden rounded-2xl border border-gray-150 dark:border-gray-800 bg-black/5 dark:bg-white/5">
+                                            {/* Horizontal Scroll Container */}
+                                            <div className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none gap-2 py-1 scroll-smooth">
+                                                {currentActiveDevNotification.imageUrls.map((url: string, index: number) => (
+                                                    <div key={index} className="flex-none w-full snap-center shrink-0">
+                                                        <img 
+                                                            src={url} 
+                                                            alt={`صورة ${index + 1}`} 
+                                                            className="w-full h-48 md:h-56 object-cover rounded-xl"
+                                                            referrerPolicy="no-referrer"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            {/* Scroll Indicators */}
+                                            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/60 px-3 py-1 rounded-full text-[9px] text-white font-semibold font-sans tracking-wide">
+                                                <span>اسحب للتمرير ↔ ({currentActiveDevNotification.imageUrls.length})</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <img 
+                                            src={currentActiveDevNotification.imageUrl || currentActiveDevNotification.imageUrls?.[0]} 
+                                            alt="" 
+                                            className="w-full h-48 md:h-56 object-cover rounded-2xl border border-gray-150 dark:border-gray-800"
+                                            referrerPolicy="no-referrer"
+                                        />
+                                    )}
+                                </div>
+                            )}
+
+                            <div className="space-y-3">
+                                <div className="flex items-center gap-2">
+                                    {/* Dynamic Tag */}
+                                    <span className={`text-[9px] px-2.5 py-1 rounded-full font-extrabold uppercase tracking-widest ${
+                                        currentActiveDevNotification.type === 'update' ? 'bg-purple-100 dark:bg-purple-500/10 text-purple-600 dark:text-purple-400' :
+                                        currentActiveDevNotification.type === 'warning' ? 'bg-red-100 dark:bg-red-500/10 text-red-600 dark:text-red-400' :
+                                        currentActiveDevNotification.type === 'maintenance' ? 'bg-amber-100 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+                                        currentActiveDevNotification.type === 'announcement' ? 'bg-emerald-100 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
+                                        'bg-[#105541]/10 text-[#105541] dark:text-emerald-400'
+                                    }`}>
+                                        {
+                                            currentActiveDevNotification.type === 'update' ? 'تحديث متوفر' :
+                                            currentActiveDevNotification.type === 'warning' ? 'تنبيه تحذيري' :
+                                            currentActiveDevNotification.type === 'maintenance' ? 'صيانة مجدولة' :
+                                            currentActiveDevNotification.type === 'announcement' ? 'إعلان هام' :
+                                            currentActiveDevNotification.type === 'alert' ? 'تنبيه عاجل' :
+                                            currentActiveDevNotification.type === 'note' ? 'ملاحظة إدارية' :
+                                            'رسالة من الإدارة'
+                                        }
+                                    </span>
+
+                                    {currentActiveDevNotification.isMandatory && (
+                                        <span className="text-[9px] px-2.5 py-1 bg-red-100 dark:bg-red-500/15 text-red-600 dark:text-red-400 rounded-full font-black">
+                                            تحديث إجباري ⚠️
+                                        </span>
+                                    )}
+                                </div>
+
+                                <h3 className="text-lg md:text-xl font-black text-gray-900 dark:text-white leading-tight">
+                                    {currentActiveDevNotification.title}
+                                </h3>
+                                
+                                <p className="text-gray-600 dark:text-gray-300 text-xs md:text-sm leading-relaxed whitespace-pre-wrap font-medium">
+                                    {currentActiveDevNotification.description}
+                                </p>
+                            </div>
+
+                            {/* Buttons list */}
+                            <div className="flex flex-col gap-2 pt-2">
+                                {currentActiveDevNotification.buttons && currentActiveDevNotification.buttons.length > 0 ? (
+                                    currentActiveDevNotification.buttons.map((btn: any) => (
+                                        <button
+                                            key={btn.id}
+                                            onClick={() => handleDevNotificationButtonAction(currentActiveDevNotification, btn)}
+                                            className={`w-full py-3.5 px-4 rounded-2xl font-bold text-xs transition-all duration-200 active:scale-98 flex items-center justify-center gap-2 ${
+                                                btn.action === 'update' || btn.action === 'ok' 
+                                                ? 'bg-[#105541] hover:bg-[#105541]/90 text-white shadow-lg shadow-[#105541]/10'
+                                                : btn.action === 'cancel'
+                                                ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
+                                                : 'bg-gray-100 dark:bg-white/5 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-white/10'
+                                            }`}
+                                        >
+                                            <span>{btn.text}</span>
+                                        </button>
+                                    ))
+                                ) : (
+                                    /* Default fallback OK button if no buttons generated */
+                                    <button
+                                        onClick={() => handleDismissDevNotification(currentActiveDevNotification)}
+                                        className="w-full bg-[#105541] hover:bg-[#105541]/90 text-white py-3.5 px-4 rounded-2xl font-bold text-xs transition-all"
+                                    >
+                                        حسناً، فهمت
+                                    </button>
+                                )}
+                            </div>
+                        </div>
                     </motion.div>
                 </div>
             )}
