@@ -38,7 +38,7 @@ const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, o
             .slice()
             .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
             .forEach(session => {
-                session.students.forEach(sessionStudent => {
+                (session.students || []).forEach(sessionStudent => {
                     if (students.some(s => s.id === sessionStudent.id) && !activityMap.has(sessionStudent.id)) {
                         activityMap.set(sessionStudent.id, session.date);
                     }
@@ -58,7 +58,7 @@ const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, o
     const studentHistory = useMemo(() => {
         if (!selectedStudentId) return null;
         return sessions
-            .map(s => ({...s, studentData: s.students.find(st => st.id === selectedStudentId)}))
+            .map(s => ({...s, studentData: (s.students || []).find(st => st.id === selectedStudentId)}))
             .filter(s => !!s.studentData)
             .reduce((acc, session) => {
                 const date = session.date;

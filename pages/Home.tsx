@@ -192,7 +192,7 @@ const Home: React.FC<HomeProps> = ({ data, onNavigate, onDeleteNotification, onS
 
     const latestSession = useMemo(() => {
         const today = new Date().toISOString().split('T')[0];
-        const todaySessions = data.sessions.filter(s => s.date === today).sort((a,b) => b.createdAt - a.createdAt);
+        const todaySessions = (data.sessions || []).filter(s => s.date === today).sort((a,b) => b.createdAt - a.createdAt);
         if (todaySessions.length > 0) return todaySessions[0];
         return null;
     }, [data.sessions]);
@@ -240,9 +240,9 @@ const Home: React.FC<HomeProps> = ({ data, onNavigate, onDeleteNotification, onS
     const stats = useMemo(() => {
         if (!latestSession) return null;
         const isLesson = latestSession.isLesson;
-        const presentStudents = latestSession.students.filter(s => s.attendance === 'present' || s.attendance === 'late');
-        const absentStudents = latestSession.students.filter(s => s.attendance === 'absent');
-        const excusedStudents = latestSession.students.filter(s => s.attendance === 'excused');
+        const presentStudents = (latestSession.students || []).filter(s => s.attendance === 'present' || s.attendance === 'late');
+        const absentStudents = (latestSession.students || []).filter(s => s.attendance === 'absent');
+        const excusedStudents = (latestSession.students || []).filter(s => s.attendance === 'excused');
 
         if (isLesson) {
              return {

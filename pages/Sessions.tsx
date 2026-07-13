@@ -22,7 +22,7 @@ interface SessionsProps {
 
 const NotifyButton: React.FC<{session: Session, onClick: () => void}> = ({ session, onClick }) => {
     const allNotified = useMemo(() => {
-        const studentsWithPhones = session.students.filter(s => s.parentPhone);
+        const studentsWithPhones = (session.students || []).filter(s => s.parentPhone);
         if (studentsWithPhones.length === 0) return false; // No one to notify
         return studentsWithPhones.every(s => session.parentNotifications[s.id]);
     }, [session]);

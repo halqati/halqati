@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Settings, Student } from '../types';
@@ -13,6 +12,8 @@ interface OptionalAddonsModalProps {
     onOpenNotificationSettings: () => void;
     archivedStudents?: Student[];
     onRestoreStudent?: (id: number) => void;
+    hasCircleSettingsPermission?: boolean;
+    addToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 const modalVariants = {
@@ -21,17 +22,39 @@ const modalVariants = {
     exit: { y: '100%' },
 };
 
-const Section: React.FC<{ title: string, icon: React.ElementType, children: React.ReactNode }> = ({ title, icon: Icon, children }) => (
-    <div className="bg-white dark:bg-gray-800 p-4 rounded-lg shadow">
+const Section: React.FC<{ title: string, icon: React.ElementType, children: React.ReactNode, disabled?: boolean }> = ({ title, icon: Icon, children, disabled }) => (
+    <div className={`bg-white dark:bg-gray-800 p-4 rounded-lg shadow ${disabled ? 'opacity-60' : ''}`}>
         <h3 className="text-lg font-bold text-primary dark:text-accent mb-3 flex items-center gap-2"><Icon /> {title}</h3>
         {children}
     </div>
 );
 
-const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onSave, onClose, onOpenPointsSettings, onOpenNotificationSettings, archivedStudents = [], onRestoreStudent }) => {
+const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onSave, onClose, onOpenPointsSettings, onOpenNotificationSettings, archivedStudents = [], onRestoreStudent, hasCircleSettingsPermission = true, addToast }) => {
     
+    // Manage local theme state so it toggles instantly even if the user has no cloud save permission
+    const [localTheme, setLocalTheme] = useState<'light' | 'dark'>(() => {
+        return (localStorage.getItem('localTheme') as 'light' | 'dark') || settings.theme || 'dark';
+    });
+
     const handleSettingChange = <K extends keyof Settings>(key: K, value: Settings[K]) => {
-        onSave({ [key]: value });
+        if (key === 'theme') {
+            const themeVal = value as 'light' | 'dark';
+            setLocalTheme(themeVal);
+            localStorage.setItem('localTheme', themeVal);
+            document.documentElement.classList.toggle('dark', themeVal === 'dark');
+            
+            if (hasCircleSettingsPermission) {
+                onSave({ [key]: value });
+            } else {
+                addToast?.('تم تغيير المظهر محلياً على جهازك بنجاح 🎨', 'success');
+            }
+        } else {
+            if (!hasCircleSettingsPermission) {
+                addToast?.('عذراً، لا تمتلك الصلاحية الكافية لتعديل إعدادات الحلقة.', 'error');
+                return;
+            }
+            onSave({ [key]: value });
+        }
     };
 
     return (
@@ -52,12 +75,12 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                 
                 <Section title="المظهر" icon={FaPalette}>
                     <div className="grid grid-cols-2 gap-3">
-                        <button onClick={() => handleSettingChange('theme', 'light')} className={`p-3 rounded-lg border-2 transition-all ${settings.theme === 'light' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>الوضع الفاتح</button>
-                        <button onClick={() => handleSettingChange('theme', 'dark')} className={`p-3 rounded-lg border-2 transition-all ${settings.theme === 'dark' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>الوضع الغامق</button>
+                        <button onClick={() => handleSettingChange('theme', 'light')} className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${localTheme === 'light' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>الوضع الفاتح</button>
+                        <button onClick={() => handleSettingChange('theme', 'dark')} className={`p-3 rounded-lg border-2 transition-all cursor-pointer ${localTheme === 'dark' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>الوضع الغامق</button>
                     </div>
                 </Section>
 
-                <Section title="ميزة آخر تسميع" icon={FaHistory}>
+                <Section title="ميزة آخر تسميع" icon={FaHistory} disabled={!hasCircleSettingsPermission}>
                     <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg cursor-pointer" onClick={() => handleSettingChange('showLastRecordFeature', !(settings.showLastRecordFeature ?? true))}>
                          <span className="font-semibold">إظهار زر "آخر تسميع" في الجلسة</span>
                         <div className={`w-12 h-6 rounded-full flex items-center transition-colors p-1 ${(settings.showLastRecordFeature ?? true) ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}`}>
@@ -66,7 +89,7 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                     </div>
                 </Section>
                 
-                <Section title="حفظ المسودات" icon={FaSave}>
+                <Section title="حفظ المسودات" icon={FaSave} disabled={!hasCircleSettingsPermission}>
                     <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg cursor-pointer" onClick={() => handleSettingChange('autoSaveDrafts', !(settings.autoSaveDrafts ?? false))}>
                         <div className="flex-1 pr-4">
                             <span className="font-semibold">حفظ الجلسات تلقائياً كمسودات</span>
@@ -80,13 +103,13 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                     </div>
                 </Section>
 
-                <Section title="طريقة اختيار السور" icon={FaList}>
+                <Section title="طريقة اختيار السور" icon={FaList} disabled={!hasCircleSettingsPermission}>
                      <div className="grid grid-cols-2 gap-3">
-                        <button onClick={() => handleSettingChange('surahSelectionMethod', 'list')} className={`p-3 rounded-lg border-2 flex flex-col items-center justify-center gap-2 transition-all ${ (settings.surahSelectionMethod || 'list') === 'list' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>
+                        <button onClick={() => handleSettingChange('surahSelectionMethod', 'list')} className={`p-3 rounded-lg border-2 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${ (settings.surahSelectionMethod || 'list') === 'list' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>
                             <FaList size={20}/>
                             <span>قائمة</span>
                         </button>
-                        <button onClick={() => handleSettingChange('surahSelectionMethod', 'manual')} className={`p-3 rounded-lg border-2 flex flex-col items-center justify-center gap-2 transition-all ${(settings.surahSelectionMethod || 'list') === 'manual' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>
+                        <button onClick={() => handleSettingChange('surahSelectionMethod', 'manual')} className={`p-3 rounded-lg border-2 flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${(settings.surahSelectionMethod || 'list') === 'manual' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>
                             <FaPen size={20}/>
                             <span>كتابة</span>
                         </button>
@@ -96,8 +119,8 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                          <motion.div initial={{opacity:0, y:-10}} animate={{opacity:1, y:0}} className="mt-4">
                              <h4 className="font-semibold text-sm mb-2">ترتيب السور في القائمة:</h4>
                               <div className="grid grid-cols-2 gap-3">
-                                <button onClick={() => handleSettingChange('surahOrder', 'quranic')} className={`p-3 text-sm rounded-lg border-2 transition-all ${(settings.surahOrder || 'quranic') === 'quranic' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>من الفاتحة ← الناس</button>
-                                <button onClick={() => handleSettingChange('surahOrder', 'reverse')} className={`p-3 text-sm rounded-lg border-2 transition-all ${(settings.surahOrder || 'quranic') === 'reverse' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>من الناس ← الفاتحة</button>
+                                <button onClick={() => handleSettingChange('surahOrder', 'quranic')} className={`p-3 text-sm rounded-lg border-2 transition-all cursor-pointer ${(settings.surahOrder || 'quranic') === 'quranic' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>من الفاتحة ← الناس</button>
+                                <button onClick={() => handleSettingChange('surahOrder', 'reverse')} className={`p-3 text-sm rounded-lg border-2 transition-all cursor-pointer ${(settings.surahOrder || 'quranic') === 'reverse' ? 'bg-primary/10 border-primary' : 'border-gray-300 dark:border-gray-600'}`}>من الناس ← الفاتحة</button>
                             </div>
                          </motion.div>
                     )}
@@ -114,7 +137,7 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                     </div>
                 </Section>
 
-                <Section title="إعدادات نظرة عامة" icon={FaChartPie}>
+                <Section title="إعدادات نظرة عامة" icon={FaChartPie} disabled={!hasCircleSettingsPermission}>
                     <div className="flex justify-between items-center p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg cursor-pointer" onClick={() => handleSettingChange('alwaysShowDashboard', !(settings.alwaysShowDashboard ?? false))}>
                         <div className="flex-1 pr-4">
                             <span className="font-semibold">إظهار نظرة عامة دائماً</span>
@@ -128,30 +151,48 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                     </div>
                 </Section>
 
-                <Section title="نظام النقاط" icon={FaStar}>
+                <Section title="نظام النقاط" icon={FaStar} disabled={!hasCircleSettingsPermission}>
                     <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                         <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
                             خصص نظام النقاط والمكافآت ليناسب أسلوب حلقتك وأهدافك التربوية.
                         </p>
-                        <button onClick={onOpenPointsSettings} className="w-full bg-primary text-white p-2 rounded-lg font-semibold text-sm">
+                        <button 
+                            onClick={() => {
+                                if (!hasCircleSettingsPermission) {
+                                    addToast?.('عذراً، لا تمتلك الصلاحية الكافية لتعديل إعدادات الحلقة.', 'error');
+                                } else {
+                                    onOpenPointsSettings();
+                                }
+                            }} 
+                            className={`w-full bg-primary text-white p-2 rounded-lg font-semibold text-sm cursor-pointer hover:bg-primary-dark`}
+                        >
                             فتح إعدادات النقاط
                         </button>
                     </div>
                 </Section>
 
-                <Section title="إعدادات الإشعارات" icon={FaBell}>
+                <Section title="إعدادات الإشعارات" icon={FaBell} disabled={!hasCircleSettingsPermission}>
                     <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                         <p className="text-sm text-gray-700 dark:text-gray-300 mb-3">
                             تحكم في أنواع التنبيهات التي تظهر لك، وحدد شروط ظهورها لتناسب أسلوبك.
                         </p>
-                        <button onClick={onOpenNotificationSettings} className="w-full bg-primary text-white p-2 rounded-lg font-semibold text-sm">
+                        <button 
+                            onClick={() => {
+                                if (!hasCircleSettingsPermission) {
+                                    addToast?.('عذراً، لا تمتلك الصلاحية الكافية لتعديل إعدادات الحلقة.', 'error');
+                                } else {
+                                    onOpenNotificationSettings();
+                                }
+                            }} 
+                            className={`w-full bg-primary text-white p-2 rounded-lg font-semibold text-sm cursor-pointer hover:bg-primary-dark`}
+                        >
                             فتح إعدادات الإشعارات
                         </button>
                     </div>
                 </Section>
 
                 {archivedStudents.length > 0 && (
-                    <Section title={`الطلاب المؤرشفون (${archivedStudents.length})`} icon={FaArchive}>
+                    <Section title={`الطلاب المؤرشفون (${archivedStudents.length})`} icon={FaArchive} disabled={!hasCircleSettingsPermission}>
                         <div className="bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded-lg text-xs text-yellow-800 dark:text-yellow-200 mb-3 border border-yellow-200 dark:border-yellow-800/50">
                             هذا القسم لمتابعة الطلاب الذين تم إخفاؤهم مؤقتًا من الحلقات (مثل طلاب السفر أو المنقطعين مؤقتاً). يمكن استرجاع الطالب في أي وقت بكامل بياناته.
                         </div>
@@ -163,8 +204,14 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                                         <span className="font-semibold text-sm">{student.name}</span>
                                     </div>
                                     <button 
-                                        onClick={() => onRestoreStudent && onRestoreStudent(student.id)}
-                                        className="text-xs bg-green-500 text-white px-3 py-1.5 rounded-md flex items-center gap-1 hover:bg-green-600 transition-colors"
+                                        onClick={() => {
+                                            if (!hasCircleSettingsPermission) {
+                                                addToast?.('عذراً، لا تمتلك الصلاحية الكافية لتعديل إعدادات الحلقة.', 'error');
+                                            } else {
+                                                onRestoreStudent && onRestoreStudent(student.id);
+                                            }
+                                        }}
+                                        className="text-xs bg-green-500 text-white px-3 py-1.5 rounded-md flex items-center gap-1 hover:bg-green-600 transition-colors cursor-pointer"
                                     >
                                         <FaUndo size={10} /> استعادة
                                     </button>

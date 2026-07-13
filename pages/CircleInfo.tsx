@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FaArrowRight, FaCopy, FaUsers, FaChalkboardTeacher, FaHashtag, FaKey, FaBuilding, FaCheckCircle, FaEdit, FaUserEdit, FaCheck, FaGlobe, FaEllipsisV, FaTrash, FaBan, FaShieldAlt, FaUserSlash, FaUserCheck, FaCog, FaUserShield, FaUserPlus, FaUserTie, FaFilePdf, FaTimes } from 'react-icons/fa';
 import { CircleData, TeacherPermissions, MemberPermissions } from '../types';
 import { defaultMemberPermissions } from '../constants';
-import SmartRecitationFormModal from '../components/SmartRecitationFormModal';
 
 interface CircleInfoProps {
     data: CircleData;
@@ -44,7 +43,6 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
     const [isEditingCode, setIsEditingCode] = useState(false);
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
     const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-    const [showSmartFormModal, setShowSmartFormModal] = useState(false);
     const [selectedTeacherUid, setSelectedTeacherUid] = useState<string | null>(null);
     const [editingDetails, setEditingDetails] = useState<{name: string, gender: 'male' | 'female'} | null>(null);
     const [rejectingUid, setRejectingUid] = useState<string | null>(null);
@@ -243,31 +241,6 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                             animate={{ x: data.allowDirectEntry !== false ? 26 : 2 }}
                             className="absolute top-1 left-0 w-4 h-4 bg-white rounded-full shadow-sm"
                         />
-                    </button>
-                </div>
-            )}
-
-            {/* Smart Tools Section */}
-            {isOwnerOrTeacher && (
-                <div className="bg-[#111317] border border-gray-800/40 p-4 rounded-2xl space-y-3">
-                    <div className="flex items-center gap-2 text-primary font-bold text-xs">
-                        <FaFilePdf size={14} className="text-secondary" />
-                        <h3>أدوات التسميع الذكي</h3>
-                    </div>
-                    <button 
-                        onClick={() => setShowSmartFormModal(true)}
-                        className="w-full flex items-center justify-between p-3.5 bg-primary/10 border border-primary/20 rounded-[1.5rem] hover:bg-primary/20 transition-all outline-none"
-                    >
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 bg-primary/20 text-primary rounded-xl flex items-center justify-center">
-                                <FaFilePdf size={18} />
-                            </div>
-                            <div className="text-right">
-                                <p className="text-white text-[11px] font-bold">توليد كشف تسميع ذكي</p>
-                                <p className="text-[9px] text-gray-500">للطباعة والإدخال التلقائي بالكاميرا</p>
-                            </div>
-                        </div>
-                        <FaArrowRight className="text-gray-600 rotate-180" size={12} />
                     </button>
                 </div>
             )}
@@ -754,13 +727,6 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                     </div>
                 )}
             </AnimatePresence>
-
-            <SmartRecitationFormModal 
-                isOpen={showSmartFormModal}
-                onClose={() => setShowSmartFormModal(false)}
-                circleData={data}
-                addToast={addToast}
-            />
         </div>
     );
 };

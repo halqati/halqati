@@ -1,7 +1,7 @@
 import React, { ErrorInfo, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, ChevronUp, Home, LogOut, LogIn, Calendar, ShieldAlert, Lock, SendHorizontal } from 'lucide-react';
-import { auth } from '../firebase';
+import { auth, signOut } from '../firebase';
 
 interface Props {
   children?: ReactNode;
@@ -49,12 +49,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   handleLogoutAndLogin = async () => {
     try {
-      const dataStr = localStorage.getItem('tahfeezMultiCircleApp_v1');
-      if (dataStr) {
-        const data = JSON.parse(dataStr);
-        data.activeCircleId = null;
-        localStorage.setItem('tahfeezMultiCircleApp_v1', JSON.stringify(data));
-      }
+      localStorage.removeItem('tahfeezMultiCircleApp_v1');
       localStorage.removeItem('tahfeezUserProfile_v1');
       localStorage.removeItem('tahfeezAuthUser_v1');
       localStorage.removeItem('app_authenticated_permanently');
@@ -63,7 +58,6 @@ export class ErrorBoundary extends React.Component<Props, State> {
       localStorage.removeItem('auth_saving_prompt_pending');
       localStorage.removeItem('auth_loading_in_progress');
       if (auth) {
-        const { signOut } = await import('firebase/auth');
         await signOut(auth);
       }
     } catch (e) {
@@ -215,12 +209,12 @@ export class ErrorBoundary extends React.Component<Props, State> {
                 
                 <button
                   onClick={this.handleLogoutAndLogin}
-                  className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#1d222e] dark:hover:bg-[#252c3c] text-slate-700 dark:text-gray-300 border border-slate-200/50 dark:border-gray-800 font-bold py-3.5 px-3 rounded-2xl transition-all duration-200 text-xs cursor-pointer"
-                  id="error-login-btn"
+                  className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#1d222e] dark:hover:bg-[#252c3c] text-rose-600 dark:text-rose-400 border border-slate-200/50 dark:border-gray-800 font-bold py-3.5 px-3 rounded-2xl transition-all duration-200 text-xs cursor-pointer"
+                  id="error-logout-btn"
                   type="button"
                 >
-                  <LogIn className="w-3.5 h-3.5" />
-                  <span>تسجيل الدخول</span>
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>تسجيل الخروج</span>
                 </button>
               </div>
             </div>

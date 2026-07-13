@@ -16,6 +16,7 @@ import { CircleData, Student, Session, Test } from '../types';
 import { formatDate } from '../utils/helpers';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import SmartRecitationFormModal from '../components/SmartRecitationFormModal';
 
 interface ReportsProps {
     onBack: () => void;
@@ -47,6 +48,7 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
     // Phase 1, 2, 3 Navigation state
     const [view, setView] = useState<'select' | 'setup' | 'preview'>('select');
     const [reportType, setReportType] = useState<ReportType>('comprehensive');
+    const [showSmartFormModal, setShowSmartFormModal] = useState(false);
 
     // Setup configuration state
     const [period, setPeriod] = useState<'last7' | 'last30' | 'currentMonth' | 'lastMonth' | 'allTime' | 'custom'>('last30');
@@ -1160,6 +1162,21 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                 </div>
                                 <span className="text-[10px] text-rose-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">ابدأ الإعداد ←</span>
                             </button>
+
+                            {/* Card 6: Smart Recitation */}
+                            <button
+                                onClick={() => { setShowSmartFormModal(true); }}
+                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-emerald-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                            >
+                                <div className="space-y-2">
+                                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/30 group-hover:scale-110 transition-transform">
+                                        <FaFilePdf size={20} />
+                                    </div>
+                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">كشف التسميع</h3>
+                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">توليد كشف تسميع ذكي للطباعة الورقية والإدخال التلقائي للبيانات وحفظ التقدم عبر الكاميرا.</p>
+                                </div>
+                                <span className="text-[10px] text-emerald-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">فتح الأداة ←</span>
+                            </button>
                         </div>
                     </motion.div>
                 )}
@@ -1503,6 +1520,13 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                     </div>
                 )}
             </AnimatePresence>
+
+            <SmartRecitationFormModal
+                isOpen={showSmartFormModal}
+                onClose={() => setShowSmartFormModal(false)}
+                circleData={activeCircle}
+                addToast={showToast}
+            />
         </motion.div>
     );
 };

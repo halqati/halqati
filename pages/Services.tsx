@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { FaBook, FaChartLine, FaClipboardCheck, FaTasks, FaCalendarCheck, FaBullhorn, FaFileAlt } from 'react-icons/fa';
+import { FaBook, FaChartLine, FaClipboardCheck, FaTasks, FaCalendarCheck, FaBullhorn, FaFileAlt, FaGift } from 'react-icons/fa';
 
 interface ServicesProps {
     onNavigate: (page: string) => void;
@@ -63,6 +63,12 @@ const Services: React.FC<ServicesProps> = ({ onNavigate, hasFullManagement }) =>
             title: 'التقارير',
             icon: FaFileAlt,
             requiresManagement: false
+        },
+        {
+            id: 'rewards',
+            title: 'إدارة المكافآت',
+            icon: FaGift,
+            requiresManagement: true
         }
     ];
 

@@ -5,6 +5,7 @@ import { CircleData, ConfirmationModalData, UserProfile } from '../types';
 import { FaArrowLeft, FaSave, FaCamera, FaBookOpen, FaTrash, FaBuilding, FaGlobe, FaSearch, FaTimes, FaUserShield, FaCopy, FaLock, FaEnvelope, FaExclamationTriangle, FaCheck } from 'react-icons/fa';
 import { db, auth, collection, query, where, getDocs, addDoc, updatePassword, reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail, deleteUser, doc, deleteDoc, writeBatch, updateDoc } from '../firebase';
 import { COUNTRIES } from '../constants';
+import { encrypt } from '../utils/encryption';
 
 interface ProfileProps {
     mode: 'circle' | 'account';
@@ -181,7 +182,6 @@ const Profile: React.FC<ProfileProps> = ({ mode, data, allCircles, onSave, onUpd
                 await onUpdateAccountDetails(profileData.displayName, profileData.gender as 'male' | 'female');
             } else {
                 try {
-                    const { updateDoc, doc } = await import('firebase/firestore');
                     const userRef = doc(db, 'users', userProfile.uid);
                     await updateDoc(userRef, { 
                         displayName: profileData.displayName, 
@@ -241,7 +241,6 @@ const Profile: React.FC<ProfileProps> = ({ mode, data, allCircles, onSave, onUpd
 
                 // Update local saved password if exists
                 const savedAccounts = JSON.parse(localStorage.getItem('saved_accounts_v1') || '[]');
-                const { encrypt } = await import('../utils/encryption');
                 const newSaved = savedAccounts.map((a: any) => 
                     a.email === auth!.currentUser?.email ? { ...a, password: encrypt(newPassword) } : a
                 );

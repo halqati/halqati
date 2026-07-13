@@ -5,6 +5,7 @@ import {
     CloudLightning,
     Clock, 
     CloudUpload, 
+    CloudDownload,
     CheckCircle2,
     Loader2,
     RefreshCw,
@@ -189,6 +190,7 @@ const SyncDiagnostics: React.FC<SyncDiagnosticsProps> = ({
 }) => {
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncMessage, setSyncMessage] = useState<string | null>(null);
+    const [isReceiving, setIsReceiving] = useState(false);
 
     // Reset scroll of parent main if possible
     useEffect(() => {
@@ -197,6 +199,17 @@ const SyncDiagnostics: React.FC<SyncDiagnosticsProps> = ({
             mainContentArea.scrollTop = 0;
         }
     }, []);
+
+    // Watch for receiving new updates
+    useEffect(() => {
+        if (realTimeReceivedCount > 0) {
+            setIsReceiving(true);
+            const timer = setTimeout(() => {
+                setIsReceiving(false);
+            }, 4000); // 4 seconds of showing the receiving state
+            return () => clearTimeout(timer);
+        }
+    }, [realTimeReceivedCount]);
 
     const handleManualSyncClick = async () => {
         if (isSyncing) return;
@@ -218,10 +231,22 @@ const SyncDiagnostics: React.FC<SyncDiagnosticsProps> = ({
         }
     };
 
-    // Mapping stats to requested short representations:
     const pendingCount = syncQueue.length;
     const uploadingStatus = currentlyUploadingItem ? 'جاري الرفع...' : (isWorkerActive ? 'نشط' : 'لا يوجد');
-    const syncedCount = totalSynced;
+
+    // Sync status type mapping:
+    // - Blue: receiving data from other teachers
+    // - Yellow: uploading data / pending sync
+    // - Green: everything synced
+    const statusType = useMemo<'green' | 'yellow' | 'blue'>(() => {
+        if (isReceiving) {
+            return 'blue';
+        }
+        if (pendingCount > 0 || currentlyUploadingItem) {
+            return 'yellow';
+        }
+        return 'green';
+    }, [isReceiving, pendingCount, currentlyUploadingItem]);
 
     return (
         <motion.div 
@@ -248,66 +273,98 @@ const SyncDiagnostics: React.FC<SyncDiagnosticsProps> = ({
                 </div>
             </div>
 
-            {/* Main Diagnostics Display - Exactly 3 Numbers */}
-            <div className="grid grid-cols-1 gap-3">
-                
-                {/* 1. قيد الانتظار (Pending) */}
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-xs flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-amber-500/10 text-amber-500 rounded-xl">
-                            <Clock className="w-5 h-5" />
-                        </div>
-                        <div className="text-right">
-                            <span className="text-xs font-bold text-gray-400 block">قيد الانتظار</span>
-                            <span className="text-[10px] text-gray-300">العمليات المتبقية للرفع</span>
-                        </div>
+            {/* Premium Status Hero Card with Visual Indicator */}
+            <div className="bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-100 dark:border-gray-700/60 shadow-xs flex flex-col items-center text-center space-y-4">
+                {/* Visual Indicator */}
+                <div className="relative flex items-center justify-center">
+                    {statusType === 'green' && (
+                        <>
+                            <div className="absolute w-14 h-14 rounded-full bg-emerald-500/20 animate-ping" />
+                            <div className="relative w-11 h-11 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
+                                <span className="text-lg">🟢</span>
+                            </div>
+                        </>
+                    )}
+                    {statusType === 'yellow' && (
+                        <>
+                            <div className="absolute w-14 h-14 rounded-full bg-amber-500/25 animate-pulse" />
+                            <div className="relative w-11 h-11 rounded-full bg-amber-500 flex items-center justify-center text-white shadow-lg shadow-amber-500/30">
+                                <span className="text-lg animate-pulse">🟡</span>
+                            </div>
+                        </>
+                    )}
+                    {statusType === 'blue' && (
+                        <>
+                            <div className="absolute w-14 h-14 rounded-full bg-blue-500/25 animate-pulse" />
+                            <motion.div 
+                                animate={{ y: [0, -4, 0] }}
+                                transition={{ repeat: Infinity, duration: 1.5, ease: "easeInOut" }}
+                                className="relative w-11 h-11 rounded-full bg-blue-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/30"
+                            >
+                                <span className="text-lg">🔵</span>
+                            </motion.div>
+                        </>
+                    )}
+                </div>
+
+                {/* Status Message */}
+                <div className="space-y-1">
+                    <h3 className="text-sm font-extrabold text-gray-800 dark:text-gray-100">
+                        {statusType === 'green' && "تمت مزامنة جميع البيانات."}
+                        {statusType === 'yellow' && "تمت مزامنة معظم البيانات، ويتبقى عدد قليل."}
+                        {statusType === 'blue' && "توجد بيانات جديدة يتم استلامها من معلم آخر."}
+                    </h3>
+                    <p className="text-[11px] text-gray-400 dark:text-gray-400 max-w-[280px] mx-auto leading-relaxed">
+                        {statusType === 'green' && "جميع العمليات مسجلة ومحفوظة بنجاح وآمنة في السحاب."}
+                        {statusType === 'yellow' && `يتم المزامنة والرفع في الخلفية (${pendingCount} عمليات متبقية).`}
+                        {statusType === 'blue' && "يتم استلام وحفظ تحديثات الحلقة مباشرة تلقائياً."}
+                    </p>
+                </div>
+
+                {/* Last Sync Info */}
+                {lastSyncTimestamp && (
+                    <div className="text-[10px] text-gray-400 bg-gray-50 dark:bg-gray-800/40 px-3 py-1 rounded-xl border border-gray-100 dark:border-gray-700/30 flex items-center gap-1.5 font-sans">
+                        <Clock className="w-3.5 h-3.5 text-gray-400" />
+                        <span>آخر تحديث: {new Date(lastSyncTimestamp).toLocaleTimeString('ar-SA', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}</span>
                     </div>
-                    <div className="flex items-baseline gap-1">
-                        <AnimatedNumber value={pendingCount} className="text-2xl font-black text-amber-500 font-mono" />
-                        <span className="text-xs text-gray-400">عملية</span>
+                )}
+            </div>
+
+            {/* Diagnostics Cards (2 Columns) */}
+            <div className="grid grid-cols-2 gap-3">
+                {/* 1. قيد الانتظار (Pending) */}
+                <div className="bg-white dark:bg-gray-800 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-xs flex flex-col justify-between h-[82px]">
+                    <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg">
+                            <Clock className="w-4 h-4" />
+                        </div>
+                        <span className="text-[11px] font-bold text-gray-400">قيد الانتظار</span>
+                    </div>
+                    <div className="flex items-baseline justify-between">
+                        <AnimatedNumber value={pendingCount} className="text-xl font-black text-amber-500 font-mono" />
+                        <span className="text-[10px] text-gray-400">عملية</span>
                     </div>
                 </div>
 
-                {/* 2. يتم الرفع (Uploading) */}
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-xs flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-blue-500/10 text-blue-500 rounded-xl">
-                            <CloudUpload className="w-5 h-5" />
-                        </div>
-                        <div className="text-right">
-                            <span className="text-xs font-bold text-gray-400 block">يتم الرفع</span>
-                            <span className="text-[10px] text-gray-300">حالة عملية الإرسال الجارية</span>
-                        </div>
-                    </div>
+                {/* 2. يتم الرفع (Uploading Status) */}
+                <div className="bg-white dark:bg-gray-800 p-3.5 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-xs flex flex-col justify-between h-[82px]">
                     <div className="flex items-center gap-2">
+                        <div className="p-1.5 bg-blue-500/10 text-blue-500 rounded-lg">
+                            <CloudUpload className="w-4 h-4" />
+                        </div>
+                        <span className="text-[11px] font-bold text-gray-400">حالة الرفع</span>
+                    </div>
+                    <div className="flex items-center">
                         {currentlyUploadingItem ? (
-                            <div className="flex items-center gap-1.5 text-xs text-blue-500 font-bold bg-blue-500/10 px-2.5 py-1 rounded-full animate-pulse">
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                <span>نشط الآن</span>
+                            <div className="flex items-center gap-1 text-[10px] text-blue-500 font-bold bg-blue-500/10 px-2 py-0.5 rounded-full animate-pulse">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                <span>نشط</span>
                             </div>
                         ) : (
-                            <span className="text-sm font-black text-gray-500 dark:text-gray-400">{uploadingStatus}</span>
+                            <span className="text-[11px] font-black text-gray-500 dark:text-gray-400">{uploadingStatus}</span>
                         )}
                     </div>
                 </div>
-
-                {/* 3. تمت المزامنة (Synced) */}
-                <div className="bg-white dark:bg-gray-800 p-4 rounded-2xl border border-gray-100 dark:border-gray-700/60 shadow-xs flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="p-3 bg-emerald-500/10 text-emerald-500 rounded-xl">
-                            <CheckCircle2 className="w-5 h-5" />
-                        </div>
-                        <div className="text-right">
-                            <span className="text-xs font-bold text-gray-400 block">تمت المزامنة</span>
-                            <span className="text-[10px] text-gray-300">إجمالي العمليات الناجحة حالياً</span>
-                        </div>
-                    </div>
-                    <div className="flex items-baseline gap-1">
-                        <AnimatedNumber value={syncedCount} className="text-2xl font-black text-emerald-500 font-mono" />
-                        <span className="text-xs text-gray-400">عملية</span>
-                    </div>
-                </div>
-
             </div>
 
             {/* List of Pending/Stuck Items in Queue */}

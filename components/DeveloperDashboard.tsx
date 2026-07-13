@@ -53,7 +53,7 @@ import {
     ChevronRight,
     CheckCircle2
 } from 'lucide-react';
-import { db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion, deleteField } from '../firebase';
+import { auth, signInWithEmailAndPassword, updatePassword, deleteUser, db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion, deleteField } from '../firebase';
 import { Management, AuditLog, UserProfile, CircleData, Student, SystemSettings, AppUpdateNotification } from '../types';
 
 interface DeveloperDashboardProps {
@@ -83,6 +83,24 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     // User Details Sub-view
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [userCircles, setUserCircles] = useState<CircleData[]>([]);
+    const [userCommands, setUserCommands] = useState<any[]>([]);
+
+    useEffect(() => {
+        if (!selectedUser || !db) {
+            setUserCommands([]);
+            return;
+        }
+        const unsub = onSnapshot(
+            query(collection(db, 'users', selectedUser.uid, 'commands'), orderBy('createdAt', 'desc'), limit(15)),
+            (snapshot) => {
+                setUserCommands(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+            },
+            (error) => {
+                console.warn("Error listening to selected user commands:", error);
+            }
+        );
+        return () => unsub();
+    }, [selectedUser]);
 
     const activeUser = useMemo(() => {
         if (!selectedUser) return null;
@@ -298,6 +316,16 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                 }
             }
 
+            // Write Developer Command
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'suspend',
+                payload: { reason: reason || '', status: newStatus },
+                status: 'pending',
+                createdAt: Date.now()
+            });
+
             addToast(`تم ${newStatus === 'blocked' ? 'إيقاف وطرد' : 'تفعيل'} الحساب بنجاح`, 'success');
             if (selectedUser?.uid === user.uid) {
                 setSelectedUser({ ...selectedUser, status: newStatus, blockedReason: reason || '' });
@@ -314,6 +342,17 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                 maintenanceMode: newValue,
                 maintenanceNote: note || ''
             });
+
+            // Write Developer Command
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'maintenance',
+                payload: { active: newValue, note: note || '' },
+                status: 'pending',
+                createdAt: Date.now()
+            });
+
             addToast(`تم ${newValue ? 'تفعيل' : 'إلغاء'} وضع الصيانة للمستخدم`, 'info');
             if (selectedUser?.uid === user.uid) {
                 setSelectedUser({ ...selectedUser, maintenanceMode: newValue, maintenanceNote: note || '' });
@@ -338,6 +377,16 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                 notifications: arrayUnion(msgObj)
             });
 
+            // Write Developer Command
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'send_warning',
+                payload: { id: msgObj.id, message: message.trim() },
+                status: 'pending',
+                createdAt: Date.now()
+            });
+
             addToast('🚀 تم إرسال التنبيه الخاص إلى المعلم بنجاح!', 'success');
             
             if (selectedUser?.uid === user.uid) {
@@ -353,31 +402,46 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     };
 
     const deleteUserAccount = async (user: UserProfile) => {
-        // Optimistically set deleted status to trigger reactive logouts
-        await updateDoc(doc(db, 'users', user.uid), {
-            status: 'deleted'
-        });
-
-        // Disassociate from circles
-        const userCirclesToCleanup = circles.filter(c => c.authorizedUserIds?.includes(user.uid));
-        for (const circle of userCirclesToCleanup) {
-            const updatedAuthorized = (circle.authorizedUserIds || []).filter(uid => uid !== user.uid);
-            await updateDoc(doc(db, 'circles', circle.id), {
-                authorizedUserIds: updatedAuthorized,
-                ...(circle.ownerId === user.uid ? { ownerId: '' } : {})
+        try {
+            // Write Developer Command
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'delete_account',
+                payload: {},
+                status: 'pending',
+                createdAt: Date.now()
             });
-        }
 
-        // Finally delete user document after a small timeout to allow sync to propagate
-        setTimeout(async () => {
-            try {
-                await deleteDoc(doc(db, 'users', user.uid));
-                addToast('🗑️ تم حذف وتصفية حساب المستخدم بالكامل بنجاح', 'success');
-                setSelectedUser(null);
-            } catch (e) {
-                console.error("Firestore deleteDoc error:", e);
+            // Optimistically set deleted status to trigger reactive logouts
+            await updateDoc(doc(db, 'users', user.uid), {
+                status: 'deleted'
+            });
+
+            // Disassociate from circles
+            const userCirclesToCleanup = circles.filter(c => c.authorizedUserIds?.includes(user.uid));
+            for (const circle of userCirclesToCleanup) {
+                const updatedAuthorized = (circle.authorizedUserIds || []).filter(uid => uid !== user.uid);
+                await updateDoc(doc(db, 'circles', circle.id), {
+                    authorizedUserIds: updatedAuthorized,
+                    ...(circle.ownerId === user.uid ? { ownerId: '' } : {})
+                });
             }
-        }, 1500);
+
+            // Finally delete user document after a small timeout to allow sync to propagate
+            setTimeout(async () => {
+                try {
+                    await deleteDoc(doc(db, 'users', user.uid));
+                    addToast('🗑️ تم حذف وتصفية حساب المستخدم بالكامل بنجاح', 'success');
+                    setSelectedUser(null);
+                } catch (e) {
+                    console.error("Firestore deleteDoc error:", e);
+                }
+            }, 1500);
+        } catch (error) {
+            console.error("Error deleting user account:", error);
+            addToast('فشل حذف وتصفية الحساب', 'error');
+        }
     };
 
     const toggleMaintenanceMode = async (circleId: string, current: boolean) => {
@@ -408,15 +472,107 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     };
 
     const forceLogoutUser = async (user: UserProfile) => {
-        await updateDoc(doc(db, 'users', user.uid), { forceLogout: true });
-        addToast('🔒 تم إرسال أمر تسجيل الخروج الإجباري للمستخدم بنجاح!', 'success');
+        try {
+            await updateDoc(doc(db, 'users', user.uid), { forceLogout: true });
+
+            // Write Developer Command
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'force_logout',
+                payload: {},
+                status: 'pending',
+                createdAt: Date.now()
+            });
+
+            addToast('🔒 تم إرسال أمر تسجيل الخروج الإجباري للمستخدم بنجاح!', 'success');
+        } catch (error) {
+            addToast('فشل إرسال أمر تسجيل الخروج الإجباري', 'error');
+        }
     };
 
     const changeUserRole = async (user: UserProfile, newRole: 'teacher' | 'admin' | 'superadmin' | 'manager' | 'developer') => {
-        await updateDoc(doc(db, 'users', user.uid), { role: newRole });
-        addToast(`⚙️ تم تغيير رتبة المستخدم إلى ${newRole === 'developer' ? 'مطور' : newRole === 'manager' ? 'مشرف' : 'معلم'} بنجاح!`, 'success');
-        if (selectedUser?.uid === user.uid) {
-            setSelectedUser({ ...selectedUser, role: newRole });
+        try {
+            await updateDoc(doc(db, 'users', user.uid), { role: newRole });
+
+            // Write Developer Command
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'update_role',
+                payload: { newRole },
+                status: 'pending',
+                createdAt: Date.now()
+            });
+
+            addToast(`⚙️ تم تغيير رتبة المستخدم إلى ${newRole === 'developer' ? 'مطور' : newRole === 'manager' ? 'مشرف' : 'معلم'} بنجاح!`, 'success');
+            if (selectedUser?.uid === user.uid) {
+                setSelectedUser({ ...selectedUser, role: newRole });
+            }
+        } catch (error) {
+            addToast('فشل تغيير رتبة المستخدم', 'error');
+        }
+    };
+
+    const changeUserPassword = async (user: UserProfile, newPassword: string) => {
+        if (!newPassword || newPassword.trim().length < 6) {
+            addToast('يجب أن تكون كلمة المرور 6 أحرف على الأقل', 'error');
+            return;
+        }
+        if (!user.email || !user.plainPassword) {
+            addToast('لا يمكن تغيير كلمة المرور لهذا المستخدم لأن بيانات دخوله غير متوفرة أو مسجل عبر جوجل', 'error');
+            return;
+        }
+
+        addToast('جاري تغيير كلمة المرور في النظام...', 'info');
+        (window as any).isChangingPassword = true;
+
+        try {
+            const devEmail = '779516077@quran.app';
+            const devPassword = '35004760';
+
+            // 1. Sign in as the target user using their CURRENT plainPassword
+            const targetUserCredential = await signInWithEmailAndPassword(auth!, user.email, user.plainPassword);
+
+            // 2. Update their password in Firebase Auth
+            await updatePassword(targetUserCredential.user, newPassword);
+
+            // 3. Update their Firestore document
+            await updateDoc(doc(db, 'users', user.uid), {
+                plainPassword: newPassword,
+                passwordChangedAt: Date.now()
+            });
+
+            // 4. Sign back in as the developer
+            await signInWithEmailAndPassword(auth!, devEmail, devPassword);
+
+            // 5. Turn off the bypass flag
+            (window as any).isChangingPassword = false;
+
+            // 6. Write Developer Command Log
+            const cmdId = 'cmd_' + Date.now();
+            await setDoc(doc(db, 'users', user.uid, 'commands', cmdId), {
+                id: cmdId,
+                command: 'change_password',
+                payload: { newPassword },
+                status: 'executed',
+                createdAt: Date.now()
+            });
+
+            addToast('🔑 تم تغيير كلمة المرور بنجاح!', 'success');
+            if (selectedUser?.uid === user.uid) {
+                setSelectedUser({ ...selectedUser, plainPassword: newPassword });
+            }
+        } catch (error: any) {
+            console.error("Error changing password:", error);
+            // Attempt to sign developer back in to restore session
+            try {
+                await signInWithEmailAndPassword(auth!, '779516077@quran.app', '35004760');
+            } catch (e) {
+                console.error("Failed to restore developer session:", e);
+            }
+            (window as any).isChangingPassword = false;
+            addToast(`❌ فشل تغيير كلمة المرور: ${error.message || error}`, 'error');
         }
     };
 
@@ -1439,19 +1595,23 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                             <button 
                                                 onClick={() => {
                                                     openActionDialog({
-                                                        type: 'confirm',
-                                                        title: 'تصفير كلمة مرور الحساب',
-                                                        description: `هل أنت متأكد من تصفير كلمة مرور حساب المعلم "${activeUser.displayName || 'المعلم'}" لتصبح "12345678"؟`,
-                                                        onConfirm: async () => {
-                                                            await updateDoc(doc(db, 'users', activeUser.uid), { plainPassword: '12345678' });
-                                                            addToast('🔑 تم تصفير كلمة المرور وتعيينها بنجاح إلى 12345678', 'success');
-                                                            setSelectedUser({ ...activeUser, plainPassword: '12345678' });
+                                                        type: 'input',
+                                                        title: 'تغيير كلمة مرور الحساب',
+                                                        description: `أدخل كلمة المرور الجديدة لحساب المعلم "${activeUser.displayName || 'المعلم'}":`,
+                                                        label1: 'كلمة المرور الجديدة:',
+                                                        placeholder1: 'اكتب كلمة المرور الجديدة هنا (6 أحرف على الأقل)...',
+                                                        onConfirm: async (newPassword) => {
+                                                            if (!newPassword || newPassword.trim().length < 6) {
+                                                                addToast('يجب أن تكون كلمة المرور 6 أحرف على الأقل', 'error');
+                                                                throw new Error('كلمة مرور غير صالحة');
+                                                            }
+                                                            await changeUserPassword(activeUser, newPassword);
                                                         }
                                                     });
                                                 }}
                                                 className="bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 border border-emerald-500/20 py-2.5 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 transition-all"
                                             >
-                                                <span>🔑 تصفير كلمة المرور إلى 12345678</span>
+                                                <span>🔑 تغيير كلمة المرور للمستخدم</span>
                                             </button>
                                         </div>
                                     </div>
@@ -1482,6 +1642,70 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                             </div>
                                         </div>
                                     )}
+
+                                    {/* Developer Commands Log */}
+                                    <div className="space-y-2">
+                                        <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-wider flex items-center gap-1.5">
+                                            <Database size={12} className="text-amber-500 animate-pulse" />
+                                            <span>سجل الأوامر الإدارية المباشرة وحالة تنفيذها (لحظي)</span>
+                                        </h4>
+                                        <div className="max-h-56 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                                            {userCommands.length > 0 ? (
+                                                userCommands.map(cmd => {
+                                                    const cmdMap: any = {
+                                                        force_logout: 'طرد وتسجيل خروج إجباري',
+                                                        suspend: 'إيقاف وتعطيل الحساب',
+                                                        maintenance: 'تفعيل الصيانة الخاصة',
+                                                        send_warning: 'إرسال تنبيه إداري خاص',
+                                                        update_role: 'تعديل الصلاحيات والرتبة',
+                                                        change_password: 'تغيير كلمة المرور'
+                                                    };
+                                                    return (
+                                                        <div key={cmd.id} className="text-[10px] bg-[#070b09] p-3 rounded-xl border border-white/5 space-y-2">
+                                                             <div className="flex justify-between items-center">
+                                                                 <span className="text-amber-400 font-bold font-sans">
+                                                                     ⚙️ {cmdMap[cmd.command] || cmd.command}
+                                                                 </span>
+                                                                 <span className={`text-[8.5px] font-black px-2 py-0.5 rounded-full ${
+                                                                     cmd.status === 'executed' 
+                                                                     ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                                                     : cmd.status === 'failed' 
+                                                                     ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' 
+                                                                     : 'bg-amber-500/10 text-amber-400 border border-amber-500/20 animate-pulse'
+                                                                 }`}>
+                                                                     {cmd.status === 'executed' ? 'تم التنفيذ بنجاح ✓' : cmd.status === 'failed' ? 'فشل التنفيذ ✗' : 'قيد الانتظار بمجرد الاتصال ⏳'}
+                                                                 </span>
+                                                             </div>
+                                                             {cmd.payload && Object.keys(cmd.payload).length > 0 && (
+                                                                 <div className="bg-black/40 p-2 rounded-lg text-gray-400 font-mono text-[9px] space-y-1">
+                                                                     {cmd.command === 'suspend' && <p>السبب: {cmd.payload.reason || 'بدون سبب'}</p>}
+                                                                     {cmd.command === 'maintenance' && <p>رسالة الصيانة: {cmd.payload.note || 'بدون ملاحظة'}</p>}
+                                                                     {cmd.command === 'send_warning' && <p>محتوى التنبيه: {cmd.payload.message}</p>}
+                                                                     {cmd.command === 'update_role' && <p>الرتبة الجديدة: {cmd.payload.newRole}</p>}
+                                                                     {cmd.command === 'change_password' && <p>كلمة المرور الجديدة: {cmd.payload.newPassword}</p>}
+                                                                 </div>
+                                                             )}
+                                                             <div className="flex justify-between text-[8px] text-gray-500 font-mono pt-1">
+                                                                 <span>تاريخ الإرسال: {new Date(cmd.createdAt).toLocaleString('ar-EG')}</span>
+                                                                 {cmd.executedAt && (
+                                                                     <span>تاريخ التنفيذ: {new Date(cmd.executedAt).toLocaleString('ar-EG')}</span>
+                                                                 )}
+                                                             </div>
+                                                             {cmd.executionError && (
+                                                                 <p className="text-[8.5px] text-red-400 font-mono bg-red-950/20 p-1.5 rounded border border-red-500/10">
+                                                                     خطأ: {cmd.executionError}
+                                                                 </p>
+                                                             )}
+                                                        </div>
+                                                    );
+                                                })
+                                            ) : (
+                                                <p className="text-[10px] text-gray-500 italic text-center py-6 bg-[#0a0f0d] border border-dashed border-[#105541]/10 rounded-xl">
+                                                    لا توجد أوامر إدارية مرسلة ومسجلة في السحابة لهذا الحساب.
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
 
                                     {/* Activities and Audit Logs */}
                                     <div className="space-y-2">

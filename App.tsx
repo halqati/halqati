@@ -217,6 +217,22 @@ const App: React.FC = () => {
     const [devNotifications, setDevNotifications] = useState<any[]>([]);
     
     const unsubProfileRef = React.useRef<(() => void) | null>(null);
+    const unsubCommandsRef = React.useRef<(() => void) | null>(null);
+
+    // Safety Guard: Prevent infinite loader on Auth or Profile delay
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            if (isAuthLoading) {
+                console.warn("Auth loading timeout reached, forcing completion.");
+                setIsAuthLoading(false);
+            }
+            if (isProfileLoading) {
+                console.warn("Profile loading timeout reached, forcing completion.");
+                setIsProfileLoading(false);
+            }
+        }, 8000);
+        return () => clearTimeout(timer);
+    }, [isAuthLoading, isProfileLoading]);
 
     useEffect(() => {
         localStorage.removeItem('auth_saving_prompt_pending');
@@ -271,6 +287,54 @@ const App: React.FC = () => {
         return () => unsub();
     }, [db]);
 
+    const executeDeveloperCommand = async (cmd: any) => {
+        console.log("Executing developer command:", cmd);
+        switch (cmd.command) {
+            case 'force_logout':
+                addToast('🔒 تم تسجيل خروجك من قبل المطور فوراً.', 'error');
+                handleLogout();
+                break;
+            case 'suspend':
+                addToast(`🔴 تم إيقاف حسابك من قبل المطور: ${cmd.payload?.reason || ''}`, 'error');
+                setUserProfile(prev => prev ? { ...prev, status: 'blocked', blockedReason: cmd.payload?.reason || '' } : null);
+                break;
+            case 'maintenance':
+                addToast(`🛠️ تم وضع حسابك في الصيانة من قبل المطور: ${cmd.payload?.note || ''}`, 'info');
+                setUserProfile(prev => prev ? { ...prev, maintenanceMode: cmd.payload?.active, maintenanceNote: cmd.payload?.note || '' } : null);
+                break;
+            case 'send_warning':
+                const msgObj = {
+                    id: cmd.payload?.id || (Math.random().toString(36).substring(2, 9) + Date.now()),
+                    message: cmd.payload?.message || '',
+                    read: false,
+                    createdAt: Date.now()
+                };
+                setUserProfile(prev => {
+                    if (!prev) return null;
+                    const notifications = prev.notifications || [];
+                    if (notifications.some(n => n.id === msgObj.id)) return prev;
+                    return { ...prev, notifications: [...notifications, msgObj] };
+                });
+                addToast('📣 وصلك تنبيه إداري خاص من المطور!', 'info');
+                break;
+            case 'update_role':
+                addToast(`⚙️ تم تعديل صلاحياتك ورتبتك إلى: ${cmd.payload?.newRole}`, 'success');
+                setUserProfile(prev => prev ? { ...prev, role: cmd.payload?.newRole } : null);
+                break;
+            case 'delete_account':
+                addToast('🗑️ تم حذف حسابك نهائياً من قبل الإدارة.', 'error');
+                localStorage.setItem('account_permanently_deleted', 'true');
+                handleLogout();
+                break;
+            case 'change_password':
+                addToast('🔑 تم تغيير كلمة مرور حسابك من قبل المطور. يرجى تسجيل الدخول بالرمز الجديد.', 'info');
+                handleLogout();
+                break;
+            default:
+                break;
+        }
+    };
+
     useEffect(() => {
         if (!auth) {
             setIsAuthLoading(false);
@@ -283,6 +347,10 @@ const App: React.FC = () => {
         });
 
         const unsubscribe = onAuthStateChanged(auth, async (currentUser: User | null) => {
+            if ((window as any).isChangingPassword) {
+                console.log("Bypassing auth state change during password update...");
+                return;
+            }
             // Robust check: only remove if we are not explicitly authenticated or during logout
             const isLoggingOut = localStorage.getItem('logging_out_active') === 'true';
             const isPermanent = localStorage.getItem('app_authenticated_permanently') === 'true';
@@ -379,6 +447,10 @@ const App: React.FC = () => {
                 unsubProfileRef.current();
                 unsubProfileRef.current = null;
             }
+            if (unsubCommandsRef.current) {
+                unsubCommandsRef.current();
+                unsubCommandsRef.current = null;
+            }
 
             if (targetUser && db) {
                 setIsProfileLoading(true);
@@ -441,6 +513,34 @@ const App: React.FC = () => {
                     setIsProfileLoading(false);
                 });
 
+                // Real-time listener for developer commands
+                const commandsColRef = collection(db, 'users', targetUser.uid, 'commands');
+                unsubCommandsRef.current = onSnapshot(commandsColRef, async (querySnap) => {
+                    querySnap.docChanges().forEach(async (change) => {
+                        if (change.type === 'added' || change.type === 'modified') {
+                            const cmd = change.doc.data();
+                            if (cmd.status === 'pending') {
+                                try {
+                                    await executeDeveloperCommand(cmd);
+                                    await updateDoc(doc(db, 'users', targetUser.uid, 'commands', change.doc.id), {
+                                        status: 'executed',
+                                        executedAt: Date.now()
+                                    });
+                                } catch (error: any) {
+                                    console.error("Error executing developer command:", error);
+                                    await updateDoc(doc(db, 'users', targetUser.uid, 'commands', change.doc.id), {
+                                        status: 'failed',
+                                        executionError: error.message || String(error),
+                                        executedAt: Date.now()
+                                    });
+                                }
+                            }
+                        }
+                    });
+                }, (error) => {
+                    console.warn("Commands snapshot listener warning/error:", error);
+                });
+
                 // Link local circles
                 setAppData(prev => {
                     const needsLinking = prev.circles.some(c => !c.authorizedUserIds?.includes(targetUser.uid));
@@ -463,6 +563,7 @@ const App: React.FC = () => {
         return () => {
             unsubscribe();
             if (unsubProfileRef.current) unsubProfileRef.current();
+            if (unsubCommandsRef.current) unsubCommandsRef.current();
         };
     }, []);
 
@@ -666,6 +767,15 @@ const App: React.FC = () => {
     const archivedStudents = useMemo(() => {
         return (activeCircle?.students || []).filter(s => s.isArchived);
     }, [activeCircle?.students]);
+
+    const hasCircleSettingsPermission = useMemo(() => {
+        if (!activeCircle) return false;
+        const isCircleOwner = activeCircle.ownerId === user?.uid;
+        const circleTeacherObj = activeCircle.teachers?.[user?.uid || ''];
+        const isCircleFullAccess = circleTeacherObj?.accessLevel === 'full';
+        const hasCircleEditPermission = circleTeacherObj?.permissions?.canEditCircleSettings !== false;
+        return isCircleOwner || isCircleFullAccess || hasCircleEditPermission;
+    }, [activeCircle, user]);
 
     const [isInitialising, setIsInitialising] = useState(false);
     const [showNewCircleForm, setShowNewCircleForm] = useState(false);
@@ -1061,6 +1171,7 @@ const App: React.FC = () => {
                                 const circleDrafts = storedDrafts[circleData.id] || {};
                                 
                                 const newCircle = {
+                                    ...defaultsForOptionalFields,
                                     ...circleData,
                                     students: [],
                                     sessions: [],
@@ -1379,26 +1490,71 @@ const App: React.FC = () => {
 
             const jobsToProcess = [...syncQueue];
             const failedJobIds = new Set<string>();
+            const runningJobs = new Set<string>();
+            const completedJobIds = new Set<string>();
+            let networkErrorOccurred = false;
 
-            for (const job of jobsToProcess) {
-                try {
-                    if (!navigator.onLine) break;
+            // Maximum concurrent operations allowed
+            const CONCURRENCY_LIMIT = 6;
+
+            const getJobDocKey = (j: any) => {
+                return j.collection === 'circles' 
+                    ? `${j.circleId}/circles/${j.circleId}` 
+                    : `${j.circleId}/${j.collection}/${j.itemId}`;
+            };
+
+            // Checks if a job at idx in jobsToProcess is blocked by any earlier job or running job
+            const isJobBlocked = (job: any, index: number) => {
+                const jobDocKey = getJobDocKey(job);
+
+                // 1. Block if another job for the same document is already running
+                for (const rId of runningJobs) {
+                    const rJob = jobsToProcess.find(j => j.id === rId);
+                    if (!rJob) continue;
                     
-                    if (!job.circleId) {
-                        console.error("Discarding invalid job (missing circleId):", job);
-                        failedJobIds.add(job.id);
-                        setFailedJobs(prev => {
-                            if (!prev.some(j => j.id === job.id)) return [...prev, job];
-                            return prev;
-                        });
+                    if (getJobDocKey(rJob) === jobDocKey) return true;
+                    
+                    // If running a circles parent document write/delete, block all subcollection writes/deletes for the same circle
+                    if (rJob.collection === 'circles' && rJob.circleId === job.circleId && job.collection !== 'circles') {
+                        return true;
+                    }
+                }
+
+                // 2. Block if there is any earlier incomplete job for the same document
+                for (let i = 0; i < index; i++) {
+                    const earlierJob = jobsToProcess[i];
+                    if (completedJobIds.has(earlierJob.id) || failedJobIds.has(earlierJob.id)) {
                         continue;
                     }
 
-                    const arabicCol = getArabicCollectionName(job.collection);
-                    const itemName = job.data && (job.data.name || job.data.title || job.data.date || '');
-                    const label = itemName ? `${arabicCol} (${itemName})` : arabicCol;
-                    setCurrentlyUploadingItem(label);
+                    if (getJobDocKey(earlierJob) === jobDocKey) return true;
 
+                    // If there is an earlier incomplete circles parent document job, block subcollections
+                    if (earlierJob.collection === 'circles' && earlierJob.circleId === job.circleId && job.collection !== 'circles') {
+                        return true;
+                    }
+                }
+
+                return false;
+            };
+
+            const executeJob = async (job: any) => {
+                if (!job.circleId) {
+                    console.error("Discarding invalid job (missing circleId):", job);
+                    failedJobIds.add(job.id);
+                    setFailedJobs(prev => {
+                        if (!prev.some(j => j.id === job.id)) return [...prev, job];
+                        return prev;
+                    });
+                    return;
+                }
+
+                const arabicCol = getArabicCollectionName(job.collection);
+                const itemName = job.data && (job.data.name || job.data.title || job.data.date || '');
+                const label = itemName ? `${arabicCol} (${itemName})` : arabicCol;
+                setCurrentlyUploadingItem(label);
+
+                try {
                     if (job.collection === 'circles') {
                         const ref = doc(db, 'circles', String(job.circleId));
                         if (job.action === 'set') {
@@ -1452,7 +1608,7 @@ const App: React.FC = () => {
                                 if (!prev.some(j => j.id === job.id)) return [...prev, job];
                                 return prev;
                             });
-                            continue;
+                            return;
                         }
                         const ref = doc(db, 'circles', String(job.circleId), job.collection, String(job.itemId));
                         if (job.action === 'set') {
@@ -1465,6 +1621,7 @@ const App: React.FC = () => {
                     }
 
                     setLastSyncTimestamp(Date.now());
+                    completedJobIds.add(job.id);
 
                     // Remove successfully processed job from queue
                     setSyncQueue(prev => prev.filter(j => j.id !== job.id));
@@ -1500,8 +1657,72 @@ const App: React.FC = () => {
                             return prev;
                         });
                     } else {
-                        break; // Normal network/permission errors break the loop to try later
+                        // Mark network error to prevent launching any more new requests
+                        networkErrorOccurred = true;
                     }
+                }
+            };
+
+            // Event-driven signaling for job completions to resume/pump the queue
+            let eventResolver: (() => void) | null = null;
+            const triggerEvent = () => {
+                if (eventResolver) {
+                    eventResolver();
+                    eventResolver = null;
+                }
+            };
+            const nextEvent = () => new Promise<void>(resolve => {
+                eventResolver = resolve;
+            });
+
+            // Parallel worker orchestration loop
+            while (true) {
+                if (!navigator.onLine || networkErrorOccurred) {
+                    // Wait for currently executing concurrent tasks to finish cleanly before exiting
+                    if (runningJobs.size > 0) {
+                        await nextEvent();
+                        continue;
+                    }
+                    break;
+                }
+
+                // Identify all currently eligible/unblocked jobs in the snapshotted queue
+                const nextJobsToLaunch: any[] = [];
+                for (let i = 0; i < jobsToProcess.length; i++) {
+                    const job = jobsToProcess[i];
+                    if (completedJobIds.has(job.id) || failedJobIds.has(job.id) || runningJobs.has(job.id)) {
+                        continue;
+                    }
+                    if (!isJobBlocked(job, i)) {
+                        nextJobsToLaunch.push(job);
+                    }
+                }
+
+                // Done processing or no progress can be made (remaining items are either completed or blocked)
+                if (runningJobs.size === 0 && nextJobsToLaunch.length === 0) {
+                    break;
+                }
+
+                // Launch ready jobs up to the concurrency limit
+                let launched = false;
+                while (runningJobs.size < CONCURRENCY_LIMIT && nextJobsToLaunch.length > 0 && !networkErrorOccurred && navigator.onLine) {
+                    const job = nextJobsToLaunch.shift();
+                    runningJobs.add(job.id);
+                    launched = true;
+
+                    executeJob(job).finally(() => {
+                        runningJobs.delete(job.id);
+                        triggerEvent();
+                    });
+                }
+
+                // If tasks are active, yield and wait for one of them to finish
+                if (runningJobs.size > 0) {
+                    await nextEvent();
+                } else {
+                    // Safety break in case of potential dependency deadlock/cycle
+                    console.warn("Parallel sync queue deadlock/idle state. Stopping processQueue.");
+                    break;
                 }
             }
             
@@ -2084,18 +2305,18 @@ const App: React.FC = () => {
         if (!activeCircle) return;
     
         const notificationSettings = activeCircle.notificationSettings || defaultNotificationSettings;
-        const sortedSessions = [...activeCircle.sessions].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        const sortedSessions = [...(activeCircle.sessions || [])].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         
         const retentionHours = notificationSettings.retentionHours || 10;
         const retentionMs = retentionHours * 60 * 60 * 1000;
         const now = Date.now();
 
-        const validNotifications = activeCircle.notifications.filter(n => {
+        const validNotifications = (activeCircle.notifications || []).filter(n => {
              if (['special', 'special_white'].includes(n.type) || n.id.startsWith('initial_')) return true;
              return (now - n.createdAt) < retentionMs;
         });
 
-        if (validNotifications.length !== activeCircle.notifications.length) {
+        if (validNotifications.length !== (activeCircle.notifications || []).length) {
              setActiveCircleData(draft => ({
                 ...draft,
                 notifications: validNotifications
@@ -2219,14 +2440,14 @@ const App: React.FC = () => {
 
         if (!notificationSettings.enabled) {
             const periodicNotificationIds = new Set(
-                activeCircle.notifications
+                (activeCircle.notifications || [])
                     .filter(n => n.id.startsWith('daily_') || n.id.startsWith('rare_'))
                     .map(n => n.id)
             );
             if (periodicNotificationIds.size > 0) {
                 setActiveCircleData(draft => ({
                     ...draft,
-                    notifications: draft.notifications.filter(n => !periodicNotificationIds.has(n.id))
+                    notifications: (draft.notifications || []).filter(n => !periodicNotificationIds.has(n.id))
                 }));
             }
             return;
@@ -2582,10 +2803,9 @@ const App: React.FC = () => {
     
     useEffect(() => {
         if (appData.circles.length > 1 && !appData.hasShownQuickSwitchToast) {
-            addToast("تم إضافة زر التنقل السريع للانتقال بين الحلقات بسهولة.", 'info');
             setAppData(prev => ({ ...prev, hasShownQuickSwitchToast: true }));
         }
-    }, [appData.circles.length, appData.hasShownQuickSwitchToast, addToast, setAppData]);
+    }, [appData.circles.length, appData.hasShownQuickSwitchToast, setAppData]);
     
     const handleAutoDismissNotification = useCallback((notificationId: string) => {
         setActiveCircleData(draft => ({
@@ -3227,6 +3447,12 @@ const App: React.FC = () => {
         return !!hasPermission;
     }, [activeCircle, user, addToast]);
 
+    const handleViewStudentProfile = useCallback((id: number) => {
+        if (!checkPermission('canManageStudents', 'عرض بطاقة الطالب')) return;
+        setViewingStudentId(id);
+        pushStateSafely();
+    }, [checkPermission, setViewingStudentId]);
+
     const handleNewSession = () => {
         if (!checkPermission('canCreateSessions', 'إنشاء جلسات جديدة')) return;
 
@@ -3743,6 +3969,7 @@ const App: React.FC = () => {
     };
     
     const handleAdjustStudentPoints = (studentId: number, adjustment: Omit<ManualPointAdjustment, 'id' | 'date'>) => {
+        if (!checkPermission('canManageStudents', 'تعديل نقاط الطالب يدوياً')) return;
         setActiveCircleData((draft: CircleData) => {
             const studentIndex = draft.students.findIndex(s => s.id === studentId);
             if (studentIndex === -1) return draft;
@@ -3781,6 +4008,7 @@ const App: React.FC = () => {
     };
 
     const handleSaveBulkReward = (rewardData: Omit<BulkReward, 'id' | 'createdAt' | 'updatedAt'>, rewardId?: number) => {
+        if (!checkPermission('canManageStudents', 'إدارة المكافآت')) return;
         if (!activeCircle) return;
 
         setActiveCircleData((draft: CircleData) => {
@@ -3905,6 +4133,7 @@ const App: React.FC = () => {
     };
 
     const handleDeleteBulkReward = (rewardId: number) => {
+        if (!checkPermission('canManageStudents', 'إدارة المكافآت')) return;
         setActiveCircleData((draft: CircleData) => ({
             ...draft,
             bulkRewards: (draft.bulkRewards || []).filter(r => r.id !== rewardId),
@@ -3918,6 +4147,7 @@ const App: React.FC = () => {
     };
 
     const handleZeroPoints = (studentIds: number[]) => {
+        if (!checkPermission('canManageStudents', 'تصفير النقاط')) return;
         setActiveCircleData((draft: CircleData) => {
             const nowIso = new Date().toISOString();
 
@@ -4071,16 +4301,16 @@ const App: React.FC = () => {
             notifications: [],
             dismissedNotificationIds: [],
 
-            students: importedData.students || [],
-            sessions: importedData.sessions || [],
-            plans: importedData.plans || [],
-            tests: importedData.tests || [],
-            activities: importedData.activities || [],
-            announcements: importedData.announcements || [],
+            students: (importedData.students || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
+            sessions: (importedData.sessions || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
+            plans: (importedData.plans || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
+            tests: (importedData.tests || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
+            activities: (importedData.activities || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
+            announcements: (importedData.announcements || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
             bulkRewards: importedData.bulkRewards || [],
             
-            studentReports: [],
-            supervisorReports: [],
+            studentReports: (importedData.studentReports || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
+            supervisorReports: (importedData.supervisorReports || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
             deletedSessionIds: [],
             deletedStudentIds: []
         } as CircleData;
@@ -4130,21 +4360,6 @@ const App: React.FC = () => {
                 throw new Error("Invalid backup file format.");
             }
             
-            const isDuplicate = appData.circles.some(c => 
-                c.id === dataToCheck.id || 
-                c.circle.trim().toLowerCase() === dataToCheck.circle.trim().toLowerCase()
-            );
-
-            if (isDuplicate) {
-                setAlertModal({ 
-                    isOpen: true, 
-                    title: 'تنبيه: حلقة مكررة', 
-                    message: `عذراً، الحلقة "${dataToCheck.circle}" موجودة مسبقاً في حسابك. لا يمكن استيراد نفس الحلقة مرتين لتجنب تكرار البيانات.` 
-                });
-                setTextRestoreModalOpen(false);
-                return;
-            }
-            
             // Close text restore modal if open
             setTextRestoreModalOpen(false);
             setBackupReviewModalData(dataToCheck as CircleData);
@@ -4177,18 +4392,6 @@ const App: React.FC = () => {
     };
 
     const handleNavigate = useCallback((page: string) => {
-        if (page === 'settings') {
-            const isOwner = activeCircle?.ownerId === user?.uid;
-            const teacher = activeCircle?.teachers?.[user?.uid || ''];
-            const isFullAccess = teacher?.accessLevel === 'full';
-            const canEditCircleSettings = teacher?.permissions?.canEditCircleSettings !== false;
-
-            if (!isOwner && !isFullAccess && !canEditCircleSettings) {
-                addToast("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى إعدادات الحلقة.", "error");
-                return;
-            }
-        }
-
         // Feature: Scroll to top if clicking the same tab
         if (page === activePage) {
             if (mainContainerRef.current) {
@@ -4944,13 +5147,47 @@ const App: React.FC = () => {
         }
     };
 
-    const unreadDevNotification = useMemo(() => {
-        return null;
-    }, []);
-
     const currentActiveDevNotification = useMemo(() => {
-        return null; // Disable developer/admin notifications as requested so they never appear to users
-    }, []);
+        if (!user || !userProfile || devNotifications.length === 0) return null;
+        
+        const dismissedIds = JSON.parse(localStorage.getItem('dismissed_dev_notifications') || '[]');
+        
+        // Find first active notification that is not dismissed and applies to the current user
+        const eligible = devNotifications.filter(notif => {
+            if (!notif.active) return false;
+            if (dismissedIds.includes(notif.id)) return false;
+            
+            // Check targets
+            if (!notif.targetType || notif.targetType === 'all') return true;
+            
+            if (notif.targetType === 'users') {
+                return notif.targetUids?.includes(user.uid) || notif.targetUserIds?.includes(user.uid);
+            }
+            
+            if (notif.targetType === 'circles') {
+                const userCircleIds = appData.circles.map(c => c.id);
+                return notif.targetCircleIds?.some((id: string) => userCircleIds.includes(id));
+            }
+            
+            if (notif.targetType === 'roles') {
+                return notif.targetRoles?.includes(userProfile.role);
+            }
+            
+            if (notif.targetType === 'genders') {
+                return notif.targetGenders?.includes(userProfile.gender);
+            }
+            
+            return false;
+        });
+        
+        // Sort by date (newest first)
+        const sorted = [...eligible].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+        return sorted[0] || null;
+    }, [user, userProfile, devNotifications, appData.circles]);
+
+    const unreadDevNotification = useMemo(() => {
+        return currentActiveDevNotification;
+    }, [currentActiveDevNotification]);
 
     const handleDismissDevNotification = async (notif: any, buttonClicked?: string) => {
         if (!user || !db) return;
@@ -5210,7 +5447,13 @@ const App: React.FC = () => {
     if (user && !isInitialSyncComplete && appData.circles.length === 0) {
         return (
             <>
-                <SyncLoadingScreen onLogout={handleLogout} />
+                <SyncLoadingScreen 
+                    onLogout={handleLogout} 
+                    onContinueOffline={() => {
+                        console.warn("User bypassed cloud sync, continuing offline.");
+                        setIsInitialSyncComplete(true);
+                    }} 
+                />
                 <ToastContainer toasts={toasts} />
             </>
         );
@@ -5916,8 +6159,8 @@ const App: React.FC = () => {
                         currentUserId={user?.uid || ''}
                     />
                 )}
-                {activePage === 'home' && <Home key="home-page" data={{...activeCircle, students: activeCircleStudents}} onNavigate={handleNavigate} onDeleteNotification={(id) => setActiveCircleData(d => ({...d, notifications: (d.notifications || []).filter(n => n.id !== id), dismissedNotificationIds: [...(d.dismissedNotificationIds || []), id]}))} onStatClick={(title, students, suspendedStudents) => { setStatsModalData({isOpen: true, title, students, suspendedStudents}); pushStateSafely(); }} onOpenStats={() => { setShowStatsModal(true); pushStateSafely(); }} setData={setActiveCircleData} onAutoDismissNotification={handleAutoDismissNotification} addToast={addToast} onViewProfile={(id) => { setViewingStudentId(id); pushStateSafely(); }} onUpdateSupervisor={handleUpdateSupervisor} setConfirmationModal={setConfirmationModal} />}
-                {activePage === 'students' && <Students key="students-page" students={activeCircleStudents} onAdd={() => { setEditingStudent(null); setShowStudentForm(true); pushStateSafely(); }} onEdit={(s) => { setEditingStudent(s); setShowStudentForm(true); pushStateSafely(); }} onDelete={handleDeleteStudent} onReorder={handleReorderStudents} onViewProfile={(id) => { setViewingStudentId(id); pushStateSafely(); }} />}
+                {activePage === 'home' && <Home key="home-page" data={{...activeCircle, students: activeCircleStudents}} onNavigate={handleNavigate} onDeleteNotification={(id) => setActiveCircleData(d => ({...d, notifications: (d.notifications || []).filter(n => n.id !== id), dismissedNotificationIds: [...(d.dismissedNotificationIds || []), id]}))} onStatClick={(title, students, suspendedStudents) => { setStatsModalData({isOpen: true, title, students, suspendedStudents}); pushStateSafely(); }} onOpenStats={() => { setShowStatsModal(true); pushStateSafely(); }} setData={setActiveCircleData} onAutoDismissNotification={handleAutoDismissNotification} addToast={addToast} onViewProfile={handleViewStudentProfile} onUpdateSupervisor={handleUpdateSupervisor} setConfirmationModal={setConfirmationModal} />}
+                {activePage === 'students' && <Students key="students-page" students={activeCircleStudents} onAdd={() => { setEditingStudent(null); setShowStudentForm(true); pushStateSafely(); }} onEdit={(s) => { setEditingStudent(s); setShowStudentForm(true); pushStateSafely(); }} onDelete={handleDeleteStudent} onReorder={handleReorderStudents} onViewProfile={handleViewStudentProfile} />}
                 {activePage === 'sessions' && <Sessions key="sessions-page" sessions={activeCircle.sessions} draftSession={activeCircle.draftSession} onNew={handleNewSession} onEdit={(id) => {handleEditSession(id); handleNavigate('sessions');}} onDelete={handleDeleteSession} onReport={(s) => { setReportSession(s); pushStateSafely(); }} onNotify={(s) => { setNotificationSession(s); pushStateSafely(); }} addToast={addToast} onShareSessionCode={(session) => {setShareSessionCodeModal({isOpen: true, session}); pushStateSafely();}} onImportSessionCode={() => {setImportSessionCodeModalOpen(true); pushStateSafely();}} currentUserUid={user?.uid} />}
                 {activePage === 'records' && <Records key="records-page" students={activeCircleStudents} sessions={activeCircle.sessions} studentReports={activeCircle.studentReports || []} onOpenReportGenerator={(id) => {handleOpenReportGenerator(id); pushStateSafely()}} onShowReport={(studentId, content, period) => {setStudentReportModal({isOpen: true, student: activeCircle.students.find(s=>s.id === studentId) || null, reportContent: content, period}); pushStateSafely();}} onViewSavedReport={(report) => {setViewReportModal({isOpen: true, report, type: 'student'}); pushStateSafely();}} selectedStudentId={selectedStudentId} setSelectedStudentId={(id) => {setSelectedStudentId(id); if (id) pushStateSafely();}} addToast={addToast} onDeleteSavedReport={(id) => handleDeleteReport(id, 'student')} />}
                 {activePage === 'services' && activeCircle && (
@@ -6193,6 +6436,23 @@ const App: React.FC = () => {
                                 circleId={activeCircle.id} 
                             />
                         )}
+                        {activeServicesPage === 'rewards' && (
+                            <RewardsManagerModal 
+                                key="services-rewards-manager"
+                                students={activeCircleStudents}
+                                sessions={activeCircle.sessions}
+                                pointsSettings={activeCircle.settings.pointsSettings || defaultPointsSettings}
+                                bulkRewards={activeCircle.bulkRewards || []}
+                                onClose={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }} 
+                                onSaveReward={handleSaveBulkReward}
+                                onDeleteReward={handleDeleteBulkReward}
+                                onZeroPoints={handleZeroPoints}
+                                setConfirmationModal={setConfirmationModal}
+                            />
+                        )}
                     </div>
                 )}
                 {activePage === 'reports' && (
@@ -6225,6 +6485,8 @@ const App: React.FC = () => {
                             }}
                             onSwitchCircle={switchCircle} 
                             onCreateNewCircle={() => {setShowNewCircleForm(true); pushStateSafely();}} 
+                            hasCircleSettingsPermission={hasCircleSettingsPermission}
+                            addToast={addToast} 
                             onDeleteCircle={(id) => {
                                 const circleToDelete = appData.circles.find(c => c.id === id);
                                 if (!circleToDelete) return;
@@ -6493,13 +6755,13 @@ const App: React.FC = () => {
                 {supervisorReportModal.isOpen && <SupervisorReportModal key="modal-supervisor-report" {...supervisorReportModal} onClose={() => setSupervisorReportModal({isOpen: false, reportContent: '', periodLabel: ''})} onSave={handleSaveSupervisorReport} addToast={addToast} onOpenShare={handleOpenShare} />}
                 {savedReportsModalOpen && <SavedReportsModal key="modal-saved-reports" reports={activeCircle.supervisorReports || []} onClose={() => setSavedReportsModalOpen(false)} onView={(report) => {setViewReportModal({isOpen: true, report, type: 'supervisor'}); setSavedReportsModalOpen(false);}} onDelete={(id) => handleDeleteReport(id, 'supervisor')} />}
                 
-                {showStatsModal && <StatsModal key="modal-stats" students={activeCircleStudents} sessions={activeCircle.sessions} onClose={() => setShowStatsModal(false)} data={activeCircle} onOpenSupervisorReportGenerator={() => {setSupervisorReportGeneratorOpen(true); pushStateSafely();}} onOpenSavedReports={() => {setSavedReportsModalOpen(true); pushStateSafely()}} onOpenLeaderboard={() => {setShowLeaderboard(true); pushStateSafely();}} onViewProfile={(id) => { setViewingStudentId(id); pushStateSafely(); }} />}
+                {showStatsModal && <StatsModal key="modal-stats" students={activeCircleStudents} sessions={activeCircle.sessions} onClose={() => setShowStatsModal(false)} data={activeCircle} onOpenSupervisorReportGenerator={() => {setSupervisorReportGeneratorOpen(true); pushStateSafely();}} onOpenSavedReports={() => {setSavedReportsModalOpen(true); pushStateSafely()}} onOpenLeaderboard={() => {setShowLeaderboard(true); pushStateSafely();}} onViewProfile={handleViewStudentProfile} />}
                 
                 {statsModalData.isOpen && <DetailedStatsModal key="modal-detailed-stats" title={statsModalData.title} students={statsModalData.students} suspendedStudents={statsModalData.suspendedStudents} onClose={() => setStatsModalData({isOpen: false, title: '', students: []})} />}
                 {viewReportModal.isOpen && <ViewReportModal key="modal-view-report" report={viewReportModal.report!} type={viewReportModal.type} circleData={activeCircle} student={(viewReportModal.type === 'student' && viewReportModal.report) ? activeCircle.students.find(s=>s.id === (viewReportModal.report as StudentReport).studentId) : undefined} onClose={() => setViewReportModal({isOpen: false, report: null, type: 'supervisor'})} addToast={addToast} onOpenShare={handleOpenShare} />}
                 {showWelcomePopup && <WelcomePopup key="modal-welcome" onClose={handleCloseWelcomePopup} gender={activeCircle?.teacherGender || 'male'} />}
                 {isTourActive && <OnboardingGuide key="modal-onboarding" steps={onboardingSteps} onComplete={handleOnboardingComplete} />}
-                {addonsModalOpen && <OptionalAddonsModal key="modal-addons" settings={activeCircle.settings} onSave={handleUpdateSettings} onClose={() => setAddonsModalOpen(false)} onOpenPointsSettings={() => {setPointsSettingsModalOpen(true); pushStateSafely();}} onOpenNotificationSettings={() => {setNotificationSettingsModalOpen(true); pushStateSafely();}} archivedStudents={archivedStudents} onRestoreStudent={handleRestoreStudent} />}
+                {addonsModalOpen && <OptionalAddonsModal key="modal-addons" settings={activeCircle.settings} onSave={handleUpdateSettings} onClose={() => setAddonsModalOpen(false)} onOpenPointsSettings={() => {setPointsSettingsModalOpen(true); pushStateSafely();}} onOpenNotificationSettings={() => {setNotificationSettingsModalOpen(true); pushStateSafely();}} archivedStudents={archivedStudents} onRestoreStudent={handleRestoreStudent} hasCircleSettingsPermission={hasCircleSettingsPermission} addToast={addToast} />}
                 {pointsSettingsModalOpen && <PointsSettingsModal key="modal-points-settings" settings={activeCircle.settings.pointsSettings || defaultPointsSettings} onSave={(s) => handleUpdateSettings({pointsSettings: s})} onClose={() => setPointsSettingsModalOpen(false)} onOpenRewardsManager={() => {setRewardsManagerOpen(true); pushStateSafely();}} />}
                 {notificationSettingsModalOpen && <NotificationSettingsModal key="modal-notification-settings" settings={activeCircle.notificationSettings || defaultNotificationSettings} onSave={handleUpdateNotificationSettings} onClose={() => setNotificationSettingsModalOpen(false)} />}
                 
@@ -6783,7 +7045,7 @@ const App: React.FC = () => {
 
 export default App;
 
-const SyncLoadingScreen: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
+const SyncLoadingScreen: React.FC<{ onLogout: () => void; onContinueOffline?: () => void }> = ({ onLogout, onContinueOffline }) => {
     const tips = [
         "يمكنك متابعة حفظ ومراجعة الطلاب بشكل فردي من صفحة 'السجل'",
         "يوفر النظام تقارير شاملة للمشرفين بضغطة زر واحدة من صفحة التقارير",
@@ -6793,12 +7055,20 @@ const SyncLoadingScreen: React.FC<{ onLogout: () => void }> = ({ onLogout }) => 
         "ميزة 'متابعة أولياء الأمور' تمكنك من إرسال رسائل دورية مخصصة للآباء"
     ];
     const [tipIndex, setTipIndex] = useState(0);
+    const [showOfflineOption, setShowOfflineOption] = useState(false);
 
     useEffect(() => {
         const interval = setInterval(() => {
             setTipIndex(prev => (prev + 1) % tips.length);
         }, 5000);
         return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        const timeout = setTimeout(() => {
+            setShowOfflineOption(true);
+        }, 4000);
+        return () => clearTimeout(timeout);
     }, []);
 
     return (
@@ -6882,6 +7152,17 @@ const SyncLoadingScreen: React.FC<{ onLogout: () => void }> = ({ onLogout }) => 
                        </motion.div>
                    </AnimatePresence>
                 </div>
+
+                {showOfflineOption && onContinueOffline && (
+                    <motion.button
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        onClick={onContinueOffline}
+                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-l from-[#105541] to-teal-700 hover:opacity-95 text-white font-semibold py-3 px-4 rounded-2xl shadow-lg transition-all text-xs cursor-pointer mt-2"
+                    >
+                        <span>الاستمرار بدون اتصال (محلياً)</span>
+                    </motion.button>
+                )}
 
                 <button 
                     onClick={onLogout}

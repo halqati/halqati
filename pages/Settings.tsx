@@ -1,4 +1,3 @@
-
 import React, { useRef } from 'react';
 import { CircleData, ConfirmationModalData, UserProfile } from '../types';
 import { FaInfoCircle, FaWhatsapp, FaTrash, FaChevronLeft, FaWrench, FaUserCircle, FaClipboardList, FaSave, FaTelegram, FaUsers, FaGlobe, FaSignInAlt, FaSignOutAlt, FaUser, FaUserShield, FaBookOpen, FaExclamationTriangle, FaAward, FaChalkboardTeacher } from 'react-icons/fa';
@@ -29,6 +28,8 @@ interface SettingsProps {
     onManualSync: () => void;
     onLinkCircles: () => void;
     onNavigateToSyncDiagnostics?: () => void;
+    hasCircleSettingsPermission?: boolean;
+    addToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 const SettingCard: React.FC<{ title: string, children: React.ReactNode, icon?: React.ElementType }> = ({ title, children, icon: Icon }) => (
@@ -41,11 +42,13 @@ const SettingCard: React.FC<{ title: string, children: React.ReactNode, icon?: R
     </div>
 );
 
-const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick: () => void, variant?: 'default' | 'danger' }> = ({ label, icon: Icon, onClick, variant = 'default' }) => (
+const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick: () => void, variant?: 'default' | 'danger', disabled?: boolean }> = ({ label, icon: Icon, onClick, variant = 'default', disabled = false }) => (
      <button 
         onClick={onClick} 
-        className={`w-full text-right p-2.5 rounded-lg flex items-center justify-between transition-all group ${
-            variant === 'danger' 
+        className={`w-full text-right p-2.5 rounded-lg flex items-center justify-between transition-all group cursor-pointer ${
+            disabled 
+            ? 'opacity-60 bg-gray-50/50 dark:bg-gray-700/10'
+            : variant === 'danger' 
             ? 'bg-red-50 dark:bg-red-900/10 hover:bg-red-100 dark:hover:bg-red-900/20' 
             : 'bg-gray-50 dark:bg-gray-700/30 hover:bg-gray-100 dark:hover:bg-gray-700'
         }`}
@@ -60,12 +63,12 @@ const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick:
             </div>
             <span className={`text-sm font-bold ${variant === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'}`}>{label}</span>
         </div>
-        <FaChevronLeft size={10} className={`text-gray-300 dark:text-gray-600 transition-transform group-hover:-translate-x-1`} />
+        {!disabled && <FaChevronLeft size={10} className={`text-gray-300 dark:text-gray-600 transition-transform group-hover:-translate-x-1`} />}
     </button>
 );
 
 
-const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile, isSynced, isOnline, onLogin, onLogout, onToggleAdminMode, onOpenAddonsModal, onNavigateToAbout, onNavigateToSupport, onNavigateToProfile, onNavigateToTestsAndPlans, onNavigateToCircleInfo, onSwitchCircle, onCreateNewCircle, onDeleteCircle, onOpenBackupRestore, onJoinCommunity, setConfirmationModal, onManualSync, onLinkCircles, onNavigateToSyncDiagnostics }) => {
+const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile, isSynced, isOnline, onLogin, onLogout, onToggleAdminMode, onOpenAddonsModal, onNavigateToAbout, onNavigateToSupport, onNavigateToProfile, onNavigateToTestsAndPlans, onNavigateToCircleInfo, onSwitchCircle, onCreateNewCircle, onDeleteCircle, onOpenBackupRestore, onJoinCommunity, setConfirmationModal, onManualSync, onLinkCircles, onNavigateToSyncDiagnostics, hasCircleSettingsPermission = true, addToast }) => {
     if (!data) return null;
 
     const syncTimerRef = useRef<number | null>(null);
@@ -254,7 +257,7 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         {isAdmin && (
                             <button 
                                 onClick={() => onToggleAdminMode(true)}
-                                className="w-full flex items-center justify-between bg-accent/10 p-2.5 rounded-xl border border-accent/20 hover:bg-accent/20 transition-all group mb-2"
+                                className="w-full flex items-center justify-between bg-accent/10 p-2.5 rounded-xl border border-accent/20 hover:bg-accent/20 transition-all group mb-2 cursor-pointer"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-1 bg-accent rounded-lg text-white">
@@ -265,71 +268,101 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                 <FaChevronLeft size={10} className="text-accent group-hover:-translate-x-1 transition-transform" />
                             </button>
                         )}
-                        {hasFullManagement && <SettingButton label="بيانات الحلقة" icon={FaBookOpen} onClick={onNavigateToCircleInfo} />}
+                        <SettingButton 
+                            label="بيانات الحلقة" 
+                            icon={FaBookOpen} 
+                            onClick={() => {
+                                if (!hasCircleSettingsPermission) {
+                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى بيانات الحلقة.", "error");
+                                } else {
+                                    onNavigateToCircleInfo();
+                                }
+                            }} 
+                            disabled={!hasCircleSettingsPermission}
+                        />
                         <SettingButton label="الإضافات والمظهر" icon={FaWrench} onClick={onOpenAddonsModal} />
                     </SettingCard>
                 </div>
 
                 <div className="space-y-4">
-                    {hasFullManagement && (
-                        <SettingCard title="إدارة الحلقات" icon={FaUsers}>
-                            <div className="space-y-1.5">
-                                {allCircles.map(circle => (
-                                    <div 
-                                        key={circle.id} 
-                                        className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
-                                            circle.id === data.id 
-                                            ? 'bg-primary/5 border-primary/20 dark:bg-accent/5 dark:border-accent/20' 
-                                            : 'bg-gray-50 dark:bg-gray-700/20 border-transparent'
-                                        }`}
-                                    >
-                                        <div className="flex items-center gap-2">
-                                            <div className={`w-1 h-1 rounded-full ${circle.id === data.id ? 'bg-primary dark:bg-accent' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
-                                            <span className={`text-xs font-bold ${circle.id === data.id ? 'text-primary dark:text-accent' : 'text-gray-700 dark:text-gray-200'}`}>{circle.circle}</span>
-                                            {/* Role Indicators */}
-                                            {circle.ownerId === user?.uid ? (
-                                                <FaUserShield size={10} className="text-amber-500" title="أنت منشئ هذه الحلقة" />
-                                            ) : circle.authorizedUserIds?.includes(user?.uid || '') ? (
-                                                <FaChalkboardTeacher size={10} className="text-blue-500" title="أنت معلم في هذه الحلقة" />
-                                            ) : null}
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                        {circle.id !== data.id ? (
-                                            <button 
-                                                onClick={() => onSwitchCircle(circle.id)} 
-                                                className="text-[9px] px-2 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md shadow-sm border border-gray-200 dark:border-gray-600 font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                                            >
-                                                تفعيل
-                                            </button>
-                                        ) : (
-                                            <span className="text-[9px] px-1.5 py-0.5 bg-primary/10 dark:bg-accent/10 text-primary dark:text-accent rounded-md font-bold">الحالية</span>
-                                        )}
-                                        {allCircles.length > 1 && (
-                                            <button 
-                                                onClick={() => onDeleteCircle(circle.id)} 
-                                                className="p-1 text-gray-400 hover:text-red-500 transition-colors"
-                                            >
-                                                <FaTrash size={10} />
-                                            </button>
-                                        )}
-                                        </div>
+                    <SettingCard title="إدارة الحلقات" icon={FaUsers}>
+                        <div className="space-y-1.5">
+                            {allCircles.map(circle => (
+                                <div 
+                                    key={circle.id} 
+                                    className={`flex items-center justify-between p-2 rounded-lg border transition-all ${
+                                        circle.id === data.id 
+                                        ? 'bg-primary/5 border-primary/20 dark:bg-accent/5 dark:border-accent/20' 
+                                        : 'bg-gray-50 dark:bg-gray-700/20 border-transparent'
+                                    }`}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <div className={`w-1 h-1 rounded-full ${circle.id === data.id ? 'bg-primary dark:bg-accent' : 'bg-gray-300 dark:bg-gray-600'}`}></div>
+                                        <span className={`text-xs font-bold ${circle.id === data.id ? 'text-primary dark:text-accent' : 'text-gray-700 dark:text-gray-200'}`}>{circle.circle}</span>
+                                        {/* Role Indicators */}
+                                        {circle.ownerId === user?.uid ? (
+                                            <FaUserShield size={10} className="text-amber-500" title="أنت منشئ هذه الحلقة" />
+                                        ) : circle.authorizedUserIds?.includes(user?.uid || '') ? (
+                                            <FaChalkboardTeacher size={10} className="text-blue-500" title="أنت معلم في هذه الحلقة" />
+                                        ) : null}
                                     </div>
-                                ))}
-                            </div>
-                            <button 
-                                onClick={onCreateNewCircle} 
-                                className="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 p-1.5 rounded-lg font-bold mt-1 text-[10px] transition-all active:scale-[0.98]"
-                            >
-                                + إنشاء حلقة جديدة
-                            </button>
-                        </SettingCard>
-                    )}
+                                    <div className="flex items-center gap-2">
+                                    {circle.id !== data.id ? (
+                                        <button 
+                                            onClick={() => onSwitchCircle(circle.id)} 
+                                            className="text-[9px] px-2 py-0.5 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 rounded-md shadow-sm border border-gray-200 dark:border-gray-600 font-bold hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors cursor-pointer"
+                                        >
+                                            تفعيل
+                                        </button>
+                                    ) : (
+                                        <span className="text-[9px] px-1.5 py-0.5 bg-primary/10 dark:bg-accent/10 text-primary dark:text-accent rounded-md font-bold">الحالية</span>
+                                    )}
+                                    {allCircles.length > 1 && (
+                                        <button 
+                                            onClick={() => {
+                                                if (!hasCircleSettingsPermission) {
+                                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية لحذف هذه الحلقة.", "error");
+                                                } else {
+                                                    onDeleteCircle(circle.id);
+                                                }
+                                            }} 
+                                            className={`p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer ${!hasCircleSettingsPermission ? 'opacity-50' : ''}`}
+                                        >
+                                            <FaTrash size={10} />
+                                        </button>
+                                    )}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <button 
+                            onClick={() => {
+                                if (!hasCircleSettingsPermission) {
+                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية لإنشاء حلقة جديدة.", "error");
+                                } else {
+                                    onCreateNewCircle();
+                                }
+                            }} 
+                            className={`w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 p-1.5 rounded-lg font-bold mt-1 text-[10px] transition-all active:scale-[0.98] cursor-pointer ${!hasCircleSettingsPermission ? 'opacity-60' : ''}`}
+                        >
+                            + إنشاء حلقة جديدة
+                        </button>
+                    </SettingCard>
 
-                    {hasFullManagement && (
-                        <SettingCard title="البيانات" icon={FaSave}>
-                            <SettingButton label="النسخة الاحتياطية والاستعادة" icon={FaSave} onClick={onOpenBackupRestore} />
-                        </SettingCard>
-                    )}
+                    <SettingCard title="البيانات" icon={FaSave}>
+                        <SettingButton 
+                            label="النسخة الاحتياطية والاستعادة" 
+                            icon={FaSave} 
+                            onClick={() => {
+                                if (!hasCircleSettingsPermission) {
+                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية للوصول إلى النسخ الاحتياطي والاستعادة.", "error");
+                                } else {
+                                    onOpenBackupRestore();
+                                }
+                            }} 
+                            disabled={!hasCircleSettingsPermission}
+                        />
+                    </SettingCard>
 
                     <SettingCard title="الدعم والمجتمع" icon={FaUsers}>
                         <SettingButton label="الانتساب والدعم" icon={FaAward} onClick={onNavigateToSupport} />
@@ -346,13 +379,13 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         <div className="flex items-center gap-2 mt-1">
                             <button 
                                 onClick={() => onJoinCommunity(whatsappLink)} 
-                                className="flex-1 p-2 bg-white dark:bg-gray-800 border border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400 rounded-lg flex items-center justify-center gap-2 text-[10px] font-bold shadow-sm hover:bg-green-50 dark:hover:bg-green-900/10 transition-all"
+                                className="flex-1 p-2 bg-white dark:bg-gray-800 border border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400 rounded-lg flex items-center justify-center gap-2 text-[10px] font-bold shadow-sm hover:bg-green-50 dark:hover:bg-green-900/10 transition-all cursor-pointer"
                             >
                                 <FaWhatsapp size={12} /> واتساب
                             </button>
                             <button 
                                 onClick={() => onJoinCommunity(telegramLink)} 
-                                className="flex-1 p-2 bg-white dark:bg-gray-800 border border-blue-100 dark:border-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center gap-2 text-[10px] font-bold shadow-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all"
+                                className="flex-1 p-2 bg-white dark:bg-gray-800 border border-blue-100 dark:border-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center gap-2 text-[10px] font-bold shadow-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all cursor-pointer"
                             >
                                 <FaTelegram size={12} /> تليجرام
                             </button>
