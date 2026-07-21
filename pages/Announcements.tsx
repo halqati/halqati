@@ -1,5 +1,4 @@
-
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Announcement } from '../types';
 import { FaArrowLeft, FaPlus, FaEdit, FaTrash, FaEye, FaBullhorn } from 'react-icons/fa';
@@ -13,6 +12,7 @@ interface AnnouncementsProps {
     onEdit: (announcement: Announcement) => void;
     onDelete: (announcementId: number) => void;
     onView: (announcement: Announcement) => void;
+    recentAnnouncementId?: number | null;
 }
 
 const pageVariants = {
@@ -21,7 +21,28 @@ const pageVariants = {
     exit: { opacity: 0, x: -20 }
 };
 
-const Announcements: React.FC<AnnouncementsProps> = ({ announcements, isDraft, onBack, onNew, onEdit, onDelete, onView }) => {
+const Announcements: React.FC<AnnouncementsProps> = ({ 
+    announcements, 
+    isDraft, 
+    onBack, 
+    onNew, 
+    onEdit, 
+    onDelete, 
+    onView,
+    recentAnnouncementId
+}) => {
+
+    const [highlightedId, setHighlightedId] = useState<number | null>(recentAnnouncementId || null);
+
+    useEffect(() => {
+        if (recentAnnouncementId) {
+            setHighlightedId(recentAnnouncementId);
+            const timer = setTimeout(() => {
+                setHighlightedId(null);
+            }, 3000);
+            return () => clearTimeout(timer);
+        }
+    }, [recentAnnouncementId]);
 
     const sortedAnnouncements = [...announcements].sort((a, b) => b.createdAt - a.createdAt);
 
@@ -38,21 +59,40 @@ const Announcements: React.FC<AnnouncementsProps> = ({ announcements, isDraft, o
             </div>
             <div className="space-y-3">
                 {sortedAnnouncements.length > 0 ? (
-                    sortedAnnouncements.map(announcement => (
-                        <div key={announcement.id} className="bg-white dark:bg-gray-800 p-3 rounded-lg shadow flex items-center justify-between">
-                            <div className="flex-grow min-w-0 ml-2">
-                                <p className="font-bold truncate">{announcement.title}</p>
-                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                                    {formatDate(new Date(announcement.createdAt).toISOString().split('T')[0])}
-                                </p>
-                            </div>
-                            <div className="flex items-center gap-3 flex-shrink-0">
-                                <button onClick={() => onView(announcement)} className="text-green-500"><FaEye /></button>
-                                <button onClick={() => onEdit(announcement)} className="text-blue-500"><FaEdit /></button>
-                                <button onClick={() => onDelete(announcement.id)} className="text-red-500"><FaTrash /></button>
-                            </div>
-                        </div>
-                    ))
+                    sortedAnnouncements.map(announcement => {
+                        const isHighlighted = announcement.id === highlightedId;
+                        return (
+                            <motion.div 
+                                key={announcement.id} 
+                                animate={isHighlighted ? { 
+                                    scale: [1, 1.015, 1],
+                                    boxShadow: [
+                                        "0 0 0 rgba(16, 85, 65, 0)", 
+                                        "0 0 15px rgba(16, 85, 65, 0.4)", 
+                                        "0 0 0 rgba(16, 85, 65, 0)"
+                                    ]
+                                } : {}}
+                                transition={{ duration: 1.5, repeat: isHighlighted ? 1 : 0 }}
+                                className={`p-3 rounded-lg shadow flex items-center justify-between transition-all duration-1000 ${
+                                    isHighlighted 
+                                        ? 'bg-emerald-50 border-2 border-emerald-500 dark:bg-emerald-950/30 dark:border-emerald-500/60' 
+                                        : 'bg-white dark:bg-gray-800 border border-transparent'
+                                }`}
+                            >
+                                <div className="flex-grow min-w-0 ml-2">
+                                    <p className="font-bold truncate">{announcement.title}</p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                                        {formatDate(new Date(announcement.createdAt).toISOString().split('T')[0])}
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-3 flex-shrink-0">
+                                    <button onClick={() => onView(announcement)} className="text-green-500"><FaEye /></button>
+                                    <button onClick={() => onEdit(announcement)} className="text-blue-500"><FaEdit /></button>
+                                    <button onClick={() => onDelete(announcement.id)} className="text-red-500"><FaTrash /></button>
+                                </div>
+                            </motion.div>
+                        );
+                    })
                 ) : (
                     <div className="text-center text-gray-500 py-10">
                         <FaBullhorn className="mx-auto text-4xl mb-2 text-gray-400" />

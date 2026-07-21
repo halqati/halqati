@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-    X, Type, Plus, Minus, Download, Check, Highlighter, Eraser, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, Palette
+    X, Type, Plus, Minus, Download, Check, Highlighter, Eraser, Trash2, Eye, EyeOff, ChevronUp, ChevronDown, Palette,
+    ChevronRight, ChevronLeft, BookOpen, Book
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { surahs } from '../constants';
@@ -25,12 +26,76 @@ interface MiniQuranModalProps {
 }
 
 const FONT_OPTIONS = [
-    { value: "'Amiri Quran', 'Amiri', serif", label: "خط مصحف المدينة (الأميري)" },
-    { value: "'Scheherazade New', serif", label: "خط شهرزاد الجديد" },
-    { value: "'Noto Naskh Arabic', sans-serif", label: "خط النسخ" },
-    { value: "'Reem Kufi', sans-serif", label: "خط الكوفي" },
-    { value: "'Tajawal', sans-serif", label: "خط النظام" }
+    { value: "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif", label: "خط مصحف المدينة (الأميري)" },
+    { value: "'Scheherazade New Cached', 'Scheherazade New', serif", label: "خط شهرزاد الجديد" },
+    { value: "'Noto Naskh Arabic Cached', 'Noto Naskh Arabic', sans-serif", label: "خط النسخ" },
+    { value: "'Reem Kufi Cached', 'Reem Kufi', sans-serif", label: "خط الكوفي" },
+    { value: "'Tajawal Cached', 'Tajawal', sans-serif", label: "خط النظام" }
 ];
+
+export function getJuzNameArabic(juzNum: number): string {
+    const names = [
+        "", "الجزء الأول", "الجزء الثاني", "الجزء الثالث", "الجزء الرابع", "الجزء الخامس",
+        "الجزء السادس", "الجزء السابع", "الجزء الثامن", "الجزء التاسع", "الجزء العاشر",
+        "الجزء الحادي عشر", "الجزء الثاني عشر", "الجزء الثالث عشر", "الجزء الرابع عشر", "الجزء الخامس عشر",
+        "الجزء السادس عشر", "الجزء السابع عشر", "الجزء الثامن عشر", "الجزء التاسع عشر", "الجزء العشرون",
+        "الجزء الحادي والعشرون", "الجزء الثاني والعشرون", "الجزء الثالث والعشرون", "الجزء الرابع والعشرون", "الجزء الخامس والعشرون",
+        "الجزء السادس والعشرون", "الجزء السابع والعشرون", "الجزء الثامن والعشرون", "الجزء التاسع والعشرون", "الجزء الثلاثون"
+    ];
+    return names[juzNum] || `الجزء ${juzNum}`;
+}
+
+const cacheSingleFont = async (name: string, url: string) => {
+    try {
+        if (localStorage.getItem(`quran_font_base64_${name}`)) {
+            return; // Already cached!
+        }
+        const cssResponse = await fetch(url);
+        const cssText = await cssResponse.text();
+        const fontUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
+        if (!fontUrlMatch) return;
+        
+        const fontUrl = fontUrlMatch[1];
+        const fontResponse = await fetch(fontUrl);
+        const fontBlob = await fontResponse.blob();
+        
+        const reader = new FileReader();
+        reader.onloadend = () => {
+            const base64data = reader.result as string;
+            localStorage.setItem(`quran_font_base64_${name}`, base64data);
+            
+            const styleId = 'injected-quran-fonts-style';
+            let styleEl = document.getElementById(styleId) as HTMLStyleElement;
+            if (styleEl) {
+                styleEl.innerHTML += `
+@font-face {
+  font-family: '${name} Cached';
+  src: url(${base64data}) format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+`;
+            }
+        };
+        reader.readAsDataURL(fontBlob);
+    } catch (err) {
+        console.error('Failed to cache font:', name, err);
+    }
+};
+
+const cacheAllFonts = async () => {
+    const fontsToCache = [
+        { name: 'Amiri Quran', url: 'https://fonts.googleapis.com/css2?family=Amiri+Quran&display=swap' },
+        { name: 'Scheherazade New', url: 'https://fonts.googleapis.com/css2?family=Scheherazade+New&display=swap' },
+        { name: 'Noto Naskh Arabic', url: 'https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic&display=swap' },
+        { name: 'Reem Kufi', url: 'https://fonts.googleapis.com/css2?family=Reem+Kufi&display=swap' },
+        { name: 'Tajawal', url: 'https://fonts.googleapis.com/css2?family=Tajawal&display=swap' }
+    ];
+    for (const font of fontsToCache) {
+        await cacheSingleFont(font.name, font.url);
+    }
+};
 
 export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     isOpen,
@@ -51,7 +116,7 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     
     // Preferences loaded from localStorage
     const [fontFamily, setFontFamily] = useState<string>(() => {
-        return localStorage.getItem('quran_font_family') || "'Amiri Quran', 'Amiri', serif";
+        return localStorage.getItem('quran_font_family') || "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif";
     });
     const [fontSize, setFontSize] = useState<number>(() => {
         const saved = localStorage.getItem('quran_font_size');
@@ -59,6 +124,51 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     });
 
     const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
+
+    // Page View Mode States
+    const [isPageMode, setIsPageMode] = useState<boolean>(() => {
+        return localStorage.getItem('quran_page_mode') === 'true';
+    });
+    const [activePageIndex, setActivePageIndex] = useState<number>(0);
+    const touchStartX = useRef<number | null>(null);
+
+    // Dynamic style injection for offline Cached fonts on mount
+    useEffect(() => {
+        const styleId = 'injected-quran-fonts-style';
+        let styleEl = document.getElementById(styleId) as HTMLStyleElement;
+        if (!styleEl) {
+            styleEl = document.createElement('style');
+            styleEl.id = styleId;
+            document.head.appendChild(styleEl);
+        }
+
+        let cssContent = '';
+        const fontNames = ['Amiri Quran', 'Scheherazade New', 'Noto Naskh Arabic', 'Reem Kufi', 'Tajawal'];
+        fontNames.forEach(name => {
+            const cached = localStorage.getItem(`quran_font_base64_${name}`);
+            if (cached) {
+                cssContent += `
+@font-face {
+  font-family: '${name} Cached';
+  src: url(${cached}) format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+`;
+            }
+        });
+        styleEl.innerHTML = cssContent;
+
+        // Perform background pre-caching of all fonts 1.5 seconds after loading
+        const timer = setTimeout(() => {
+            if (navigator.onLine) {
+                cacheAllFonts();
+            }
+        }, 1500);
+
+        return () => clearTimeout(timer);
+    }, []);
 
     // Offline / Caching State
     const [isOfflineReady, setIsOfflineReady] = useState<boolean>(false);
@@ -134,6 +244,94 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
         };
         checkOffline();
     }, [isOpen]);
+
+    interface PageData {
+        pageNumber: number;
+        surahNames: string[];
+        juzNumbers: number[];
+        ayahs: {
+            surahNumber: number;
+            surahName: string;
+            ayah: any;
+        }[];
+    }
+
+    // Grouping Quran text by page numbers for Page Mode
+    const pagesList = React.useMemo<PageData[]>(() => {
+        const pagesMap: { [key: number]: PageData } = {};
+        
+        quranData.forEach(surah => {
+            surah.ayahs.forEach(ayah => {
+                const pNum = ayah.page;
+                if (!pagesMap[pNum]) {
+                    pagesMap[pNum] = {
+                        pageNumber: pNum,
+                        surahNames: [],
+                        juzNumbers: [],
+                        ayahs: []
+                    };
+                }
+                if (!pagesMap[pNum].surahNames.includes(surah.name)) {
+                    pagesMap[pNum].surahNames.push(surah.name);
+                }
+                if (ayah.juz && !pagesMap[pNum].juzNumbers.includes(ayah.juz)) {
+                    pagesMap[pNum].juzNumbers.push(ayah.juz);
+                }
+                pagesMap[pNum].ayahs.push({
+                    surahNumber: surah.number,
+                    surahName: surah.name,
+                    ayah: ayah
+                });
+            });
+        });
+        
+        return Object.keys(pagesMap)
+            .map(Number)
+            .sort((a, b) => a - b)
+            .map(pNum => pagesMap[pNum]);
+    }, [quranData]);
+
+    // Reset active page index when the data or pages range changes
+    useEffect(() => {
+        setActivePageIndex(0);
+    }, [pagesList]);
+
+    // Handle arrow keys for physical page flipping
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (!isOpen || !isPageMode || pagesList.length === 0) return;
+            if (e.key === 'ArrowLeft') {
+                // Next Page (larger page number in Arabic RTL)
+                setActivePageIndex(prev => Math.min(prev + 1, pagesList.length - 1));
+            } else if (e.key === 'ArrowRight') {
+                // Previous Page (smaller page number in Arabic RTL)
+                setActivePageIndex(prev => Math.max(prev - 1, 0));
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [isOpen, isPageMode, pagesList.length]);
+
+    // Swipe handlers for mobile page turning
+    const handleTouchStart = (e: React.TouchEvent) => {
+        touchStartX.current = e.touches[0].clientX;
+    };
+
+    const handleTouchEnd = (e: React.TouchEvent) => {
+        if (touchStartX.current === null) return;
+        const diffX = touchStartX.current - e.changedTouches[0].clientX;
+        touchStartX.current = null;
+        
+        if (Math.abs(diffX) > 50) {
+            if (diffX > 0) {
+                // Swiped Left -> Next Page (larger number)
+                setActivePageIndex(prev => Math.min(prev + 1, pagesList.length - 1));
+            } else {
+                // Swiped Right -> Previous Page (smaller number)
+                setActivePageIndex(prev => Math.max(prev - 1, 0));
+            }
+        }
+    };
 
     // Visual alert pulse effect when opened with existing highlights
     useEffect(() => {
@@ -264,12 +462,14 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                 setDownloadProgress(progress);
             });
             if (success) {
+                // Pre-cache all Google Fonts as well!
+                await cacheAllFonts();
                 setIsOfflineReady(true);
                 // Trigger celebratory bubble burst
                 triggerBubbleBurst();
                 // Show dismissible Success Toast
                 setToast({
-                    message: "تم تحميل المصحف بنجاح، يمكنك الآن الاستخدام بالكامل بدون إنترنت",
+                    message: "تم تحميل المصحف والخطوط بنجاح، يمكنك الآن الاستخدام بالكامل بدون إنترنت",
                     visible: true
                 });
                 // Automatically dismiss after 5 seconds
@@ -510,7 +710,25 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                             <span>قلم التصحيح</span>
                             {isHighlighterActive && (
                                 <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
-                            )}
+                             )}
+                        </button>
+
+                        {/* Page Mode Switch */}
+                        <button
+                            type="button"
+                            onClick={() => {
+                                setIsPageMode(!isPageMode);
+                                localStorage.setItem('quran_page_mode', (!isPageMode).toString());
+                            }}
+                            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition duration-200 cursor-pointer shadow-xs font-semibold ${
+                                isPageMode 
+                                    ? 'bg-primary border-primary text-white shadow-md ring-2 ring-primary/20 ring-offset-1 dark:ring-offset-gray-900' 
+                                    : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-accent'
+                            }`}
+                            title="تبديل إلى عرض الصفحات المتتالية أو عرض صفحة بصفحة"
+                        >
+                            {isPageMode ? <Book className="w-3.5 h-3.5" /> : <BookOpen className="w-3.5 h-3.5" />}
+                            <span>{isPageMode ? "العرض التلقائي" : "عرض الصفحات"}</span>
                         </button>
 
                         {/* Toggle Highlights Visibility */}
@@ -767,7 +985,196 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                         <div className="w-full h-full flex items-center justify-center text-gray-500 dark:text-gray-400 text-sm">
                             الرجاء تحديد سورة وآية للبدء في عرض المصحف.
                         </div>
+                    ) : isPageMode && pagesList.length > 0 ? (
+                        /* Physical Mushaf Page Mode View */
+                        <div 
+                            className="max-w-2xl mx-auto relative select-text"
+                            onTouchStart={handleTouchStart}
+                            onTouchEnd={handleTouchEnd}
+                        >
+                            {/* Previous page overlay button (Right side in RTL) */}
+                            {activePageIndex > 0 && (
+                                <button
+                                    onClick={() => setActivePageIndex(prev => prev - 1)}
+                                    className="absolute -right-4 md:-right-16 top-1/2 -translate-y-1/2 p-3 bg-white/95 dark:bg-gray-800/95 hover:bg-primary hover:text-white dark:hover:bg-accent dark:hover:text-gray-950 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 transition z-10 cursor-pointer text-gray-700 dark:text-gray-200 hidden md:flex items-center justify-center hover:scale-105"
+                                    title="الصفحة السابقة"
+                                >
+                                    <ChevronRight className="w-6 h-6" />
+                                </button>
+                            )}
+
+                            {/* Next page overlay button (Left side in RTL) */}
+                            {activePageIndex < pagesList.length - 1 && (
+                                <button
+                                    onClick={() => setActivePageIndex(prev => prev + 1)}
+                                    className="absolute -left-4 md:-left-16 top-1/2 -translate-y-1/2 p-3 bg-white/95 dark:bg-gray-800/95 hover:bg-primary hover:text-white dark:hover:bg-accent dark:hover:text-gray-950 rounded-full shadow-lg border border-gray-200 dark:border-gray-700 transition z-10 cursor-pointer text-gray-700 dark:text-gray-200 hidden md:flex items-center justify-center hover:scale-105"
+                                    title="الصفحة التالية"
+                                >
+                                    <ChevronLeft className="w-6 h-6" />
+                                </button>
+                            )}
+
+                            {/* Premium Physical Quran Page Frame with border details */}
+                            <div className="relative border-4 border-amber-600/30 dark:border-amber-500/20 rounded-2xl p-6 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[580px] flex flex-col justify-between transition-colors duration-300">
+                                
+                                {/* Inner Decorative border */}
+                                <div className="absolute inset-2 border border-amber-600/10 dark:border-amber-500/10 rounded-xl pointer-events-none" />
+
+                                {/* Page Header */}
+                                <div className="flex justify-between items-center border-b border-amber-600/15 pb-4 mb-6 text-xs md:text-sm text-[#78350f] dark:text-amber-400 font-extrabold select-none">
+                                    <span className="bg-amber-100/80 dark:bg-amber-950/40 px-3.5 py-1 rounded-full border border-amber-600/10">
+                                        {getJuzNameArabic(pagesList[activePageIndex].juzNumbers[0] || 1)}
+                                    </span>
+                                    <span className="font-serif tracking-wide text-sm md:text-base text-amber-900 dark:text-amber-300">
+                                        سورة {pagesList[activePageIndex].surahNames.join(' و')}
+                                    </span>
+                                </div>
+
+                                {/* Page Content */}
+                                <div 
+                                    className="flex-1 leading-[2.5] tracking-wide text-right select-text"
+                                    style={{ 
+                                        fontFamily: fontFamily, 
+                                        fontSize: `${fontSize}px`,
+                                        direction: 'rtl',
+                                        textAlign: 'justify',
+                                        textJustify: 'inter-word'
+                                    }}
+                                >
+                                    {(() => {
+                                        let currentSurahNumber: number | null = null;
+                                        return pagesList[activePageIndex].ayahs.map((item, idx) => {
+                                            const isNewSurah = currentSurahNumber !== item.surahNumber;
+                                            currentSurahNumber = item.surahNumber;
+                                            
+                                            const showSurahHeader = isNewSurah && item.ayah.numberInSurah === 1;
+                                            const showBasmalah = showSurahHeader && item.surahNumber !== 9;
+                                            
+                                            let text = item.ayah.text;
+                                            const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
+                                            const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+                                            if (item.ayah.numberInSurah === 1) {
+                                                if (text.startsWith(basmalahPrefix1)) {
+                                                    text = text.slice(basmalahPrefix1.length).trim();
+                                                } else if (text.startsWith(basmalahPrefix2)) {
+                                                    text = text.slice(basmalahPrefix2.length).trim();
+                                                }
+                                            }
+                                            
+                                            const words = text.split(/\s+/);
+                                            
+                                            return (
+                                                <span key={`${item.surahNumber}_${item.ayah.numberInSurah}`} className="inline">
+                                                    {showSurahHeader && (
+                                                        <span className="block my-6 text-center select-none">
+                                                            {/* Beautiful Surah Header Banner */}
+                                                            <span className="relative py-2 flex items-center justify-center">
+                                                                <span className="absolute inset-0 flex items-center" aria-hidden="true">
+                                                                    <span className="w-full border-t border-dashed border-amber-300/80 dark:border-amber-700/40"></span>
+                                                                </span>
+                                                                <span className="relative px-6 py-1 bg-amber-50/95 dark:bg-gray-900 border-2 border-amber-500/60 text-amber-900 dark:text-amber-300 font-extrabold text-xs md:text-sm rounded-full shadow-xs flex items-center gap-2">
+                                                                    <span>سورة {item.surahName}</span>
+                                                                </span>
+                                                            </span>
+                                                            
+                                                            {showBasmalah && (
+                                                                <span 
+                                                                    className="block text-center text-gray-900 dark:text-gray-100 py-3 leading-relaxed select-none"
+                                                                    style={{ 
+                                                                        fontFamily: fontFamily, 
+                                                                        fontSize: `${fontSize * 1.1}px`
+                                                                    }}
+                                                                >
+                                                                    بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                                                                </span>
+                                                            )}
+                                                        </span>
+                                                    )}
+                                                    
+                                                    <span className="inline px-0.5 rounded transition duration-200">
+                                                        {words.map((word, wIdx) => {
+                                                            const wordKey = `${item.surahNumber}_${item.ayah.numberInSurah}_${wIdx}`;
+                                                            const isHighlighted = showHighlights && highlights[wordKey];
+                                                            const highlightInfo = isHighlighted ? highlights[wordKey] : null;
+                                                            
+                                                            let wordStyle: React.CSSProperties = {};
+                                                            if (highlightInfo) {
+                                                                const { color } = highlightInfo;
+                                                                const size = isVisualAlertActive ? 3 : highlightInfo.size;
+                                                                
+                                                                if (size <= 2) {
+                                                                    wordStyle = {
+                                                                        borderBottom: `${size * 2}px solid ${color}`,
+                                                                        paddingBottom: '2px'
+                                                                    };
+                                                                } else {
+                                                                    const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
+                                                                    wordStyle = {
+                                                                        backgroundColor: color,
+                                                                        paddingTop: paddingVal,
+                                                                        paddingBottom: paddingVal,
+                                                                        paddingLeft: '4px',
+                                                                        paddingRight: '4px',
+                                                                        borderRadius: '4px'
+                                                                    };
+                                                                }
+                                                            }
+                                                            
+                                                            return (
+                                                                <span
+                                                                    key={wIdx}
+                                                                    onClick={() => handleWordClick(wordKey)}
+                                                                    className={`inline-block ml-1 transition-all duration-200 ${
+                                                                        isHighlighterActive 
+                                                                            ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 px-0.5 rounded scale-[1.01]' 
+                                                                            : ''
+                                                                    }`}
+                                                                    style={wordStyle}
+                                                                >
+                                                                    {word}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                        
+                                                        <span className="text-primary dark:text-accent font-sans mx-1 select-none font-bold text-xs md:text-sm whitespace-nowrap inline-block align-middle">
+                                                            ﴿{item.ayah.numberInSurah}﴾
+                                                        </span>
+                                                    </span>
+                                                </span>
+                                            );
+                                        });
+                                    })()}
+                                </div>
+
+                                {/* Page Footer with mobile navigation */}
+                                <div className="border-t border-amber-600/15 pt-4 mt-6 flex justify-between items-center text-xs md:text-sm text-[#78350f] dark:text-amber-400 font-extrabold select-none">
+                                    {/* Mobile Page Controls */}
+                                    <button
+                                        onClick={() => setActivePageIndex(prev => Math.max(prev - 1, 0))}
+                                        disabled={activePageIndex === 0}
+                                        className="md:hidden px-3 py-1.5 bg-amber-100/80 hover:bg-amber-200/80 dark:bg-gray-800 dark:hover:bg-gray-750 border border-amber-600/10 rounded-lg text-xs transition disabled:opacity-30 cursor-pointer flex items-center gap-1 font-bold"
+                                    >
+                                        <ChevronRight className="w-3.5 h-3.5" />
+                                        <span>السابق</span>
+                                    </button>
+                                    
+                                    <span className="font-sans text-sm md:text-base bg-amber-100/90 dark:bg-amber-950/50 px-5 py-1.5 rounded-full text-[#78350f] dark:text-amber-300 font-extrabold shadow-inner mx-auto border border-amber-600/10">
+                                        {pagesList[activePageIndex].pageNumber}
+                                    </span>
+
+                                    <button
+                                        onClick={() => setActivePageIndex(prev => Math.min(prev + 1, pagesList.length - 1))}
+                                        disabled={activePageIndex === pagesList.length - 1}
+                                        className="md:hidden px-3 py-1.5 bg-amber-100/80 hover:bg-amber-200/80 dark:bg-gray-800 dark:hover:bg-gray-750 border border-amber-600/10 rounded-lg text-xs transition disabled:opacity-30 cursor-pointer flex items-center gap-1 font-bold"
+                                    >
+                                        <span>التالي</span>
+                                        <ChevronLeft className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
                     ) : (
+                        /* Continuous Flow View */
                         <div className="max-w-3xl mx-auto space-y-8 select-text">
                             {quranData.map((surah) => (
                                 <div key={surah.number} className="space-y-4">

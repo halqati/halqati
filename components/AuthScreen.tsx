@@ -85,9 +85,83 @@ const getPasswordStrength = (pass: string) => {
   }
 };
 
+const parseEmailOrUsername = (input: string) => {
+  let trimmed = input.trim();
+  if (!trimmed) return { signupEmail: '', recoveryEmail: null, isEmail: false };
+
+  // Lowercase trimmed to compare with common email structures
+  const lower = trimmed.toLowerCase();
+
+  // If they wrote something ending with a common domain without '@', e.g. "user.gmail" or "user.gmail.com"
+  const commonDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com'];
+  for (const domain of commonDomains) {
+    if (lower.endsWith(domain)) {
+      const idx = lower.lastIndexOf(domain);
+      if (idx > 0 && (trimmed[idx - 1] === '.' || trimmed[idx - 1] === '@')) {
+        const localPart = trimmed.substring(0, idx - 1);
+        const parsedEmail = `${localPart}@${domain}`;
+        return {
+          signupEmail: parsedEmail,
+          recoveryEmail: parsedEmail,
+          isEmail: true
+        };
+      }
+    }
+  }
+
+  // Also check for partial domains like ".gmail", ".yahoo"
+  const incompleteDomains = ['gmail', 'yahoo', 'outlook', 'hotmail'];
+  for (const inc of incompleteDomains) {
+    if (lower.endsWith('.' + inc)) {
+      const idx = lower.lastIndexOf('.' + inc);
+      if (idx > 0) {
+        const localPart = trimmed.substring(0, idx);
+        const parsedEmail = `${localPart}@${inc}.com`;
+        return {
+          signupEmail: parsedEmail,
+          recoveryEmail: parsedEmail,
+          isEmail: true
+        };
+      }
+    }
+  }
+
+  // If the user typed "@gmail" or "@yahoo" without .com
+  if (trimmed.includes('@')) {
+    const parts = trimmed.split('@');
+    const domainPart = parts[1].toLowerCase().trim();
+    if (domainPart === 'gmail') {
+      const parsedEmail = `${parts[0]}@gmail.com`;
+      return { signupEmail: parsedEmail, recoveryEmail: parsedEmail, isEmail: true };
+    } else if (domainPart === 'yahoo') {
+      const parsedEmail = `${parts[0]}@yahoo.com`;
+      return { signupEmail: parsedEmail, recoveryEmail: parsedEmail, isEmail: true };
+    } else if (domainPart === 'outlook') {
+      const parsedEmail = `${parts[0]}@outlook.com`;
+      return { signupEmail: parsedEmail, recoveryEmail: parsedEmail, isEmail: true };
+    } else if (domainPart === 'hotmail') {
+      const parsedEmail = `${parts[0]}@hotmail.com`;
+      return { signupEmail: parsedEmail, recoveryEmail: parsedEmail, isEmail: true };
+    } else if (!domainPart.includes('.')) {
+      const parsedEmail = `${trimmed}.com`;
+      return { signupEmail: parsedEmail, recoveryEmail: parsedEmail, isEmail: true };
+    } else {
+      return { signupEmail: trimmed, recoveryEmail: trimmed, isEmail: true };
+    }
+  }
+
+  // Standard username
+  const usernameEmail = `${trimmed.toLowerCase()}@quran.app`;
+  return {
+    signupEmail: usernameEmail,
+    recoveryEmail: null,
+    isEmail: false
+  };
+};
+
 const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, systemSettings, isOnline = true }) => {
   const [isLogin, setIsLogin] = useState(true);
-  const [selectedGender, setSelectedGender] = useState<'male' | 'female' | null>(null);
+  const [selectedGender, setSelectedGender] = useState<'male' | 'female' | null>('male');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -115,7 +189,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
   const [empatheticIndex, setEmpatheticIndex] = useState(0);
   const [usernameStatus, setUsernameStatus] = useState<'idle' | 'checking' | 'available' | 'unavailable' | 'invalid' | 'invalid_format'>('idle');
   const [showReviewModal, setShowReviewModal] = useState(false);
-  const [recoveryEmail, setRecoveryEmail] = useState('');
 
   useEffect(() => {
     if (isLogin) {
@@ -134,10 +207,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
       return;
     }
 
-    const hasAt = trimmed.includes('@');
-    if (hasAt) {
+    const parsed = parseEmailOrUsername(trimmed);
+    if (parsed.isEmail) {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(trimmed)) {
+      if (!emailRegex.test(parsed.signupEmail)) {
         setUsernameStatus('invalid_format');
         return;
       }
@@ -149,7 +222,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
       }
     }
 
-    const checkEmail = hasAt ? trimmed : `${trimmed.toLowerCase()}@quran.app`;
+    const checkEmail = parsed.signupEmail;
 
     setUsernameStatus('checking');
 
@@ -274,10 +347,10 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
       }
 
       const trimmed = email.trim();
-      const hasAt = trimmed.includes('@');
-      if (hasAt) {
+      const parsed = parseEmailOrUsername(trimmed);
+      if (parsed.isEmail) {
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-        if (!emailRegex.test(trimmed)) {
+        if (!emailRegex.test(parsed.signupEmail)) {
           addToast('البريد الإلكتروني غير صالح. يرجى كتابته بشكل صحيح (مثال: name@example.com).', 'error');
           return;
         }
@@ -317,7 +390,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
     }
 
     const isDeveloper = email === '779516077' && password === '35004760';
-    const loginEmail = isDeveloper ? '779516077@quran.app' : (email.includes('@') ? email.trim() : `${email.toLowerCase().trim()}@quran.app`);
+    const loginEmail = isDeveloper ? '779516077@quran.app' : parseEmailOrUsername(email).signupEmail;
 
     setIsLoading(true);
     try {
@@ -449,7 +522,8 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
     }
     setIsLoading(true);
     try {
-      const signupEmail = email.includes('@') ? email.trim() : `${email.toLowerCase().trim()}@quran.app`;
+      const parsed = parseEmailOrUsername(email);
+      const signupEmail = parsed.signupEmail;
       const userCredential = await createUserWithEmailAndPassword(auth, signupEmail, password);
       const user = userCredential.user;
 
@@ -457,7 +531,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
         uid: user.uid,
         displayName: displayName,
         email: signupEmail,
-        recoveryEmail: recoveryEmail.trim() || null,
+        recoveryEmail: parsed.recoveryEmail,
         role: 'teacher',
         gender: selectedGender,
         plainPassword: password,
@@ -839,38 +913,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
                       </div>
                     )}
 
-                    {/* SIGN UP ONLY: Recovery Email (Optional) */}
-                    {!isLogin && (
-                      <div className="space-y-1 pt-1 text-right">
-                        <label className="text-[10px] font-bold text-slate-400 block mr-1">البريد الإلكتروني للاسترداد (اختياري)</label>
-                        <div className="relative flex items-stretch border border-gray-100 rounded-2xl bg-white shadow-sm hover:border-[#105541]/30 focus-within:border-[#105541] focus-within:ring-4 focus-within:ring-[#105541]/5 transition-all overflow-hidden">
-                          <input 
-                            type="email"
-                            placeholder="مثال: name@example.com"
-                            value={recoveryEmail}
-                            onChange={(e) => setRecoveryEmail(e.target.value)}
-                            className="w-full bg-transparent py-2.5 px-4 outline-none text-gray-800 font-medium text-sm text-right font-sans"
-                          />
-                          <div className="w-10 h-10 bg-[#EFF6F2] text-[#105541] flex items-center justify-center rounded-r-2xl shrink-0 self-center ml-0.5 my-0.5">
-                            <Mail size={16} />
-                          </div>
-                        </div>
-                        
-                        {/* Instructions below the field */}
-                        <div className="px-2 pt-1 leading-normal">
-                          {recoveryEmail.trim() !== '' ? (
-                            <p className="text-[10px] text-emerald-600 font-semibold leading-relaxed">
-                              ✦ مستقبلاً إذا نسيت كلمة المرور ستتمكن من استعادتها أو تغييرها عبر رمز أو رابط سيتم إرساله إلى هذا البريد الإلكتروني.
-                            </p>
-                          ) : (
-                            <p className="text-[10px] text-amber-600 font-semibold leading-relaxed">
-                              ⚠ هذا الحقل اختياري، ولكن بدون بريد إلكتروني للاستعادة لن تتمكن مستقبلاً من استعادة كلمة المرور إذا نسيتها.
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-
                   </div>
 
                     {/* Remember Me and Forgot password checkbox line */}
@@ -961,7 +1003,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
                   }
                   setIsLogin(!isLogin);
                   setIsManagementMode(false);
-                  setSelectedGender(null);
+                  setSelectedGender('male');
                   setShowReviewModal(false);
                 }}
                 className="text-amber-600 hover:text-amber-700 underline underline-offset-4 font-extrabold"
@@ -1265,13 +1307,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
                     {selectedGender === 'male' ? 'معلم' : 'معلمة'}
                   </span>
                 </div>
-
-                {recoveryEmail.trim() !== '' && (
-                  <div className="flex justify-between items-center bg-slate-50/70 p-2.5 rounded-xl border border-gray-100 text-xs">
-                    <span className="text-slate-400 font-bold">بريد الاستعادة</span>
-                    <span className="text-slate-800 font-extrabold truncate max-w-[150px] font-sans tracking-wide">{recoveryEmail}</span>
-                  </div>
-                )}
               </div>
 
               {/* Distinct Frame with Frame Border for Copyable Credentials */}
@@ -1317,22 +1352,6 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
                     </button>
                   </div>
                 </div>
-              </div>
-
-              {/* Dynamic Warn / Check Alert message depending on recovery email */}
-              <div className={`p-3 rounded-2xl border text-right mb-4 ${
-                recoveryEmail.trim() !== '' 
-                  ? 'bg-emerald-50/80 border-emerald-200/60 text-emerald-800' 
-                  : 'bg-amber-50/80 border-amber-200/60 text-amber-800'
-              }`}>
-                <p className="text-[11px] font-bold flex items-center gap-1.5">
-                  <span>ℹ️ تنبيه الأمان:</span>
-                </p>
-                <p className="text-[10px] mt-1 font-semibold leading-relaxed">
-                  {recoveryEmail.trim() !== '' 
-                    ? 'مستقبلاً يمكنك استعادة كلمة المرور عبر البريد الإلكتروني المضاف.'
-                    : 'لم يتم إضافة بريد إلكتروني للاستعادة، لذلك إذا نسيت كلمة المرور مستقبلاً قد لا تتمكن من استعادتها.'}
-                </p>
               </div>
 
               {/* Action Buttons */}

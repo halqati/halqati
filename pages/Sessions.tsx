@@ -213,7 +213,7 @@ const Sessions: React.FC<SessionsProps> = ({ sessions, draftSession, onNew, onEd
                                 >
                                     <div className="flex justify-between items-center">
                                         <div>
-                                            <p className="font-bold">{session.isLesson ? "درس الساعة:" : "جلسة الساعة:"} {session.time}</p>
+                                            <p className="font-bold">{session.isLesson ? "جلسة درس" : "جلسة تسميع"} {session.time}</p>
                                             <div className="flex items-center gap-1 mt-0.5 min-w-0">
                                                 <p className="text-xs text-gray-500 dark:text-gray-400 flex-shrink-0">عدد الطلاب: {session.students.length}</p>
                                                 {session.createdBy && session.creatorUid !== currentUserUid && (

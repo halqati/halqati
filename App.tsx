@@ -826,6 +826,7 @@ const App: React.FC = () => {
     
     const [activeSettingsPage, setActiveSettingsPage] = useState('main');
     const [activeServicesPage, setActiveServicesPage] = useState('main');
+    const [recentAnnouncementId, setRecentAnnouncementId] = useState<number | null>(null);
     const servicesHistoryRef = useRef<string[]>(['main']);
     const [profileMode, setProfileMode] = useState<'circle' | 'account'>('account');
     
@@ -3465,6 +3466,7 @@ const App: React.FC = () => {
         if (activeCircle.settings.autoSaveDrafts && activeCircle.draftSession) {
              const syncedDraft = syncDraftWithLatestData(activeCircle.draftSession);
              setEditingSession(syncedDraft);
+             pushStateSafely();
              setPristineSession(JSON.parse(JSON.stringify(syncedDraft)));
              handleNavigate('sessions');
              addToast('تم استعادة مسودة جلسة جديدة (مع تحديث البيانات).', 'info');
@@ -3504,6 +3506,7 @@ const App: React.FC = () => {
             parentNotifications: {}, isDirty: false, isLesson: false, lessonType: '', lessonTitle: '',
         };
         setEditingSession(newSession);
+        pushStateSafely();
         setPristineSession(JSON.parse(JSON.stringify(newSession)));
         handleNavigate('sessions');
     };
@@ -3516,6 +3519,7 @@ const App: React.FC = () => {
         if (activeCircle.settings.autoSaveDrafts && specificDraft) {
             const syncedDraft = syncDraftWithLatestData(specificDraft);
             setEditingSession({ ...syncedDraft, isDirty: false });
+            pushStateSafely();
             setPristineSession(JSON.parse(JSON.stringify(syncedDraft)));
             addToast('تم استعادة المسودة (مع تحديث البيانات).', 'info');
             return;
@@ -3525,6 +3529,7 @@ const App: React.FC = () => {
         if (session) {
             const sessionToEdit = { ...session, isDirty: false };
             setEditingSession(sessionToEdit);
+            pushStateSafely();
             setPristineSession(JSON.parse(JSON.stringify(sessionToEdit)));
         }
     };
@@ -3588,6 +3593,9 @@ const App: React.FC = () => {
                         setConfirmationModal(d => ({...d, isOpen: false}));
                         setEditingSession(null);
                         setPristineSession(null);
+                    },
+                    onCancel: () => {
+                        pushStateSafely();
                     }
                 });
                 return currentSession;
@@ -4775,7 +4783,20 @@ const App: React.FC = () => {
             }
             return { ...draft, announcements, draftAnnouncement: null, lastUpdated: Date.now() };
         });
-        navigateWithinSettings('announcements');
+        
+        setRecentAnnouncementId(announcement.id);
+        
+        if (activePage === 'services') {
+            if (servicesHistoryRef.current[servicesHistoryRef.current.length - 1] === 'announcementForm') {
+                servicesHistoryRef.current.pop();
+            }
+            navigateWithinServices('announcements');
+        } else {
+            if (settingsHistoryRef.current[settingsHistoryRef.current.length - 1] === 'announcementForm') {
+                settingsHistoryRef.current.pop();
+            }
+            navigateWithinSettings('announcements');
+        }
         addToast('✅ تم حفظ الإعلان بنجاح.');
     };
 
@@ -6386,6 +6407,7 @@ const App: React.FC = () => {
                             <Announcements 
                                 announcements={activeCircle.announcements || []} 
                                 isDraft={!!activeCircle.draftAnnouncement} 
+                                recentAnnouncementId={recentAnnouncementId}
                                 onBack={() => { 
                                     servicesHistoryRef.current.pop(); 
                                     setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
@@ -6658,7 +6680,7 @@ const App: React.FC = () => {
                         settingsHistoryRef.current.pop(); setActiveSettingsPage(settingsHistoryRef.current[settingsHistoryRef.current.length-1]); 
                     }} setConfirmationModal={setConfirmationModal} activityTypes={activeCircle.activityTypes || defaultActivityTypes} onAddActivityType={(t) => setActiveCircleData(d => ({...d, activityTypes: [...(d.activityTypes || defaultActivityTypes), t]}))} onDeleteActivityType={(t) => setActiveCircleData(d => ({...d, activityTypes: (d.activityTypes || defaultActivityTypes).filter(at => at !== t)}))} circleId={activeCircle.id} />}
                     
-                    {activeSettingsPage === 'announcements' && <Announcements announcements={activeCircle.announcements || []} isDraft={!!activeCircle.draftAnnouncement} onBack={() => { settingsHistoryRef.current = ['main']; setActiveSettingsPage('main'); }} onNew={() => { 
+                    {activeSettingsPage === 'announcements' && <Announcements announcements={activeCircle.announcements || []} isDraft={!!activeCircle.draftAnnouncement} recentAnnouncementId={recentAnnouncementId} onBack={() => { settingsHistoryRef.current = ['main']; setActiveSettingsPage('main'); }} onNew={() => { 
                         if (activeCircleStudents.length === 0) {
                             setAlertModal({ isOpen: true, title: 'تنبيه', message: 'عذرًا، لا يمكن إنشاء إعلان جديد لعدم وجود طلاب في الحلقة. يرجى إضافة طلاب أولاً.' });
                             return;
