@@ -19,9 +19,16 @@ interface RecordsProps {
     setSelectedStudentId: (id: number | null) => void;
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
     onDeleteSavedReport: (reportId: number) => void;
+    onBack?: () => void;
 }
 
-const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, onOpenReportGenerator, onShowReport, onViewSavedReport, selectedStudentId, setSelectedStudentId, addToast, onDeleteSavedReport }) => {
+const pageVariants = {
+    initial: { opacity: 0, x: 20 },
+    animate: { opacity: 1, x: 0 },
+    exit: { opacity: 0, x: -20 }
+};
+
+const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, onOpenReportGenerator, onShowReport, onViewSavedReport, selectedStudentId, setSelectedStudentId, addToast, onDeleteSavedReport, onBack }) => {
     const [showSavedReports, setShowSavedReports] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -128,7 +135,7 @@ const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, o
     if (selectedStudentId) {
         const student = students.find(s => s.id === selectedStudentId);
         return (
-             <div className="h-full flex flex-col relative">
+             <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" className="h-full flex flex-col relative w-full">
                 <div className="flex items-center justify-between gap-3 mb-4 pb-4 border-b dark:border-gray-700 flex-shrink-0">
                     <div className="flex items-center gap-3">
                         <button onClick={() => setSelectedStudentId(null)}><FaArrowLeft /></button>
@@ -293,13 +300,20 @@ const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, o
                         />
                     )}
                 </AnimatePresence>
-            </div>
+            </motion.div>
         );
     }
 
     return (
-        <div className="">
-            <h2 className="text-xl font-bold text-primary dark:text-accent mb-4 px-1">سجل الطلاب</h2>
+        <motion.div variants={pageVariants} initial="initial" animate="animate" exit="exit" className="w-full">
+            <div className="flex items-center gap-3 mb-4 pb-4 border-b dark:border-gray-700">
+                {onBack && (
+                    <button onClick={onBack} className="text-gray-600 dark:text-gray-300 hover:text-primary transition-colors">
+                        <FaArrowLeft />
+                    </button>
+                )}
+                <h2 className="text-xl font-bold text-primary dark:text-accent px-1">سجل الطلاب</h2>
+            </div>
             <div className="relative mb-4">
                 <input
                     type="text"
@@ -330,7 +344,7 @@ const Records: React.FC<RecordsProps> = ({ students, sessions, studentReports, o
                     <p className="text-center text-gray-500 py-8">لم يتم العثور على طلاب.</p>
                 )}
             </div>
-        </div>
+        </motion.div>
     );
 };
 

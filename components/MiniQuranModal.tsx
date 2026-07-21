@@ -519,7 +519,7 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
 
                             let wordStyle: React.CSSProperties = {
                                 fontFamily: `quran-p${pageNumber}`,
-                                fontSize: 'clamp(14px, min(2.5vh, 4.3vw), 28px)', // Fluid typography, auto-sizes on any phone height/width
+                                fontSize: 'clamp(9px, min(2.2vh, 4vw), 24px)', // Fluid typography, auto-sizes on any phone height/width
                                 lineHeight: 1.15
                             };
 
@@ -1188,7 +1188,7 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                             )}
 
                             {/* Premium Physical Quran Page Frame with border details */}
-                            <div className="relative border-4 border-amber-600/30 dark:border-amber-500/20 rounded-2xl p-6 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[580px] flex flex-col justify-between transition-colors duration-300">
+                            <div className="relative border-2 sm:border-4 border-amber-600/30 dark:border-amber-500/20 rounded-2xl p-3 sm:p-6 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[460px] sm:min-h-[580px] w-full max-w-full overflow-hidden box-border flex flex-col justify-between transition-colors duration-300">
                                 
                                 {/* Inner Decorative border */}
                                 <div className="absolute inset-2 border border-amber-600/10 dark:border-amber-500/10 rounded-xl pointer-events-none" />
@@ -1357,7 +1357,7 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                 pagesList.map((pageData) => (
                                     <div 
                                         key={pageData.pageNumber}
-                                        className="relative border-4 border-amber-600/30 dark:border-amber-500/20 rounded-2xl p-6 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[580px] flex flex-col justify-between transition-colors duration-300"
+                                        className="relative border-2 sm:border-4 border-amber-600/30 dark:border-amber-500/20 rounded-2xl p-3 sm:p-6 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[460px] sm:min-h-[580px] w-full max-w-full overflow-hidden box-border flex flex-col justify-between transition-colors duration-300"
                                     >
                                         {/* Inner Decorative border */}
                                         <div className="absolute inset-2 border border-amber-600/10 dark:border-amber-500/10 rounded-xl pointer-events-none" />

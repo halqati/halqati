@@ -4642,7 +4642,7 @@ const App: React.FC = () => {
 
     const handleSaveTest = (test: Test) => {
         setActiveCircleData(draft => {
-            const tests = draft.tests || [];
+            const tests = [...(draft.tests || [])];
             // Ensure only students in targetStudentIds have results.
             // If result exists for student not in target, remove it.
             const cleanedResults = test.results.filter(r => (test.targetStudentIds || []).includes(r.studentId));
@@ -4666,7 +4666,18 @@ const App: React.FC = () => {
             // Clear draftTest after save
             return { ...draft, tests, draftTest: null, lastUpdated: Date.now() };
         });
-        navigateWithinSettings('tests');
+
+        if (activePage === 'services') {
+            if (servicesHistoryRef.current[servicesHistoryRef.current.length - 1] === 'testForm') {
+                servicesHistoryRef.current.pop();
+            }
+            navigateWithinServices('tests');
+        } else {
+            if (settingsHistoryRef.current[settingsHistoryRef.current.length - 1] === 'testForm') {
+                settingsHistoryRef.current.pop();
+            }
+            navigateWithinSettings('tests');
+        }
         addToast('✅ تم حفظ الاختبار بنجاح.');
     };
 
@@ -4689,7 +4700,7 @@ const App: React.FC = () => {
 
     const handleSavePlan = (plan: Plan) => {
         setActiveCircleData(draft => {
-            const plans = draft.plans || [];
+            const plans = [...(draft.plans || [])];
             
             // Clean up studentPlans to only include targeted students
             const cleanedStudentPlans = plan.studentPlans.filter(p => (plan.targetStudentIds || []).includes(p.studentId));
@@ -4717,7 +4728,18 @@ const App: React.FC = () => {
             }
             return { ...draft, plans, draftPlan: undefined, lastUpdated: Date.now() };
         });
-        navigateWithinSettings('plans');
+
+        if (activePage === 'services') {
+            if (servicesHistoryRef.current[servicesHistoryRef.current.length - 1] === 'planForm') {
+                servicesHistoryRef.current.pop();
+            }
+            navigateWithinServices('plans');
+        } else {
+            if (settingsHistoryRef.current[settingsHistoryRef.current.length - 1] === 'planForm') {
+                settingsHistoryRef.current.pop();
+            }
+            navigateWithinSettings('plans');
+        }
         addToast('✅ تم حفظ الخطة بنجاح.');
     };
 
@@ -4750,7 +4772,18 @@ const App: React.FC = () => {
             }
             return { ...draft, activities, draftActivity: undefined, lastUpdated: Date.now() };
         });
-        navigateWithinSettings('activities');
+
+        if (activePage === 'services') {
+            if (servicesHistoryRef.current[servicesHistoryRef.current.length - 1] === 'activityForm') {
+                servicesHistoryRef.current.pop();
+            }
+            navigateWithinServices('activities');
+        } else {
+            if (settingsHistoryRef.current[settingsHistoryRef.current.length - 1] === 'activityForm') {
+                settingsHistoryRef.current.pop();
+            }
+            navigateWithinSettings('activities');
+        }
         addToast('✅ تم حفظ النشاط بنجاح.');
     };
 
@@ -6190,7 +6223,7 @@ const App: React.FC = () => {
                             <Services 
                                 onNavigate={(subPage) => {
                                     if (subPage === 'records') {
-                                        handleNavigate('records');
+                                        navigateWithinServices('records');
                                     } else if (subPage === 'reports') {
                                         handleNavigate('reports');
                                     } else {
@@ -6198,6 +6231,25 @@ const App: React.FC = () => {
                                     }
                                 }} 
                                 hasFullManagement={hasFullManagement} 
+                            />
+                        )}
+                        {activeServicesPage === 'records' && (
+                            <Records 
+                                key="services-records-page"
+                                students={activeCircleStudents} 
+                                sessions={activeCircle.sessions} 
+                                studentReports={activeCircle.studentReports || []} 
+                                onOpenReportGenerator={(id) => {handleOpenReportGenerator(id); pushStateSafely()}} 
+                                onShowReport={(studentId, content, period) => {setStudentReportModal({isOpen: true, student: activeCircle.students.find(s=>s.id === studentId) || null, reportContent: content, period}); pushStateSafely();}} 
+                                onViewSavedReport={(report) => {setViewReportModal({isOpen: true, report, type: 'student'}); pushStateSafely();}} 
+                                selectedStudentId={selectedStudentId} 
+                                setSelectedStudentId={(id) => {setSelectedStudentId(id); if (id) pushStateSafely();}} 
+                                addToast={addToast} 
+                                onDeleteSavedReport={(id) => handleDeleteReport(id, 'student')} 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1]); 
+                                }}
                             />
                         )}
                         {activeServicesPage === 'parentFollowUp' && (
