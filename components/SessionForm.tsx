@@ -252,6 +252,8 @@ interface RecordInputProps {
     settings: Settings;
     pointsSettings?: PointsSettings;
     onOpenSelector: (onSelect: (value: string) => void, title: string) => void;
+    studentName?: string;
+    recitationType?: string;
 }
 
 interface HomeworkInputProps {
@@ -413,7 +415,7 @@ const HomeworkInput: React.FC<HomeworkInputProps> = ({ record, onChange, onDelet
     );
 };
 
-const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspended, onChange, onDelete, onShowLastRecord, settings, pointsSettings, onOpenSelector }) => {
+const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspended, onChange, onDelete, onShowLastRecord, settings, pointsSettings, onOpenSelector, studentName, recitationType }) => {
     const [isViewerOpen, setIsViewerOpen] = useState(false);
     const hasRecordKey = type === 'memorization' ? 'hasMemorization' : 'hasReview';
     const hasRecord = (record as any)[hasRecordKey];
@@ -587,6 +589,8 @@ const RecordInput: React.FC<RecordInputProps> = ({ type, label, record, isSuspen
                             highlights: newHighlights
                         });
                     }}
+                    studentName={studentName}
+                    recitationType={recitationType}
                 />
             )}
         </div>
@@ -1960,6 +1964,8 @@ const SessionForm: React.FC<SessionFormProps> = ({ session, setSession, allStude
                                                     settings={settings} 
                                                     pointsSettings={pointsSettings}
                                                     onOpenSelector={handleOpenSelector} 
+                                                    studentName={student.name}
+                                                    recitationType="تسميع حفظ"
                                                 />
                                             )}
                                             
@@ -1975,6 +1981,8 @@ const SessionForm: React.FC<SessionFormProps> = ({ session, setSession, allStude
                                                     settings={settings} 
                                                     pointsSettings={pointsSettings}
                                                     onOpenSelector={handleOpenSelector} 
+                                                    studentName={student.name}
+                                                    recitationType={`حفظ إضافي ${idx + 1}`}
                                                 />
                                             ))}
                                             
@@ -1993,6 +2001,8 @@ const SessionForm: React.FC<SessionFormProps> = ({ session, setSession, allStude
                                                     settings={settings} 
                                                     pointsSettings={pointsSettings}
                                                     onOpenSelector={handleOpenSelector} 
+                                                    studentName={student.name}
+                                                    recitationType="تسميع مراجعة"
                                                 />
                                             )}
 
@@ -2008,6 +2018,8 @@ const SessionForm: React.FC<SessionFormProps> = ({ session, setSession, allStude
                                                     settings={settings} 
                                                     pointsSettings={pointsSettings}
                                                     onOpenSelector={handleOpenSelector} 
+                                                    studentName={student.name}
+                                                    recitationType={rec.label || `مراجعة إضافية ${idx + 1}`}
                                                 />
                                             ))}
 

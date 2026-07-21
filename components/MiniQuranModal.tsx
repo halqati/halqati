@@ -23,9 +23,12 @@ interface MiniQuranModalProps {
     pagesCount: number;
     highlights?: { [key: string]: { color: string; size: number } };
     onHighlightsChange?: (newHighlights: { [key: string]: { color: string; size: number } }) => void;
+    studentName?: string;
+    recitationType?: string;
 }
 
 const FONT_OPTIONS = [
+    { value: "kfgqpc", label: "خطوط مجمع الملك فهد (رموز الصفحات)" },
     { value: "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif", label: "خط مصحف المدينة (الأميري)" },
     { value: "'Scheherazade New Cached', 'Scheherazade New', serif", label: "خط شهرزاد الجديد" },
     { value: "'Noto Naskh Arabic Cached', 'Noto Naskh Arabic', sans-serif", label: "خط النسخ" },
@@ -106,7 +109,9 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     toAyah,
     pagesCount,
     highlights = {},
-    onHighlightsChange
+    onHighlightsChange,
+    studentName,
+    recitationType
 }) => {
     const modalRef = useRef<HTMLDivElement>(null);
     const colorInputRef = useRef<HTMLInputElement>(null);
@@ -115,22 +120,19 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     const [quranData, setQuranData] = useState<QuranSurahRange[]>([]);
     
     // Preferences loaded from localStorage
-    const [fontFamily, setFontFamily] = useState<string>(() => {
-        return localStorage.getItem('quran_font_family') || "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif";
-    });
-    const [fontSize, setFontSize] = useState<number>(() => {
-        const saved = localStorage.getItem('quran_font_size');
-        return saved ? parseInt(saved) : 18; // Default font size set to 18px as requested
-    });
+    const [fontFamily, setFontFamily] = useState<string>("kfgqpc");
+    const [fontSize, setFontSize] = useState<number>(18);
 
     const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
 
     // Page View Mode States
-    const [isPageMode, setIsPageMode] = useState<boolean>(() => {
-        return localStorage.getItem('quran_page_mode') === 'true';
-    });
+    const [isPageMode, setIsPageMode] = useState<boolean>(true);
     const [activePageIndex, setActivePageIndex] = useState<number>(0);
     const touchStartX = useRef<number | null>(null);
+
+    // KFGQPC V2 Page data and loading states
+    const [pagesV2Data, setPagesV2Data] = useState<{ [key: number]: any }>({});
+    const [loadingV2, setLoadingV2] = useState<boolean>(false);
 
     // Dynamic style injection for offline Cached fonts on mount
     useEffect(() => {
@@ -290,6 +292,290 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
             .sort((a, b) => a - b)
             .map(pNum => pagesMap[pNum]);
     }, [quranData]);
+
+    // Load V2 glyph/word data from Quran.com API with local cache
+    const loadV2Pages = async (pNums: number[]) => {
+        setLoadingV2(true);
+        const updatedData = { ...pagesV2Data };
+        let changed = false;
+
+        await Promise.all(pNums.map(async (pNum) => {
+            if (updatedData[pNum]) return; // Already loaded!
+
+            // Check local cache
+            const cached = localStorage.getItem(`quran_page_v2_data_${pNum}`);
+            if (cached) {
+                try {
+                    updatedData[pNum] = JSON.parse(cached);
+                    changed = true;
+                    return;
+                } catch (e) {
+                    console.error("Failed to parse cached page data for page", pNum, e);
+                }
+            }
+
+            // Fetch from API if online
+            if (navigator.onLine) {
+                try {
+                    const res = await fetch(`https://api.quran.com/api/v4/verses/by_page/${pNum}?words=true&word_fields=code_v2`);
+                    if (res.ok) {
+                        const json = await res.json();
+                        if (json && json.verses) {
+                            localStorage.setItem(`quran_page_v2_data_${pNum}`, JSON.stringify(json.verses));
+                            updatedData[pNum] = json.verses;
+                            changed = true;
+                        }
+                    }
+                } catch (err) {
+                    console.error(`Failed to fetch V2 page data for page ${pNum}:`, err);
+                }
+            }
+        }));
+
+        if (changed) {
+            setPagesV2Data(updatedData);
+        }
+        setLoadingV2(false);
+    };
+
+    // Load V2 glyph data and inject fonts for active pages
+    useEffect(() => {
+        if (!isOpen || pagesList.length === 0 || fontFamily !== 'kfgqpc') return;
+
+        const pagesToFetch: number[] = [];
+        if (isPageMode) {
+            const currentP = pagesList[activePageIndex]?.pageNumber;
+            if (currentP) {
+                pagesToFetch.push(currentP);
+                const prevP = pagesList[activePageIndex - 1]?.pageNumber;
+                const nextP = pagesList[activePageIndex + 1]?.pageNumber;
+                if (prevP) pagesToFetch.push(prevP);
+                if (nextP) pagesToFetch.push(nextP);
+            }
+        } else {
+            pagesList.forEach(p => {
+                pagesToFetch.push(p.pageNumber);
+            });
+        }
+
+        if (pagesToFetch.length > 0) {
+            loadV2Pages(pagesToFetch);
+        }
+
+        // Dynamically inject @font-face style tags for the page fonts
+        pagesToFetch.forEach(pNum => {
+            const fontName = `quran-p${pNum}`;
+            const styleId = `font-face-${fontName}`;
+            if (!document.getElementById(styleId)) {
+                const style = document.createElement('style');
+                style.id = styleId;
+                style.innerHTML = `
+                    @font-face {
+                        font-family: '${fontName}';
+                        src: url('https://audio.qurancdn.com/fonts/quran/hafs/v2/woff2/p${pNum}.woff2') format('woff2');
+                        font-weight: normal;
+                        font-style: normal;
+                        font-display: block;
+                    }
+                `;
+                document.head.appendChild(style);
+            }
+        });
+    }, [isOpen, isPageMode, activePageIndex, pagesList, fontFamily]);
+
+    // Check if any word is the end of the last verse of a surah
+    const isLastLineOfSurah = (lineWords: any[]) => {
+        if (!lineWords || lineWords.length === 0) return false;
+        const lastWord = lineWords[lineWords.length - 1];
+        const surahId = lastWord.surah_id;
+        const surahObj = surahs[surahId - 1];
+        if (!surahObj) return false;
+        
+        return lineWords.some(w => {
+            return w.verse_number === surahObj.verses && w.char_type_name === 'end';
+        });
+    };
+
+    // Get Surah Header or Bismillah if empty lines precede the first verse
+    const getSpecialLineItem = (pNum: number, lineNum: number) => {
+        if (!pagesV2Data[pNum]) return null;
+        const verses = pagesV2Data[pNum];
+        
+        for (const verse of verses) {
+            if (verse.verse_number === 1) {
+                const firstWord = verse.words[0];
+                if (!firstWord) continue;
+                const firstVerseLine = firstWord.line_number;
+                const surahId = parseInt(verse.verse_key.split(':')[0]);
+                const surahName = surahs[surahId - 1]?.name || `السورة ${surahId}`;
+                
+                if (surahId === 9) {
+                    if (lineNum === firstVerseLine - 1) {
+                        return { type: 'header', surahName, surahId };
+                    }
+                } else if (surahId === 1) {
+                    if (lineNum === firstVerseLine - 1) {
+                        return { type: 'header', surahName, surahId };
+                    }
+                } else {
+                    if (lineNum === firstVerseLine - 2) {
+                        return { type: 'header', surahName, surahId };
+                    }
+                    if (lineNum === firstVerseLine - 1) {
+                        return { type: 'bismillah', surahId };
+                    }
+                }
+            }
+        }
+        return null;
+    };
+
+    // Fallback UI while V2 page data loads
+    const renderFallbackPage = (pageNumber: number) => {
+        return (
+            <div className="w-full text-center py-16">
+                <div className="w-8 h-8 border-3 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto mb-3 animate-duration-1000"></div>
+                <p className="text-xs text-amber-800/60 dark:text-amber-400/60 font-semibold animate-pulse">جاري جلب صفحات المصحف الشريف...</p>
+            </div>
+        );
+    };
+
+    // Render KFGQPC Medina aligned page layout
+    const renderMedinaPage = (pageNumber: number) => {
+        const pageVerses = pagesV2Data[pageNumber];
+        if (!pageVerses || pageVerses.length === 0) {
+            return renderFallbackPage(pageNumber);
+        }
+
+        const allWords: any[] = [];
+        pageVerses.forEach((verse: any) => {
+            const surahId = parseInt(verse.verse_key.split(':')[0]);
+            const verseNum = verse.verse_number;
+            verse.words.forEach((word: any) => {
+                allWords.push({
+                    ...word,
+                    surah_id: surahId,
+                    verse_number: verseNum,
+                    verse_key: verse.verse_key
+                });
+            });
+        });
+
+        const linesMap: { [key: number]: any[] } = {};
+        allWords.forEach(word => {
+            const lNum = word.line_number;
+            if (!linesMap[lNum]) linesMap[lNum] = [];
+            linesMap[lNum].push(word);
+        });
+
+        const renderedLines = [];
+        for (let lineNum = 1; lineNum <= 15; lineNum++) {
+            const lineWords = linesMap[lineNum] || [];
+            const specialItem = getSpecialLineItem(pageNumber, lineNum);
+
+            if (specialItem) {
+                if (specialItem.type === 'header') {
+                    renderedLines.push(
+                        <div key={`special_header_${lineNum}`} className="my-1 md:my-1.5 select-none w-full flex justify-center">
+                            <div className="relative py-1 flex items-center justify-center w-full max-w-md">
+                                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/0 via-amber-500/10 to-amber-500/0 rounded-lg" />
+                                <div className="absolute inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/30 to-transparent top-0" />
+                                <div className="absolute inset-x-0 h-[1px] bg-gradient-to-r from-transparent via-amber-500/30 to-transparent bottom-0" />
+                                
+                                <div className="relative px-6 py-0.5 border border-amber-600/25 bg-[#FDFBF7] dark:bg-gray-800 text-amber-900 dark:text-amber-400 font-extrabold text-[10px] md:text-xs rounded-md shadow-xs flex items-center gap-1.5">
+                                    <span className="text-amber-600/60 font-serif">◈</span>
+                                    <span className="font-serif text-amber-950 dark:text-amber-200">سُورَة {specialItem.surahName}</span>
+                                    <span className="text-amber-600/60 font-serif">◈</span>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                } else if (specialItem.type === 'bismillah') {
+                    renderedLines.push(
+                        <div 
+                            key={`special_bismillah_${lineNum}`} 
+                            className="text-center text-amber-900/90 dark:text-amber-400/90 py-1 select-none text-[13px] md:text-sm font-serif tracking-wide w-full"
+                        >
+                            بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ
+                        </div>
+                    );
+                }
+            } else if (lineWords.length > 0) {
+                const isLastLine = isLastLineOfSurah(lineWords);
+                renderedLines.push(
+                    <div 
+                        key={`line_${lineNum}`} 
+                        className="flex flex-row items-center w-full min-h-[1.5rem] md:min-h-[2.5rem] py-0 select-text"
+                        style={{ 
+                            direction: 'rtl',
+                            justifyContent: isLastLine ? 'center' : 'space-between',
+                            gap: isLastLine ? '0.5rem' : 'unset'
+                        }}
+                    >
+                        {lineWords.map((word, wIdx) => {
+                            const wordKey = `${word.surah_id}_${word.verse_number}_${word.position - 1}`;
+                            const isHighlighted = showHighlights && highlights[wordKey];
+                            const highlightInfo = isHighlighted ? highlights[wordKey] : null;
+
+                            let wordStyle: React.CSSProperties = {
+                                fontFamily: `quran-p${pageNumber}`,
+                                fontSize: 'clamp(14px, min(2.5vh, 4.3vw), 28px)', // Fluid typography, auto-sizes on any phone height/width
+                                lineHeight: 1.15
+                            };
+
+                            if (highlightInfo) {
+                                const { color } = highlightInfo;
+                                const size = isVisualAlertActive ? 3 : highlightInfo.size;
+                                if (size <= 2) {
+                                    wordStyle = {
+                                        ...wordStyle,
+                                        borderBottom: `${size * 2}px solid ${color}`,
+                                        paddingBottom: '2px'
+                                    };
+                                } else {
+                                    const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
+                                    wordStyle = {
+                                        ...wordStyle,
+                                        backgroundColor: color,
+                                        paddingTop: paddingVal,
+                                        paddingBottom: paddingVal,
+                                        paddingLeft: '4px',
+                                        paddingRight: '4px',
+                                        borderRadius: '4px'
+                                    };
+                                }
+                            }
+
+                            return (
+                                <span
+                                    key={`${word.id}_${wIdx}`}
+                                    onClick={() => handleWordClick(wordKey)}
+                                    className={`inline-block select-text transition-all duration-200 hover:scale-[1.05] ${
+                                        isHighlighterActive 
+                                            ? 'cursor-pointer hover:bg-amber-100/50 dark:hover:bg-amber-900/30 px-1 rounded' 
+                                            : ''
+                                    }`}
+                                    style={wordStyle}
+                                >
+                                    {word.code_v2 || word.text}
+                                </span>
+                            );
+                        })}
+                    </div>
+                );
+            } else {
+                renderedLines.push(
+                    <div key={`line_empty_${lineNum}`} className="h-4 md:h-8 w-full animate-pulse bg-amber-500/5 rounded" />
+                );
+            }
+        }
+
+        return (
+            <div className="flex flex-col items-center w-full select-text py-0.5">
+                {renderedLines}
+            </div>
+        );
+    };
 
     // Reset active page index when the data or pages range changes
     useEffect(() => {
@@ -543,7 +829,7 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     const activeFontOption = FONT_OPTIONS.find(opt => opt.value === fontFamily) || FONT_OPTIONS[0];
 
     return (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-xs p-2 md:p-4 animate-fade-in">
+        <div className="fixed inset-0 z-[9999] flex items-end md:items-center justify-center bg-black/70 backdrop-blur-xs p-0 md:p-4 animate-fade-in">
             {/* Confetti bubble burst animation */}
             <div className="absolute pointer-events-none z-[10005]">
                 {particles.map(p => (
@@ -594,103 +880,29 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
 
             <div 
                 ref={modalRef}
-                className="w-full max-w-4xl h-[90vh] md:h-[85vh] bg-white dark:bg-gray-950 rounded-2xl shadow-2xl flex flex-col overflow-hidden border border-gray-200 dark:border-gray-800 transition-all duration-300 relative"
+                className="w-full max-w-4xl h-[98vh] md:h-[95vh] bg-[#FDFBF7] dark:bg-gray-950 rounded-t-3xl md:rounded-3xl shadow-2xl flex flex-col overflow-hidden border border-amber-600/10 dark:border-gray-850 transition-all duration-300 relative"
                 dir="rtl"
             >
-                {/* Header Section - Never use white background in dark mode */}
-                <div className="px-4 py-3 md:px-6 md:py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 flex flex-col md:flex-row md:items-center justify-between gap-3 shrink-0 relative">
-                    <div>
-                        <h3 className="text-base md:text-lg font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                            <span>عرض المصحف الكريم</span>
-                            <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 bg-gray-200 dark:bg-gray-800 px-2.5 py-0.5 rounded-md">
-                                {formatPagesCountArabic(pagesCount)}
+                {/* Single Row Compact Header */}
+                <div className="px-3.5 py-2 md:px-5 border-b border-amber-600/10 dark:border-gray-800 bg-[#FAF7F2] dark:bg-gray-900 flex items-center justify-between gap-2 shrink-0 relative">
+                    {/* Right side: Student Name and Current recitation badge */}
+                    <div className="flex flex-col min-w-0">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-xs md:text-sm font-bold text-amber-950 dark:text-gray-100 truncate max-w-[120px] md:max-w-[220px]">
+                                {studentName || "اسم الطالب"}
                             </span>
-                        </h3>
-                        <p className="text-xs text-primary dark:text-accent font-medium mt-1">
-                            {displayRange()}
+                            <span className="text-[9px] md:text-xs font-extrabold text-amber-900 dark:text-amber-300 bg-amber-100/80 dark:bg-amber-950/40 px-2 py-0.5 rounded-full border border-amber-600/10 shrink-0">
+                                {recitationType || "المقرر"}
+                            </span>
+                        </div>
+                        <p className="text-[10px] md:text-xs text-amber-800/60 dark:text-amber-400/60 font-semibold mt-0.5 truncate">
+                            {displayRange()} ({formatPagesCountArabic(pagesCount)})
                         </p>
                     </div>
-                    
-                    {/* Close button */}
-                    <button 
-                        onClick={onClose}
-                        className="absolute top-3 left-4 p-2 text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-800 transition cursor-pointer"
-                    >
-                        <X className="w-5 h-5" />
-                    </button>
-                </div>
 
-                {/* Toolbar Section */}
-                <div className="px-4 py-2.5 bg-gray-100/60 dark:bg-gray-900/60 border-b border-gray-200 dark:border-gray-800 flex flex-wrap items-center justify-between gap-3 shrink-0">
-                    <div className="flex items-center gap-3 flex-wrap">
-                        {/* Custom Font Select Dropdown */}
-                        <div className="relative">
-                            <button
-                                type="button"
-                                onClick={() => setIsFontDropdownOpen(!isFontDropdownOpen)}
-                                className="text-xs px-2.5 py-1.5 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 hover:border-primary dark:hover:border-accent flex items-center gap-2 cursor-pointer transition shadow-xs"
-                            >
-                                <Type className="w-3.5 h-3.5 text-gray-400" />
-                                <span className="font-medium">{activeFontOption.label}</span>
-                                <ChevronDown className={`w-3 h-3 text-gray-400 transition-transform ${isFontDropdownOpen ? 'rotate-180' : ''}`} />
-                            </button>
-                            
-                            <AnimatePresence>
-                                {isFontDropdownOpen && (
-                                    <>
-                                        <div className="fixed inset-0 z-40" onClick={() => setIsFontDropdownOpen(false)} />
-                                        <motion.div 
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            className="absolute right-0 mt-1.5 w-56 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl py-1 z-50 text-right overflow-hidden"
-                                        >
-                                            {FONT_OPTIONS.map(opt => (
-                                                <button
-                                                    key={opt.value}
-                                                    type="button"
-                                                    onClick={() => {
-                                                        handleFontFamilyChange(opt.value);
-                                                        setIsFontDropdownOpen(false);
-                                                    }}
-                                                    className={`w-full text-right px-3 py-2 text-xs hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors flex items-center justify-between ${
-                                                        fontFamily === opt.value 
-                                                            ? 'text-primary dark:text-accent font-bold bg-primary-light/10 dark:bg-accent/10' 
-                                                            : 'text-gray-700 dark:text-gray-300'
-                                                    }`}
-                                                >
-                                                    <span>{opt.label}</span>
-                                                    {fontFamily === opt.value && <Check className="w-3 h-3 text-primary dark:text-accent" />}
-                                                </button>
-                                            ))}
-                                        </motion.div>
-                                    </>
-                                )}
-                            </AnimatePresence>
-                        </div>
-
-                        {/* Font Size Selector */}
-                        <div className="flex items-center gap-1 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg p-0.5 shadow-xs">
-                            <button 
-                                onClick={handleDecreaseFontSize}
-                                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300 transition cursor-pointer"
-                                title="تصغير الخط"
-                            >
-                                <Minus className="w-3.5 h-3.5" />
-                            </button>
-                            <span className="text-xs px-2 font-mono text-gray-700 dark:text-gray-300 font-bold select-none">
-                                {fontSize}
-                            </span>
-                            <button 
-                                onClick={handleIncreaseFontSize}
-                                className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded text-gray-600 dark:text-gray-300 transition cursor-pointer"
-                                title="تكبير الخط"
-                            >
-                                <Plus className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-
-                        {/* Highlighter Master Switch */}
+                    {/* Left side: Integrated minimalist controls */}
+                    <div className="flex items-center gap-1.5 shrink-0">
+                        {/* Highlighter switch */}
                         <button
                             type="button"
                             onClick={() => {
@@ -699,39 +911,17 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                     setShowHighlighterControls(true);
                                 }
                             }}
-                            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition duration-200 cursor-pointer shadow-xs font-semibold ${
+                            className={`p-1.5 md:p-2 rounded-full border flex items-center justify-center transition duration-200 cursor-pointer shadow-xs ${
                                 isHighlighterActive 
-                                    ? 'bg-primary border-primary text-white shadow-md ring-2 ring-primary/20 ring-offset-1 dark:ring-offset-gray-900' 
-                                    : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-accent'
+                                    ? 'bg-amber-600 border-amber-600 text-white shadow-md ring-2 ring-amber-600/20' 
+                                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:text-amber-600'
                             }`}
-                            title="وضع التلوين وتحديد أخطاء التسميع"
+                            title="قلم التصحيح وتحديد الأخطاء"
                         >
-                            <Highlighter className={`w-3.5 h-3.5 ${isHighlighterActive ? 'animate-pulse' : ''}`} />
-                            <span>قلم التصحيح</span>
-                            {isHighlighterActive && (
-                                <span className="w-1.5 h-1.5 bg-white rounded-full animate-ping shrink-0" />
-                             )}
+                            <Highlighter className="w-3.5 h-3.5" />
                         </button>
 
-                        {/* Page Mode Switch */}
-                        <button
-                            type="button"
-                            onClick={() => {
-                                setIsPageMode(!isPageMode);
-                                localStorage.setItem('quran_page_mode', (!isPageMode).toString());
-                            }}
-                            className={`text-xs px-2.5 py-1.5 rounded-lg border flex items-center gap-1.5 transition duration-200 cursor-pointer shadow-xs font-semibold ${
-                                isPageMode 
-                                    ? 'bg-primary border-primary text-white shadow-md ring-2 ring-primary/20 ring-offset-1 dark:ring-offset-gray-900' 
-                                    : 'bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:text-primary dark:hover:text-accent'
-                            }`}
-                            title="تبديل إلى عرض الصفحات المتتالية أو عرض صفحة بصفحة"
-                        >
-                            {isPageMode ? <Book className="w-3.5 h-3.5" /> : <BookOpen className="w-3.5 h-3.5" />}
-                            <span>{isPageMode ? "العرض التلقائي" : "عرض الصفحات"}</span>
-                        </button>
-
-                        {/* Toggle Highlights Visibility */}
+                        {/* Eye Toggle (Visibility of highlights) - shown only when at least one highlight exists */}
                         {Object.keys(highlights).length > 0 && (
                             <button
                                 type="button"
@@ -745,64 +935,65 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                         }, 800);
                                     }
                                 }}
-                                className={`p-1.5 rounded-lg border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:text-primary transition cursor-pointer shadow-xs`}
-                                title={showHighlights ? "إخفاء التلوينات بالكامل" : "إظهار التلوينات"}
+                                className={`p-1.5 md:p-2 rounded-full border bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:text-amber-600 transition cursor-pointer shadow-xs`}
+                                title={showHighlights ? "إخفاء التلوينات" : "إظهار التلوينات"}
                             >
-                                {showHighlights ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4 text-red-500" />}
+                                {showHighlights ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5 text-red-500" />}
                             </button>
                         )}
-                    </div>
 
-                    {/* Offline Download block - hidden when offline is ready or toast is completed */}
-                    {(!isOfflineReady || (toast && toast.visible)) && (
-                        <div className="flex items-center">
-                            {downloadProgress !== null ? (
-                                <div className="flex items-center gap-2">
-                                    <div className="w-24 md:w-32 bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 overflow-hidden">
-                                        <div 
-                                            className="bg-primary h-full rounded-full transition-all duration-300 animate-pulse"
-                                            style={{ width: `${downloadProgress}%` }}
-                                        ></div>
-                                    </div>
-                                    <span className="text-[10px] font-bold text-primary dark:text-accent font-mono">
+                        {/* Offline Download block - small circle */}
+                        {!isOfflineReady && (
+                            <div className="flex items-center shrink-0">
+                                {downloadProgress !== null ? (
+                                    <span className="text-[10px] font-bold text-amber-600 font-mono">
                                         {downloadProgress}%
                                     </span>
-                                </div>
-                            ) : !isOfflineReady && (
-                                <button
-                                    onClick={handleDownloadOffline}
-                                    className="text-[10px] md:text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition shadow-xs cursor-pointer hover:shadow-md hover:scale-[1.01]"
-                                >
-                                    <Download className="w-3.5 h-3.5" />
-                                    <span>تحميل للعمل بدون إنترنت</span>
-                                </button>
-                            )}
-                            {downloadError && (
-                                <span className="text-[10px] text-red-500 mr-2">{downloadError}</span>
-                            )}
-                        </div>
-                    )}
+                                ) : (
+                                    <button
+                                        onClick={handleDownloadOffline}
+                                        className="p-1.5 md:p-2 rounded-full border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-emerald-600 hover:text-emerald-500 transition cursor-pointer shadow-xs"
+                                        title="تحميل للعمل بدون إنترنت"
+                                    >
+                                        <Download className="w-3.5 h-3.5" />
+                                    </button>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Elegant Divider */}
+                        <div className="w-[1px] h-4 bg-amber-600/10 dark:bg-gray-800 mx-1 shrink-0" />
+
+                        {/* Close button */}
+                        <button 
+                            onClick={onClose}
+                            className="p-1.5 md:p-2 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 rounded-full hover:bg-amber-100/50 dark:hover:bg-gray-800 transition cursor-pointer shrink-0"
+                            title="إغلاق"
+                        >
+                            <X className="w-4 h-4 md:w-5 h-5" />
+                        </button>
+                    </div>
                 </div>
 
-                {/* Highlighter Controls Drawer */}
+                {/* Highlighter Controls Drawer - Compact Single Row */}
                 <AnimatePresence>
                     {isHighlighterActive && showHighlighterControls && (
                         <motion.div
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="bg-amber-50/50 dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 overflow-hidden shrink-0"
+                            className="bg-amber-50/50 dark:bg-gray-900 border-b border-amber-600/10 dark:border-gray-800 overflow-hidden shrink-0"
                         >
-                            <div className="p-3 md:px-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                <div className="flex items-center gap-4 flex-wrap">
+                            <div className="p-2 md:px-4 flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-3">
                                     {/* Pen vs Eraser */}
-                                    <div className="flex items-center bg-gray-100 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700">
+                                    <div className="flex items-center bg-white dark:bg-gray-800 p-0.5 rounded-lg border border-gray-200 dark:border-gray-700 shrink-0">
                                         <button
                                             type="button"
                                             onClick={() => setActiveTool('pen')}
-                                            className={`px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1 cursor-pointer transition ${
+                                            className={`px-2 py-1 rounded-md text-[10px] md:text-xs font-bold flex items-center gap-1 cursor-pointer transition ${
                                                 activeTool === 'pen'
-                                                    ? 'bg-white dark:bg-gray-700 text-primary dark:text-accent shadow-xs'
+                                                    ? 'bg-amber-100 dark:bg-gray-700 text-amber-950 dark:text-amber-200 shadow-xs'
                                                     : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'
                                             }`}
                                         >
@@ -812,9 +1003,9 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                         <button
                                             type="button"
                                             onClick={() => setActiveTool('eraser')}
-                                            className={`px-3 py-1 rounded-md text-xs font-bold flex items-center gap-1 cursor-pointer transition ${
+                                            className={`px-2 py-1 rounded-md text-[10px] md:text-xs font-bold flex items-center gap-1 cursor-pointer transition ${
                                                 activeTool === 'eraser'
-                                                    ? 'bg-white dark:bg-gray-700 text-red-500 shadow-xs'
+                                                    ? 'bg-red-50 dark:bg-gray-750 text-red-600 dark:text-red-400 shadow-xs'
                                                     : 'text-gray-500 dark:text-gray-400 hover:text-red-500'
                                             }`}
                                         >
@@ -825,57 +1016,41 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
 
                                     {/* Color Picker palette */}
                                     {activeTool === 'pen' && (
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-[11px] font-bold text-gray-500 dark:text-gray-400">اللون:</span>
-                                            
+                                        <div className="flex items-center gap-1.5">
                                             {/* Red */}
                                             <button
                                                 type="button"
                                                 onClick={() => setSelectedColor(defaultRed)}
-                                                className={`w-6 h-6 rounded-full bg-red-400 dark:bg-red-500 border transition cursor-pointer flex items-center justify-center ${
-                                                    selectedColor === defaultRed ? 'ring-2 ring-primary ring-offset-1 dark:ring-offset-gray-900 scale-110 border-white' : 'border-transparent'
+                                                className={`w-5 h-5 md:w-6 md:h-6 rounded-full bg-red-400 dark:bg-red-500 border transition cursor-pointer flex items-center justify-center ${
+                                                    selectedColor === defaultRed ? 'ring-2 ring-amber-600 ring-offset-1 dark:ring-offset-gray-900 scale-105 border-white' : 'border-transparent'
                                                 }`}
                                             >
-                                                {selectedColor === defaultRed && <Check className="w-3 h-3 text-white" />}
+                                                {selectedColor === defaultRed && <Check className="w-2.5 h-2.5 text-white" />}
                                             </button>
 
                                             {/* Yellow */}
                                             <button
                                                 type="button"
                                                 onClick={() => setSelectedColor(defaultYellow)}
-                                                className={`w-6 h-6 rounded-full bg-yellow-300 dark:bg-yellow-400 border transition cursor-pointer flex items-center justify-center ${
-                                                    selectedColor === defaultYellow ? 'ring-2 ring-primary ring-offset-1 dark:ring-offset-gray-900 scale-110 border-white' : 'border-transparent'
+                                                className={`w-5 h-5 md:w-6 md:h-6 rounded-full bg-yellow-300 dark:bg-yellow-400 border transition cursor-pointer flex items-center justify-center ${
+                                                    selectedColor === defaultYellow ? 'ring-2 ring-amber-600 ring-offset-1 dark:ring-offset-gray-900 scale-105 border-white' : 'border-transparent'
                                                 }`}
                                             >
-                                                {selectedColor === defaultYellow && <Check className="w-3 h-3 text-gray-800" />}
-                                            </button>
-
-                                            {/* Black / White adaptive */}
-                                            <button
-                                                type="button"
-                                                onClick={() => setSelectedColor(adaptiveColor)}
-                                                className={`w-6 h-6 rounded-full border transition cursor-pointer flex items-center justify-center bg-gray-950 dark:bg-white ${
-                                                    selectedColor === adaptiveColor ? 'ring-2 ring-primary ring-offset-1 dark:ring-offset-gray-900 scale-110 border-white' : 'border-gray-300 dark:border-gray-600'
-                                                }`}
-                                                title={adaptiveColorName}
-                                            >
-                                                {selectedColor === adaptiveColor && (
-                                                    <Check className={`w-3 h-3 ${isDarkTheme ? 'text-gray-950' : 'text-white'}`} />
-                                                )}
+                                                {selectedColor === defaultYellow && <Check className="w-2.5 h-2.5 text-gray-800" />}
                                             </button>
 
                                             {/* Custom Saved Colors */}
-                                            {customColors.map((color, index) => (
+                                            {customColors.slice(0, 3).map((color, index) => (
                                                 <button
                                                     key={index}
                                                     type="button"
                                                     onClick={() => setSelectedColor(color)}
-                                                    className={`w-6 h-6 rounded-full border transition cursor-pointer flex items-center justify-center ${
-                                                        selectedColor === color ? 'ring-2 ring-primary ring-offset-1 dark:ring-offset-gray-900 scale-110 border-white' : 'border-gray-200'
+                                                    className={`w-5 h-5 md:w-6 md:h-6 rounded-full border transition cursor-pointer flex items-center justify-center ${
+                                                        selectedColor === color ? 'ring-2 ring-amber-600 ring-offset-1 dark:ring-offset-gray-900 scale-105 border-white' : 'border-gray-200'
                                                     }`}
                                                     style={{ backgroundColor: color }}
                                                 >
-                                                    {selectedColor === color && <Check className="w-3 h-3 text-white drop-shadow-md" />}
+                                                    {selectedColor === color && <Check className="w-2.5 h-2.5 text-white" />}
                                                 </button>
                                             ))}
 
@@ -883,10 +1058,10 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => colorInputRef.current?.click()}
-                                                className="w-6 h-6 rounded-full border-2 border-dashed border-gray-400 dark:border-gray-500 hover:border-primary text-gray-500 dark:text-gray-400 flex items-center justify-center hover:scale-105 transition cursor-pointer"
+                                                className="w-5 h-5 md:w-6 md:h-6 rounded-full border-2 border-dashed border-gray-400 dark:border-gray-500 hover:border-amber-600 text-gray-500 dark:text-gray-400 flex items-center justify-center hover:scale-105 transition cursor-pointer"
                                                 title="إضافة لون مخصص"
                                             >
-                                                <Plus className="w-3 h-3" />
+                                                <Plus className="w-2.5 h-2.5" />
                                             </button>
                                             <input 
                                                 type="color" 
@@ -896,27 +1071,25 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                             />
                                         </div>
                                     )}
-
-                                    {/* Thickness slider removed. Defaulting to thin (size 2) automatically */}
                                 </div>
 
                                 {/* Trash / Erase All with inline Confirm (Shown only when Eraser tool is active) */}
-                                <div className="flex items-center gap-2 shrink-0">
+                                <div className="flex items-center gap-1.5 shrink-0">
                                     {activeTool === 'eraser' && (
                                         showClearConfirm ? (
-                                            <div className="flex items-center gap-1.5 animate-fade-in bg-red-50 dark:bg-red-950/20 p-1 rounded-lg border border-red-200 dark:border-red-900/40">
-                                                <span className="text-[10px] font-semibold text-red-600 dark:text-red-400">متأكد من مسح الكل؟</span>
+                                            <div className="flex items-center gap-1 animate-fade-in bg-red-50 dark:bg-red-950/20 p-0.5 px-1 rounded border border-red-200 dark:border-red-900/40">
+                                                <span className="text-[9px] font-semibold text-red-600 dark:text-red-400">مسح الكل؟</span>
                                                 <button
                                                     type="button"
                                                     onClick={handleClearAllHighlights}
-                                                    className="px-2 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded text-[10px] font-bold cursor-pointer"
+                                                    className="px-1.5 py-0.5 bg-red-600 hover:bg-red-500 text-white rounded text-[9px] font-bold cursor-pointer"
                                                 >
                                                     نعم
                                                 </button>
                                                 <button
                                                     type="button"
                                                     onClick={() => setShowClearConfirm(false)}
-                                                    className="px-2 py-0.5 bg-gray-200 dark:bg-gray-850 hover:bg-gray-300 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[10px] font-bold cursor-pointer"
+                                                    className="px-1.5 py-0.5 bg-gray-200 dark:bg-gray-850 hover:bg-gray-300 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-300 rounded text-[9px] font-bold cursor-pointer"
                                                 >
                                                     تراجع
                                                 </button>
@@ -925,23 +1098,23 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => setShowClearConfirm(true)}
-                                                className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                                                className="px-2.5 py-1 bg-red-50 hover:bg-red-100 dark:bg-red-950/20 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 rounded-lg text-[10px] md:text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
                                                 title="حذف جميع علامات التلوين"
                                             >
-                                                <Trash2 className="w-3.5 h-3.5" />
-                                                <span>حذف كل العلامات</span>
+                                                <Trash2 className="w-3 h-3" />
+                                                <span>مسح الكل</span>
                                             </button>
                                         )
                                     )}
 
-                                    {/* Hide controls toolbar button */}
+                                    {/* Hide controls drawer */}
                                     <button
                                         type="button"
                                         onClick={() => setShowHighlighterControls(false)}
-                                        className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-850 rounded-lg transition cursor-pointer"
-                                        title="إخفاء شريط أدوات التلوين"
+                                        className="p-1 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 hover:bg-gray-150 dark:hover:bg-gray-850 rounded transition cursor-pointer"
+                                        title="إخفاء خيارات قلم التلوين"
                                     >
-                                        <ChevronUp className="w-4 h-4" />
+                                        <ChevronUp className="w-3.5 h-3.5" />
                                     </button>
                                 </div>
                             </div>
@@ -955,16 +1128,16 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                         <button
                             type="button"
                             onClick={() => setShowHighlighterControls(true)}
-                            className="bg-amber-100 hover:bg-amber-200 dark:bg-gray-800 dark:hover:bg-gray-750 text-amber-800 dark:text-amber-300 px-4 py-1 rounded-b-xl text-xs font-bold flex items-center gap-1 shadow-sm border-x border-b border-gray-200 dark:border-gray-700 cursor-pointer animate-bounce-subtle"
+                            className="bg-amber-100 hover:bg-amber-200 dark:bg-gray-850 dark:hover:bg-gray-800 text-amber-800 dark:text-amber-300 px-4 py-1 rounded-b-xl text-[10px] md:text-xs font-bold flex items-center gap-1 shadow-sm border-x border-b border-amber-600/10 dark:border-gray-800 cursor-pointer animate-bounce-subtle"
                         >
-                            <span>عرض خيارات قلم التلوين</span>
-                            <ChevronDown className="w-3 h-3" />
+                            <span>خيارات التلوين</span>
+                            <ChevronDown className="w-2.5 h-2.5" />
                         </button>
                     </div>
                 )}
 
-                {/* Body Content / Quran text area */}
-                <div className="flex-1 overflow-y-auto p-4 md:p-8 bg-amber-50/20 dark:bg-gray-950 transition-colors duration-300">
+                {/* Body Content / Quran text area - minimized padding on mobile */}
+                <div className="flex-1 overflow-y-auto p-1.5 md:p-4 bg-amber-50/5 dark:bg-gray-950 transition-colors duration-300 flex flex-col justify-center">
                     {loading ? (
                         <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                             <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -1034,116 +1207,120 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                                 <div 
                                     className="flex-1 leading-[2.5] tracking-wide text-right select-text"
                                     style={{ 
-                                        fontFamily: fontFamily, 
+                                        fontFamily: fontFamily === 'kfgqpc' ? 'unset' : fontFamily, 
                                         fontSize: `${fontSize}px`,
                                         direction: 'rtl',
-                                        textAlign: 'justify',
-                                        textJustify: 'inter-word'
+                                        textAlign: fontFamily === 'kfgqpc' ? 'unset' : 'justify',
+                                        textJustify: fontFamily === 'kfgqpc' ? 'unset' : 'inter-word'
                                     }}
                                 >
-                                    {(() => {
-                                        let currentSurahNumber: number | null = null;
-                                        return pagesList[activePageIndex].ayahs.map((item, idx) => {
-                                            const isNewSurah = currentSurahNumber !== item.surahNumber;
-                                            currentSurahNumber = item.surahNumber;
-                                            
-                                            const showSurahHeader = isNewSurah && item.ayah.numberInSurah === 1;
-                                            const showBasmalah = showSurahHeader && item.surahNumber !== 9;
-                                            
-                                            let text = item.ayah.text;
-                                            const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
-                                            const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
-                                            if (item.ayah.numberInSurah === 1) {
-                                                if (text.startsWith(basmalahPrefix1)) {
-                                                    text = text.slice(basmalahPrefix1.length).trim();
-                                                } else if (text.startsWith(basmalahPrefix2)) {
-                                                    text = text.slice(basmalahPrefix2.length).trim();
+                                    {fontFamily === 'kfgqpc' ? (
+                                        renderMedinaPage(pagesList[activePageIndex].pageNumber)
+                                    ) : (
+                                        (() => {
+                                            let currentSurahNumber: number | null = null;
+                                            return pagesList[activePageIndex].ayahs.map((item, idx) => {
+                                                const isNewSurah = currentSurahNumber !== item.surahNumber;
+                                                currentSurahNumber = item.surahNumber;
+                                                
+                                                const showSurahHeader = isNewSurah && item.ayah.numberInSurah === 1;
+                                                const showBasmalah = showSurahHeader && item.surahNumber !== 9;
+                                                
+                                                let text = item.ayah.text;
+                                                const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
+                                                const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+                                                if (item.ayah.numberInSurah === 1) {
+                                                    if (text.startsWith(basmalahPrefix1)) {
+                                                        text = text.slice(basmalahPrefix1.length).trim();
+                                                    } else if (text.startsWith(basmalahPrefix2)) {
+                                                        text = text.slice(basmalahPrefix2.length).trim();
+                                                    }
                                                 }
-                                            }
-                                            
-                                            const words = text.split(/\s+/);
-                                            
-                                            return (
-                                                <span key={`${item.surahNumber}_${item.ayah.numberInSurah}`} className="inline">
-                                                    {showSurahHeader && (
-                                                        <span className="block my-6 text-center select-none">
-                                                            {/* Beautiful Surah Header Banner */}
-                                                            <span className="relative py-2 flex items-center justify-center">
-                                                                <span className="absolute inset-0 flex items-center" aria-hidden="true">
-                                                                    <span className="w-full border-t border-dashed border-amber-300/80 dark:border-amber-700/40"></span>
+                                                
+                                                const words = text.split(/\s+/);
+                                                
+                                                return (
+                                                    <span key={`${item.surahNumber}_${item.ayah.numberInSurah}`} className="inline">
+                                                        {showSurahHeader && (
+                                                            <span className="block my-6 text-center select-none">
+                                                                {/* Beautiful Surah Header Banner */}
+                                                                <span className="relative py-2 flex items-center justify-center">
+                                                                    <span className="absolute inset-0 flex items-center" aria-hidden="true">
+                                                                        <span className="w-full border-t border-dashed border-amber-300/80 dark:border-amber-700/40"></span>
+                                                                    </span>
+                                                                    <span className="relative px-6 py-1 bg-amber-50/95 dark:bg-gray-900 border-2 border-amber-500/60 text-amber-900 dark:text-amber-300 font-extrabold text-xs md:text-sm rounded-full shadow-xs flex items-center gap-2">
+                                                                        <span>سورة {item.surahName}</span>
+                                                                    </span>
                                                                 </span>
-                                                                <span className="relative px-6 py-1 bg-amber-50/95 dark:bg-gray-900 border-2 border-amber-500/60 text-amber-900 dark:text-amber-300 font-extrabold text-xs md:text-sm rounded-full shadow-xs flex items-center gap-2">
-                                                                    <span>سورة {item.surahName}</span>
-                                                                </span>
-                                                            </span>
-                                                            
-                                                            {showBasmalah && (
-                                                                <span 
-                                                                    className="block text-center text-gray-900 dark:text-gray-100 py-3 leading-relaxed select-none"
-                                                                    style={{ 
-                                                                        fontFamily: fontFamily, 
-                                                                        fontSize: `${fontSize * 1.1}px`
-                                                                    }}
-                                                                >
-                                                                    بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
-                                                                </span>
-                                                            )}
-                                                        </span>
-                                                    )}
-                                                    
-                                                    <span className="inline px-0.5 rounded transition duration-200">
-                                                        {words.map((word, wIdx) => {
-                                                            const wordKey = `${item.surahNumber}_${item.ayah.numberInSurah}_${wIdx}`;
-                                                            const isHighlighted = showHighlights && highlights[wordKey];
-                                                            const highlightInfo = isHighlighted ? highlights[wordKey] : null;
-                                                            
-                                                            let wordStyle: React.CSSProperties = {};
-                                                            if (highlightInfo) {
-                                                                const { color } = highlightInfo;
-                                                                const size = isVisualAlertActive ? 3 : highlightInfo.size;
                                                                 
-                                                                if (size <= 2) {
-                                                                    wordStyle = {
-                                                                        borderBottom: `${size * 2}px solid ${color}`,
-                                                                        paddingBottom: '2px'
-                                                                    };
-                                                                } else {
-                                                                    const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
-                                                                    wordStyle = {
-                                                                        backgroundColor: color,
-                                                                        paddingTop: paddingVal,
-                                                                        paddingBottom: paddingVal,
-                                                                        paddingLeft: '4px',
-                                                                        paddingRight: '4px',
-                                                                        borderRadius: '4px'
-                                                                    };
-                                                                }
-                                                            }
-                                                            
-                                                            return (
-                                                                <span
-                                                                    key={wIdx}
-                                                                    onClick={() => handleWordClick(wordKey)}
-                                                                    className={`inline-block ml-1 transition-all duration-200 ${
-                                                                        isHighlighterActive 
-                                                                            ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 px-0.5 rounded scale-[1.01]' 
-                                                                            : ''
-                                                                    }`}
-                                                                    style={wordStyle}
-                                                                >
-                                                                    {word}
-                                                                </span>
-                                                            );
-                                                        })}
+                                                                {showBasmalah && (
+                                                                    <span 
+                                                                        className="block text-center text-gray-900 dark:text-gray-100 py-3 leading-relaxed select-none"
+                                                                        style={{ 
+                                                                            fontFamily: fontFamily, 
+                                                                            fontSize: `${fontSize * 1.1}px`
+                                                                        }}
+                                                                    >
+                                                                        بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                                                                    </span>
+                                                                )}
+                                                            </span>
+                                                        )}
                                                         
-                                                        <span className="text-primary dark:text-accent font-sans mx-1 select-none font-bold text-xs md:text-sm whitespace-nowrap inline-block align-middle">
-                                                            ﴿{item.ayah.numberInSurah}﴾
+                                                        <span className="inline px-0.5 rounded transition duration-200">
+                                                            {words.map((word, wIdx) => {
+                                                                const wordKey = `${item.surahNumber}_${item.ayah.numberInSurah}_${wIdx}`;
+                                                                const isHighlighted = showHighlights && highlights[wordKey];
+                                                                const highlightInfo = isHighlighted ? highlights[wordKey] : null;
+                                                                
+                                                                let wordStyle: React.CSSProperties = {};
+                                                                if (highlightInfo) {
+                                                                    const { color } = highlightInfo;
+                                                                    const size = isVisualAlertActive ? 3 : highlightInfo.size;
+                                                                    
+                                                                    if (size <= 2) {
+                                                                        wordStyle = {
+                                                                            borderBottom: `${size * 2}px solid ${color}`,
+                                                                            paddingBottom: '2px'
+                                                                        };
+                                                                    } else {
+                                                                        const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
+                                                                        wordStyle = {
+                                                                            backgroundColor: color,
+                                                                            paddingTop: paddingVal,
+                                                                            paddingBottom: paddingVal,
+                                                                            paddingLeft: '4px',
+                                                                            paddingRight: '4px',
+                                                                            borderRadius: '4px'
+                                                                        };
+                                                                    }
+                                                                }
+                                                                
+                                                                return (
+                                                                    <span
+                                                                        key={wIdx}
+                                                                        onClick={() => handleWordClick(wordKey)}
+                                                                        className={`inline-block ml-1 transition-all duration-200 ${
+                                                                            isHighlighterActive 
+                                                                                ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 px-0.5 rounded scale-[1.01]' 
+                                                                                : ''
+                                                                        }`}
+                                                                        style={wordStyle}
+                                                                    >
+                                                                        {word}
+                                                                    </span>
+                                                                );
+                                                            })}
+                                                            
+                                                            <span className="text-primary dark:text-accent font-sans mx-1 select-none font-bold text-xs md:text-sm whitespace-nowrap inline-block align-middle">
+                                                                ﴿{item.ayah.numberInSurah}﴾
+                                                            </span>
                                                         </span>
                                                     </span>
-                                                </span>
-                                            );
-                                        });
-                                    })()}
+                                                );
+                                            });
+                                        })()
+                                    )}
                                 </div>
 
                                 {/* Page Footer with mobile navigation */}
@@ -1176,116 +1353,150 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                     ) : (
                         /* Continuous Flow View */
                         <div className="max-w-3xl mx-auto space-y-8 select-text">
-                            {quranData.map((surah) => (
-                                <div key={surah.number} className="space-y-4">
-                                    {/* Beautiful Surah Header Banner */}
-                                    <div className="relative py-3 flex items-center justify-center">
-                                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                                            <div className="w-full border-t border-dashed border-amber-300/60 dark:border-amber-700/40"></div>
+                            {fontFamily === 'kfgqpc' ? (
+                                pagesList.map((pageData) => (
+                                    <div 
+                                        key={pageData.pageNumber}
+                                        className="relative border-4 border-amber-600/30 dark:border-amber-500/20 rounded-2xl p-6 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[580px] flex flex-col justify-between transition-colors duration-300"
+                                    >
+                                        {/* Inner Decorative border */}
+                                        <div className="absolute inset-2 border border-amber-600/10 dark:border-amber-500/10 rounded-xl pointer-events-none" />
+
+                                        {/* Page Header */}
+                                        <div className="flex justify-between items-center border-b border-amber-600/15 pb-4 mb-6 text-xs md:text-sm text-[#78350f] dark:text-amber-400 font-extrabold select-none">
+                                            <span className="bg-amber-100/80 dark:bg-amber-950/40 px-3.5 py-1 rounded-full border border-amber-600/10">
+                                                {getJuzNameArabic(pageData.juzNumbers[0] || 1)}
+                                            </span>
+                                            <span className="font-serif tracking-wide text-sm md:text-base text-amber-900 dark:text-amber-300">
+                                                سورة {pageData.surahNames.join(' و')}
+                                            </span>
                                         </div>
-                                        <div className="relative px-6 py-1.5 bg-amber-50/95 dark:bg-gray-900 border-2 border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-300 font-bold text-sm md:text-base rounded-full shadow-xs flex items-center gap-2">
-                                            <span>{surah.name}</span>
+
+                                        {/* Page Content */}
+                                        <div className="flex-1 text-right select-text">
+                                            {renderMedinaPage(pageData.pageNumber)}
+                                        </div>
+
+                                        {/* Page Footer */}
+                                        <div className="border-t border-amber-600/15 pt-4 mt-6 flex justify-center items-center text-xs md:text-sm text-[#78350f] dark:text-amber-400 font-extrabold select-none">
+                                            <span className="font-sans text-sm md:text-base bg-amber-100/90 dark:bg-amber-950/50 px-5 py-1.5 rounded-full text-[#78350f] dark:text-amber-300 font-extrabold shadow-inner border border-amber-600/10">
+                                                {pageData.pageNumber}
+                                            </span>
                                         </div>
                                     </div>
+                                ))
+                            ) : (
+                                quranData.map((surah) => (
+                                    <div key={surah.number} className="space-y-4">
+                                        {/* Beautiful Surah Header Banner */}
+                                        <div className="relative py-3 flex items-center justify-center">
+                                            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                                <div className="w-full border-t border-dashed border-amber-300/60 dark:border-amber-700/40"></div>
+                                            </div>
+                                            <div className="relative px-6 py-1.5 bg-amber-50/95 dark:bg-gray-900 border-2 border-amber-300 dark:border-amber-700/60 text-amber-800 dark:text-amber-300 font-bold text-sm md:text-base rounded-full shadow-xs flex items-center gap-2">
+                                                <span>{surah.name}</span>
+                                            </div>
+                                        </div>
 
-                                    {/* Basmalah block */}
-                                    {surah.number !== 9 && (
+                                        {/* Basmalah block */}
+                                        {surah.number !== 9 && (
+                                            <div 
+                                                className="text-center text-gray-800 dark:text-gray-100 py-3 leading-relaxed select-none"
+                                                style={{ 
+                                                    fontFamily: fontFamily, 
+                                                    fontSize: `${fontSize * 1.1}px`
+                                                }}
+                                            >
+                                                بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                                            </div>
+                                        )}
+
+                                        {/* Verses flow with absolute position independent word-level highlighting */}
                                         <div 
-                                            className="text-center text-gray-800 dark:text-gray-100 py-3 leading-relaxed select-none"
+                                            className="text-gray-800 dark:text-gray-100 leading-[2.4] tracking-wide select-text"
                                             style={{ 
                                                 fontFamily: fontFamily, 
-                                                fontSize: `${fontSize * 1.1}px`
+                                                fontSize: `${fontSize}px`,
+                                                direction: 'rtl',
+                                                textAlign: 'justify',
+                                                textJustify: 'inter-word'
                                             }}
                                         >
-                                            بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
-                                        </div>
-                                    )}
-
-                                    {/* Verses flow with absolute position independent word-level highlighting */}
-                                    <div 
-                                        className="text-gray-800 dark:text-gray-100 leading-[2.4] tracking-wide select-text"
-                                        style={{ 
-                                            fontFamily: fontFamily, 
-                                            fontSize: `${fontSize}px`,
-                                            direction: 'rtl',
-                                            textAlign: 'justify',
-                                            textJustify: 'inter-word'
-                                        }}
-                                    >
-                                        {surah.ayahs.map((ayah) => {
-                                            let text = ayah.text;
-                                            const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
-                                            const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
-                                            if (ayah.numberInSurah === 1) {
-                                                if (text.startsWith(basmalahPrefix1)) {
-                                                    text = text.slice(basmalahPrefix1.length).trim();
-                                                } else if (text.startsWith(basmalahPrefix2)) {
-                                                    text = text.slice(basmalahPrefix2.length).trim();
+                                            {surah.ayahs.map((ayah) => {
+                                                let text = ayah.text;
+                                                const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
+                                                const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+                                                if (ayah.numberInSurah === 1) {
+                                                    if (text.startsWith(basmalahPrefix1)) {
+                                                        text = text.slice(basmalahPrefix1.length).trim();
+                                                    } else if (text.startsWith(basmalahPrefix2)) {
+                                                        text = text.slice(basmalahPrefix2.length).trim();
+                                                    }
                                                 }
-                                            }
 
-                                            // Split text by space to obtain single words
-                                            const words = text.split(/\s+/);
+                                                // Split text by space to obtain single words
+                                                const words = text.split(/\s+/);
 
-                                            return (
-                                                <span key={ayah.numberInSurah} className="inline px-0.5 rounded transition duration-200">
-                                                    {words.map((word, wIdx) => {
-                                                        const wordKey = `${surah.number}_${ayah.numberInSurah}_${wIdx}`;
-                                                        const isHighlighted = showHighlights && highlights[wordKey];
-                                                        const highlightInfo = isHighlighted ? highlights[wordKey] : null;
-                                                        
-                                                        let wordStyle: React.CSSProperties = {};
-                                                        if (highlightInfo) {
-                                                            const { color } = highlightInfo;
-                                                            // Pulse highlight size to level 3 (background style) during visual alert pulse
-                                                            const size = isVisualAlertActive ? 3 : highlightInfo.size;
+                                                return (
+                                                    <span key={ayah.numberInSurah} className="inline px-0.5 rounded transition duration-200">
+                                                        {words.map((word, wIdx) => {
+                                                            const wordKey = `${surah.number}_${ayah.numberInSurah}_${wIdx}`;
+                                                            const isHighlighted = showHighlights && highlights[wordKey];
+                                                            const highlightInfo = isHighlighted ? highlights[wordKey] : null;
                                                             
-                                                            if (size <= 2) {
-                                                                // Underline mode for thin highlighting
-                                                                wordStyle = {
-                                                                    borderBottom: `${size * 2}px solid ${color}`,
-                                                                    paddingBottom: '2px'
-                                                                };
-                                                            } else {
-                                                                // Background highlight mode for medium/large markers
-                                                                const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
-                                                                wordStyle = {
-                                                                    backgroundColor: color,
-                                                                    paddingTop: paddingVal,
-                                                                    paddingBottom: paddingVal,
-                                                                    paddingLeft: '4px',
-                                                                    paddingRight: '4px',
-                                                                    borderRadius: '4px'
-                                                                };
+                                                            let wordStyle: React.CSSProperties = {};
+                                                            if (highlightInfo) {
+                                                                const { color } = highlightInfo;
+                                                                // Pulse highlight size to level 3 (background style) during visual alert pulse
+                                                                const size = isVisualAlertActive ? 3 : highlightInfo.size;
+                                                                
+                                                                if (size <= 2) {
+                                                                    // Underline mode for thin highlighting
+                                                                    wordStyle = {
+                                                                        borderBottom: `${size * 2}px solid ${color}`,
+                                                                        paddingBottom: '2px'
+                                                                    };
+                                                                } else {
+                                                                    // Background highlight mode for medium/large markers
+                                                                    const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
+                                                                    wordStyle = {
+                                                                        backgroundColor: color,
+                                                                        paddingTop: paddingVal,
+                                                                        paddingBottom: paddingVal,
+                                                                        paddingLeft: '4px',
+                                                                        paddingRight: '4px',
+                                                                        borderRadius: '4px'
+                                                                    };
+                                                                }
                                                             }
-                                                        }
 
-                                                        return (
-                                                            <span
-                                                                key={wIdx}
-                                                                onClick={() => handleWordClick(wordKey)}
-                                                                className={`inline-block ml-1 transition-all duration-200 ${
-                                                                    isHighlighterActive 
-                                                                        ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 px-0.5 rounded scale-[1.01]' 
-                                                                        : ''
-                                                                }`}
-                                                                style={wordStyle}
-                                                            >
-                                                                {word}
-                                                            </span>
-                                                        );
-                                                    })}
-                                                    
-                                                    {/* Ayah End Symbol */}
-                                                    <span className="text-primary dark:text-accent font-sans mx-1.5 select-none font-bold text-sm whitespace-nowrap inline-block align-middle">
-                                                        ﴿{ayah.numberInSurah}﴾
+                                                            return (
+                                                                <span
+                                                                    key={wIdx}
+                                                                    onClick={() => handleWordClick(wordKey)}
+                                                                    className={`inline-block ml-1 transition-all duration-200 ${
+                                                                        isHighlighterActive 
+                                                                            ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 px-0.5 rounded scale-[1.01]' 
+                                                                            : ''
+                                                                    }`}
+                                                                    style={wordStyle}
+                                                                >
+                                                                    {word}
+                                                                </span>
+                                                            );
+                                                        })}
+                                                        
+                                                        {/* Ayah End Symbol */}
+                                                        <span className="text-primary dark:text-accent font-sans mx-1.5 select-none font-bold text-sm whitespace-nowrap inline-block align-middle">
+                                                            ﴿{ayah.numberInSurah}﴾
+                                                        </span>
                                                     </span>
-                                                </span>
-                                            );
-                                        })}
+                                                );
+                                            })}
+                                        </div>
                                     </div>
-                                </div>
-                            ))}
+                                ))
+                            )}
                         </div>
                     )}
                 </div>
