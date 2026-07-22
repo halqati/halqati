@@ -148,6 +148,17 @@
         "date": { "type": "string" },
         "students": { "type": "array" }
       }
+    },
+    "StudentGroup": {
+      "title": "Student Group",
+      "description": "A group of students inside a Quran circle.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "studentIds": { "type": "array" }
+      },
+      "required": ["id", "name", "studentIds"]
     }
   },
   "firestore": {
@@ -210,6 +221,10 @@
     "/circles/{circleId}/supervisorReports/{reportId}": {
       "schema": "SupervisorReport",
       "description": "Generated reports for supervisors"
+    },
+    "/circles/{circleId}/studentGroups/{groupId}": {
+      "schema": "StudentGroup",
+      "description": "Student groups"
     }
   }
 }

@@ -2,14 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaUsers, FaPlus, FaTrash, FaEdit, FaCheck, FaTimes, FaCog, FaCheckCircle, FaRegCircle } from 'react-icons/fa';
-import { Student } from '../types';
+import { Student, StudentGroup } from '../types';
 import StudentAvatar from './StudentAvatar';
-
-interface StudentGroup {
-    id: string;
-    name: string;
-    studentIds: number[];
-}
 
 interface StudentGroupSelectorProps {
     students: Student[];
@@ -34,17 +28,39 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
     const [autoSelectEnabled, setAutoSelectEnabled] = useState(false);
     const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
-    // Load groups and preferences from localStorage
-    useEffect(() => {
-        const storedGroups = localStorage.getItem(`studentgroups_groups_${circleId}`);
-        if (storedGroups) {
-            try {
-                setGroups(JSON.parse(storedGroups));
-            } catch (e) {
-                console.error("Failed to parse student groups", e);
+    // Load groups and preferences
+    const loadGroups = () => {
+        if (window.getCloudStudentGroups) {
+            setGroups(window.getCloudStudentGroups(String(circleId)));
+        } else {
+            const storedGroups = localStorage.getItem(`studentgroups_groups_${circleId}`);
+            if (storedGroups) {
+                try {
+                    setGroups(JSON.parse(storedGroups));
+                } catch (e) {
+                    console.error("Failed to parse student groups", e);
+                }
             }
         }
+    };
 
+    useEffect(() => {
+        loadGroups();
+
+        const handleUpdate = (e: Event) => {
+            const customEvent = e as CustomEvent;
+            if (customEvent.detail?.circleId === String(circleId)) {
+                loadGroups();
+            }
+        };
+
+        window.addEventListener('studentgroups_updated', handleUpdate);
+        return () => {
+            window.removeEventListener('studentgroups_updated', handleUpdate);
+        };
+    }, [circleId]);
+
+    useEffect(() => {
         const storedAutoSelect = localStorage.getItem(`studentgroups_autoselect_enabled_${circleId}_${contextKey}`);
         if (storedAutoSelect === 'true') {
             setAutoSelectEnabled(true);
@@ -52,13 +68,20 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
             if (storedActiveGroupId) {
                 setActiveGroupId(storedActiveGroupId);
             }
+        } else {
+            setAutoSelectEnabled(false);
+            setActiveGroupId(null);
         }
     }, [circleId, contextKey]);
 
-    // Save groups to localStorage whenever they change
+    // Save groups to cloud/state whenever they change
     const saveGroups = (updatedGroups: StudentGroup[]) => {
         setGroups(updatedGroups);
-        localStorage.setItem(`studentgroups_groups_${circleId}`, JSON.stringify(updatedGroups));
+        if (window.saveCloudStudentGroups) {
+            window.saveCloudStudentGroups(String(circleId), updatedGroups);
+        } else {
+            localStorage.setItem(`studentgroups_groups_${circleId}`, JSON.stringify(updatedGroups));
+        }
     };
 
     // Save auto-select preferences

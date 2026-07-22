@@ -484,6 +484,7 @@ export interface CircleData {
     hasShownDuaaNotification?: boolean;
     studentReports?: StudentReport[];
     supervisorReports?: SupervisorReport[];
+    studentGroups?: StudentGroup[];
     supervisorSettings?: SupervisorReportSettings; // New: Settings for supervisor reports
     tests?: Test[];
     plans?: Plan[];
@@ -624,9 +625,24 @@ export interface ShareModalData {
 export interface SyncJob {
     id: string;
     circleId: string;
-    collection: 'circles' | 'students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports';
+    collection: 'circles' | 'students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups';
     itemId: string | number;
     action: 'set' | 'delete';
     data: any; // null for delete
     timestamp: number;
+}
+
+export interface StudentGroup {
+    id: string;
+    name: string;
+    studentIds: number[];
+    lastUpdated?: number;
+    syncStatus?: 'pending' | 'synced';
+}
+
+declare global {
+    interface Window {
+        getCloudStudentGroups?: (circleId: string) => StudentGroup[];
+        saveCloudStudentGroups?: (circleId: string, groups: StudentGroup[]) => void;
+    }
 }

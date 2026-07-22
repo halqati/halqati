@@ -27,5 +27,18 @@
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "noEmit": true
-  }
+  },
+  "include": [
+    "*.ts",
+    "*.tsx",
+    "src/**/*",
+    "components/**/*",
+    "utils/**/*",
+    "hooks/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.json"
+  ]
 }

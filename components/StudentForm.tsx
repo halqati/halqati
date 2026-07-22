@@ -132,8 +132,8 @@ const StudentForm: React.FC<StudentFormProps> = ({ student, onSave, onClose, onT
         if (!student || !onArchiveStudent) return;
         setConfirmationModal({
             isOpen: true,
-            title: 'إخفاء الطالب (أرشفة)',
-            message: 'هل تريد إخفاء هذا الطالب مؤقتًا من الحلقة؟ يمكن استرجاعه لاحقًا بكامل بياناته من قسم الإعدادات.',
+            title: 'أرشفة الطالب',
+            message: 'هل أنت متأكد من أرشفة هذا الطالب؟ سيتم إزالة الطالب من قائمة الطلاب النشطين، ولن يتم حذفه نهائيًا، بل سيتم نقله إلى قسم الأرشيف مع الاحتفاظ بجميع بياناته، ويمكن استعادته في أي وقت دون فقدان أي معلومات.',
             onConfirm: () => {
                 onArchiveStudent(student.id);
                 setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} });

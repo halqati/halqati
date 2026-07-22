@@ -189,37 +189,7 @@ const OptionalAddonsModal: React.FC<OptionalAddonsModalProps> = ({ settings, onS
                             فتح إعدادات الإشعارات
                         </button>
                     </div>
-                </Section>
-
-                {archivedStudents.length > 0 && (
-                    <Section title={`الطلاب المؤرشفون (${archivedStudents.length})`} icon={FaArchive} disabled={!hasCircleSettingsPermission}>
-                        <div className="bg-yellow-50 dark:bg-yellow-900/30 p-3 rounded-lg text-xs text-yellow-800 dark:text-yellow-200 mb-3 border border-yellow-200 dark:border-yellow-800/50">
-                            هذا القسم لمتابعة الطلاب الذين تم إخفاؤهم مؤقتًا من الحلقات (مثل طلاب السفر أو المنقطعين مؤقتاً). يمكن استرجاع الطالب في أي وقت بكامل بياناته.
-                        </div>
-                        <div className="space-y-2 max-h-48 overflow-y-auto">
-                            {archivedStudents.map(student => (
-                                <div key={student.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
-                                    <div className="flex items-center gap-2">
-                                        <StudentAvatar {...student} className="w-8 h-8 rounded-full object-cover" />
-                                        <span className="font-semibold text-sm">{student.name}</span>
-                                    </div>
-                                    <button 
-                                        onClick={() => {
-                                            if (!hasCircleSettingsPermission) {
-                                                addToast?.('عذراً، لا تمتلك الصلاحية الكافية لتعديل إعدادات الحلقة.', 'error');
-                                            } else {
-                                                onRestoreStudent && onRestoreStudent(student.id);
-                                            }
-                                        }}
-                                        className="text-xs bg-green-500 text-white px-3 py-1.5 rounded-md flex items-center gap-1 hover:bg-green-600 transition-colors cursor-pointer"
-                                    >
-                                        <FaUndo size={10} /> استعادة
-                                    </button>
-                                </div>
-                            ))}
-                        </div>
-                    </Section>
-                )}
+                </Section>                
             </div>
         </motion.div>
     );
