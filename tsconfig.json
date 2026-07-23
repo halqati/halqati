@@ -29,16 +29,18 @@
     "noEmit": true
   },
   "include": [
-    "*.ts",
-    "*.tsx",
     "src/**/*",
-    "components/**/*",
     "utils/**/*",
-    "hooks/**/*"
+    "pages/**/*",
+    "components/**/*",
+    "hooks/**/*",
+    "*.ts",
+    "*.tsx"
   ],
   "exclude": [
     "node_modules",
     "dist",
+    "public",
     "**/*.json"
   ]
 }

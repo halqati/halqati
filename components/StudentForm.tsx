@@ -53,10 +53,19 @@ const StudentForm: React.FC<StudentFormProps> = ({ student, onSave, onClose, onT
                 khatimRecitesReview: student.khatimRecitesReview ?? true,
             });
         } else {
-            // Reset for new student
+            // Reset for new student using last saved gender choice
+            let initialGender: 'male' | 'female' = 'male';
+            try {
+                const savedGender = localStorage.getItem('last_student_gender');
+                if (savedGender === 'female' || savedGender === 'male') {
+                    initialGender = savedGender;
+                }
+            } catch (e) {
+                // Ignore localStorage errors
+            }
             setFormData({
                 name: '',
-                gender: 'male',
+                gender: initialGender,
                 photo: undefined,
                 parentPhone: '',
                 notes: '',
@@ -109,6 +118,14 @@ const StudentForm: React.FC<StudentFormProps> = ({ student, onSave, onClose, onT
             return;
         }
         setError('');
+
+        // Save last selected gender locally
+        try {
+            localStorage.setItem('last_student_gender', formData.gender);
+        } catch (e) {
+            // Ignore localStorage errors
+        }
+
         onSave({
             id: student?.id ?? 0,
             order: student?.order ?? 0,

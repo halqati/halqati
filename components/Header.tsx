@@ -237,19 +237,24 @@ const Header: React.FC<HeaderProps> = ({ data, allCircles, user, currentUserId, 
 
                     {/* Profile Section */}
                     {user ? (
-                        <div className="flex items-center gap-2 mr-1">
+                        <button 
+                            type="button"
+                            onClick={onNavigateToAccountSettings}
+                            className="flex items-center gap-2 mr-1 p-1 rounded-full hover:bg-white/10 active:scale-95 transition-all text-right cursor-pointer group"
+                            title="إعدادات الحساب"
+                        >
                             <div className="text-left hidden md:block">
                                 <p className="text-[9px] opacity-70 leading-none">مرحباً</p>
                                 <p className="text-[10px] font-black truncate max-w-[60px] tracking-tight">{user.displayName?.split(' ')[0]}</p>
                             </div>
                             {user.photoURL ? (
-                                <img src={user.photoURL} alt="user" className="w-8 h-8 rounded-full border border-white/20 shadow-sm object-cover" />
+                                <img src={user.photoURL} alt="user" className="w-8 h-8 rounded-full border border-white/20 shadow-sm object-cover group-hover:scale-105 transition-transform" />
                             ) : (
-                                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center border border-white/10 shadow-sm">
+                                <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center border border-white/10 shadow-sm group-hover:scale-105 transition-transform">
                                     <FaUserCircle size={18} className="text-white/70" />
                                 </div>
                             )}
-                        </div>
+                        </button>
                     ) : (
                         <button 
                             onClick={onLogin}

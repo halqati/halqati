@@ -484,7 +484,6 @@ export interface CircleData {
     hasShownDuaaNotification?: boolean;
     studentReports?: StudentReport[];
     supervisorReports?: SupervisorReport[];
-    studentGroups?: StudentGroup[];
     supervisorSettings?: SupervisorReportSettings; // New: Settings for supervisor reports
     tests?: Test[];
     plans?: Plan[];
@@ -625,24 +624,41 @@ export interface ShareModalData {
 export interface SyncJob {
     id: string;
     circleId: string;
-    collection: 'circles' | 'students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups';
+    collection: 'circles' | 'students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports';
     itemId: string | number;
     action: 'set' | 'delete';
     data: any; // null for delete
     timestamp: number;
 }
 
-export interface StudentGroup {
+export type FeedbackType = 'general' | 'suggestion' | 'feature' | 'bug' | 'inquiry' | 'other';
+export type FeedbackStatus = 'new' | 'in_review' | 'replied' | 'closed';
+
+export interface FeedbackMessage {
     id: string;
-    name: string;
-    studentIds: number[];
-    lastUpdated?: number;
-    syncStatus?: 'pending' | 'synced';
+    sender: 'teacher' | 'developer';
+    senderName?: string;
+    text: string;
+    createdAt: number;
 }
 
-declare global {
-    interface Window {
-        getCloudStudentGroups?: (circleId: string) => StudentGroup[];
-        saveCloudStudentGroups?: (circleId: string, groups: StudentGroup[]) => void;
-    }
+export interface TeacherFeedbackItem {
+    id: string;
+    userId: string;
+    userName: string;
+    userEmail?: string;
+    centerName?: string;
+    circleName?: string;
+    circlesCount?: number;
+    type: FeedbackType;
+    subject?: string;
+    status: FeedbackStatus;
+    createdAt: number;
+    updatedAt: number;
+    messages: FeedbackMessage[];
+    developerNotes?: string;
+    starred?: boolean;
+    archived?: boolean;
+    teacherUnread?: boolean;
+    devUnread?: boolean;
 }

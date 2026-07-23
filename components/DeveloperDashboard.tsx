@@ -54,7 +54,7 @@ import {
     CheckCircle2
 } from 'lucide-react';
 import { auth, signInWithEmailAndPassword, updatePassword, deleteUser, db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion, deleteField } from '../firebase';
-import { Management, AuditLog, UserProfile, CircleData, Student, SystemSettings, AppUpdateNotification } from '../types';
+import { Management, AuditLog, UserProfile, CircleData, Student, SystemSettings, AppUpdateNotification, TeacherFeedbackItem, FeedbackType, FeedbackStatus, FeedbackMessage } from '../types';
 
 interface DeveloperDashboardProps {
     userProfile: UserProfile;
@@ -62,7 +62,7 @@ interface DeveloperDashboardProps {
     onLogout: () => void;
 }
 
-type TabType = 'overview' | 'users' | 'circles' | 'managements' | 'logs' | 'stats' | 'settings' | 'notifications';
+type TabType = 'overview' | 'feedbacks' | 'users' | 'circles' | 'managements' | 'logs' | 'stats' | 'settings' | 'notifications';
 
 const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, addToast, onLogout }) => {
     const [managements, setManagements] = useState<Management[]>([]);
@@ -84,6 +84,162 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
     const [userCircles, setUserCircles] = useState<CircleData[]>([]);
     const [userCommands, setUserCommands] = useState<any[]>([]);
+
+    // Teacher Feedbacks state
+    const [feedbacks, setFeedbacks] = useState<TeacherFeedbackItem[]>([]);
+    const [selectedDevFeedback, setSelectedDevFeedback] = useState<TeacherFeedbackItem | null>(null);
+    const [devFeedbackReplyText, setDevFeedbackReplyText] = useState('');
+    const [devInternalNote, setDevInternalNote] = useState('');
+    const [devTypeFilter, setDevTypeFilter] = useState<string>('all');
+    const [devStatusFilter, setDevStatusFilter] = useState<string>('all');
+    const [devSpecialFilter, setDevSpecialFilter] = useState<'all' | 'unread' | 'starred' | 'archived'>('all');
+    const [devFeedbackSearch, setDevFeedbackSearch] = useState('');
+    const [isReplyingAsDev, setIsReplyingAsDev] = useState(false);
+
+    // Fetch all teacher feedbacks for developer
+    useEffect(() => {
+        if (!db) return;
+        try {
+            const q = query(collection(db, 'teacher_feedbacks'));
+            const unsub = onSnapshot(q, (snapshot) => {
+                const items: TeacherFeedbackItem[] = [];
+                snapshot.forEach((docSnap) => {
+                    items.push({ id: docSnap.id, ...docSnap.data() } as TeacherFeedbackItem);
+                });
+                items.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+                setFeedbacks(items);
+
+                if (selectedDevFeedback) {
+                    const updated = items.find(f => f.id === selectedDevFeedback.id);
+                    if (updated) setSelectedDevFeedback(updated);
+                }
+            }, (err) => {
+                console.warn("Error subscribing to teacher feedbacks:", err);
+            });
+            return () => unsub();
+        } catch (e) {
+            console.warn("Error setting up teacher feedbacks listener:", e);
+        }
+    }, [selectedDevFeedback?.id]);
+
+    const unreadFeedbacksCount = useMemo(() => feedbacks.filter(f => f.devUnread).length, [feedbacks]);
+
+    const filteredFeedbacks = useMemo(() => {
+        return feedbacks.filter((item) => {
+            if (devSpecialFilter === 'unread' && !item.devUnread) return false;
+            if (devSpecialFilter === 'starred' && !item.starred) return false;
+            if (devSpecialFilter === 'archived' && !item.archived) return false;
+            if (devSpecialFilter === 'all' && item.archived) return false;
+
+            if (devTypeFilter !== 'all' && item.type !== devTypeFilter) return false;
+            if (devStatusFilter !== 'all' && item.status !== devStatusFilter) return false;
+
+            if (devFeedbackSearch.trim()) {
+                const queryLower = devFeedbackSearch.toLowerCase();
+                const matchName = item.userName?.toLowerCase().includes(queryLower);
+                const matchEmail = item.userEmail?.toLowerCase().includes(queryLower);
+                const matchCenter = item.centerName?.toLowerCase().includes(queryLower);
+                const matchCircle = item.circleName?.toLowerCase().includes(queryLower);
+                const matchSubject = item.subject?.toLowerCase().includes(queryLower);
+                const matchMsgs = item.messages?.some(m => m.text.toLowerCase().includes(queryLower));
+                if (!matchName && !matchEmail && !matchCenter && !matchCircle && !matchSubject && !matchMsgs) {
+                    return false;
+                }
+            }
+            return true;
+        });
+    }, [feedbacks, devSpecialFilter, devTypeFilter, devStatusFilter, devFeedbackSearch]);
+
+    const handleSelectFeedback = async (item: TeacherFeedbackItem) => {
+        setSelectedDevFeedback(item);
+        setDevInternalNote(item.developerNotes || '');
+        if (item.devUnread && db) {
+            try {
+                const docRef = doc(db, 'teacher_feedbacks', item.id);
+                await updateDoc(docRef, { devUnread: false });
+            } catch (e) {
+                console.warn("Failed to mark feedback read for dev:", e);
+            }
+        }
+    };
+
+    const handleDevSendReply = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!selectedDevFeedback || !devFeedbackReplyText.trim() || !db) return;
+        setIsReplyingAsDev(true);
+        try {
+            const newMsg: FeedbackMessage = {
+                id: 'msg_' + Date.now(),
+                sender: 'developer',
+                senderName: 'فريق التطوير',
+                text: devFeedbackReplyText.trim(),
+                createdAt: Date.now()
+            };
+            const docRef = doc(db, 'teacher_feedbacks', selectedDevFeedback.id);
+            await updateDoc(docRef, {
+                messages: arrayUnion(newMsg),
+                status: 'replied',
+                teacherUnread: true,
+                devUnread: false,
+                updatedAt: Date.now()
+            });
+            setDevFeedbackReplyText('');
+            addToast("تم إرسال الرد بنجاح إلى المعلم", "success");
+        } catch (error) {
+            console.error("Error sending developer reply:", error);
+            addToast("حدث خطأ أثناء إرسال الرد", "error");
+        } finally {
+            setIsReplyingAsDev(false);
+        }
+    };
+
+    const handleUpdateFeedbackStatus = async (status: FeedbackStatus) => {
+        if (!selectedDevFeedback || !db) return;
+        try {
+            const docRef = doc(db, 'teacher_feedbacks', selectedDevFeedback.id);
+            await updateDoc(docRef, { status, updatedAt: Date.now() });
+            addToast(`تم تغيير الحالة إلى "${status}"`, "info");
+        } catch (error) {
+            console.error("Error updating feedback status:", error);
+            addToast("فشل تحديث الحالة", "error");
+        }
+    };
+
+    const handleToggleFeedbackStar = async () => {
+        if (!selectedDevFeedback || !db) return;
+        try {
+            const newStarred = !selectedDevFeedback.starred;
+            const docRef = doc(db, 'teacher_feedbacks', selectedDevFeedback.id);
+            await updateDoc(docRef, { starred: newStarred });
+            addToast(newStarred ? "تم تمييز الرسالة بنجمة" : "تم إزالة النجمة", "info");
+        } catch (error) {
+            console.error("Error toggling star:", error);
+        }
+    };
+
+    const handleToggleFeedbackArchive = async () => {
+        if (!selectedDevFeedback || !db) return;
+        try {
+            const newArchived = !selectedDevFeedback.archived;
+            const docRef = doc(db, 'teacher_feedbacks', selectedDevFeedback.id);
+            await updateDoc(docRef, { archived: newArchived });
+            addToast(newArchived ? "تم أرشفة الرسالة" : "تم إلغاء الأرشفة", "info");
+        } catch (error) {
+            console.error("Error toggling archive:", error);
+        }
+    };
+
+    const handleSaveDevInternalNote = async () => {
+        if (!selectedDevFeedback || !db) return;
+        try {
+            const docRef = doc(db, 'teacher_feedbacks', selectedDevFeedback.id);
+            await updateDoc(docRef, { developerNotes: devInternalNote.trim() });
+            addToast("تم حفظ الملاحظة الداخلية", "success");
+        } catch (error) {
+            console.error("Error saving note:", error);
+            addToast("فشل حفظ الملاحظة", "error");
+        }
+    };
 
     useEffect(() => {
         if (!selectedUser || !db) {
@@ -977,6 +1133,7 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                     <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none custom-scrollbar scroll-smooth">
                         {[
                             { id: 'overview', label: 'الرئيسية', icon: LayoutGrid },
+                            { id: 'feedbacks', label: `اقتراحات المعلمين${unreadFeedbacksCount > 0 ? ` (${unreadFeedbacksCount})` : ''}`, icon: MessageSquare, hasBadge: unreadFeedbacksCount > 0 },
                             { id: 'users', label: 'المستخدمين', icon: UserCheck },
                             { id: 'circles', label: 'الحلقات', icon: Box },
                             { id: 'notifications', label: 'التنبيهات', icon: Megaphone },
@@ -991,9 +1148,11 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                     setActiveTab(tab.id as TabType);
                                     setSelectedUser(null);
                                 }}
-                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all whitespace-nowrap border ${
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all whitespace-nowrap border relative ${
                                     activeTab === tab.id 
                                     ? 'bg-[#105541] border-[#105541] text-white shadow-[0_0_10px_rgba(16,85,65,0.4)]' 
+                                    : tab.hasBadge 
+                                    ? 'bg-[#0a0f0d] border-amber-500/40 text-amber-300 font-black' 
                                     : 'bg-[#0a0f0d] border-[#105541]/10 text-gray-500 hover:text-gray-300'
                                 }`}
                             >
@@ -2521,7 +2680,372 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                 </div>
                             )}
 
-                            {/* Fullscreen Creation & Edit Modal with Real-time Dual Columns Preview */}
+                            {activeTab === 'feedbacks' && (
+                                <div className="space-y-6" dir="rtl">
+                                    {/* Top Summary Banner */}
+                                    <div className="bg-gradient-to-l from-[#105541]/20 to-transparent p-5 rounded-3xl border border-[#105541]/20 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                        <div>
+                                            <h3 className="text-sm font-black text-white flex items-center gap-2">
+                                                <MessageSquare className="text-amber-400" size={18} />
+                                                <span>مركز اقتراحات وملاحظات المعلمين</span>
+                                                {unreadFeedbacksCount > 0 && (
+                                                    <span className="bg-amber-500 text-black text-[9px] font-black px-2 py-0.5 rounded-full animate-pulse">
+                                                        {unreadFeedbacksCount} جديد
+                                                    </span>
+                                                )}
+                                            </h3>
+                                            <p className="text-[10px] text-gray-400 mt-1">
+                                                متابعة رسائل واقتراحات وبلاغات المعلمين، الرد المباشر عليها، وإدارة حالتها بمرونة.
+                                            </p>
+                                        </div>
+                                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full md:w-auto">
+                                            <div className="bg-[#050807] border border-white/5 p-2.5 rounded-xl text-center">
+                                                <span className="text-[9px] text-gray-500 block">الإجمالي</span>
+                                                <span className="text-sm font-black text-white">{feedbacks.length}</span>
+                                            </div>
+                                            <div className="bg-[#050807] border border-white/5 p-2.5 rounded-xl text-center">
+                                                <span className="text-[9px] text-amber-400 block">غير مقروء</span>
+                                                <span className="text-sm font-black text-amber-400">{unreadFeedbacksCount}</span>
+                                            </div>
+                                            <div className="bg-[#050807] border border-white/5 p-2.5 rounded-xl text-center">
+                                                <span className="text-[9px] text-blue-400 block">قيد المراجعة</span>
+                                                <span className="text-sm font-black text-blue-400">{feedbacks.filter(f => f.status === 'in_review').length}</span>
+                                            </div>
+                                            <div className="bg-[#050807] border border-white/5 p-2.5 rounded-xl text-center">
+                                                <span className="text-[9px] text-emerald-400 block">تم الرد</span>
+                                                <span className="text-sm font-black text-emerald-400">{feedbacks.filter(f => f.status === 'replied').length}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Filter & Search Toolbar */}
+                                    <div className="bg-[#0c1310] border border-white/5 p-4 rounded-3xl space-y-3">
+                                        <div className="flex flex-col md:flex-row gap-3">
+                                            <div className="relative flex-1">
+                                                <Search className="absolute right-3 top-2.5 text-gray-500" size={14} />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder="بحث باسم المعلم، البريد، اسم المركز، اسم الحلقة، أو نص الرسالة..." 
+                                                    value={devFeedbackSearch} 
+                                                    onChange={(e) => setDevFeedbackSearch(e.target.value)} 
+                                                    className="w-full bg-[#050807] border border-white/10 rounded-xl pr-9 pl-3 py-2 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500"
+                                                />
+                                                {devFeedbackSearch && (
+                                                    <button onClick={() => setDevFeedbackSearch('')} className="absolute left-3 top-2.5 text-gray-500 hover:text-white text-xs">×</button>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+                                                <button 
+                                                    onClick={() => setDevSpecialFilter('all')} 
+                                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border transition-all whitespace-nowrap ${devSpecialFilter === 'all' ? 'bg-emerald-600 border-emerald-500 text-white' : 'bg-[#050807] border-white/5 text-gray-400'}`}
+                                                >
+                                                    الكل ({feedbacks.filter(f => !f.archived).length})
+                                                </button>
+                                                <button 
+                                                    onClick={() => setDevSpecialFilter('unread')} 
+                                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border transition-all whitespace-nowrap ${devSpecialFilter === 'unread' ? 'bg-amber-600 border-amber-500 text-white' : 'bg-[#050807] border-white/5 text-gray-400'}`}
+                                                >
+                                                    غير مقروء ({unreadFeedbacksCount})
+                                                </button>
+                                                <button 
+                                                    onClick={() => setDevSpecialFilter('starred')} 
+                                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border transition-all whitespace-nowrap ${devSpecialFilter === 'starred' ? 'bg-amber-500/20 border-amber-500/40 text-amber-300' : 'bg-[#050807] border-white/5 text-gray-400'}`}
+                                                >
+                                                    المميزة ({feedbacks.filter(f => f.starred).length})
+                                                </button>
+                                                <button 
+                                                    onClick={() => setDevSpecialFilter('archived')} 
+                                                    className={`px-3 py-1.5 rounded-xl text-[10px] font-bold border transition-all whitespace-nowrap ${devSpecialFilter === 'archived' ? 'bg-gray-700 border-gray-600 text-white' : 'bg-[#050807] border-white/5 text-gray-400'}`}
+                                                >
+                                                    المؤرشفة ({feedbacks.filter(f => f.archived).length})
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-white/5 text-[10px]">
+                                            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+                                                <span className="text-gray-500">نوع الرسالة:</span>
+                                                {[
+                                                    { id: 'all', label: 'الكل' },
+                                                    { id: 'general', label: 'عام' },
+                                                    { id: 'suggestion', label: 'اقتراح' },
+                                                    { id: 'feature', label: 'إضافة جديدة' },
+                                                    { id: 'bug', label: 'مشكلة أو خطأ' },
+                                                    { id: 'inquiry', label: 'استفسار' },
+                                                    { id: 'other', label: 'أخرى' }
+                                                ].map(t => (
+                                                    <button 
+                                                        key={t.id} 
+                                                        onClick={() => setDevTypeFilter(t.id)} 
+                                                        className={`px-2 py-0.5 rounded-md ${devTypeFilter === t.id ? 'bg-white/20 text-white font-bold' : 'text-gray-500 hover:text-gray-300'}`}
+                                                    >
+                                                        {t.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-gray-500">الحالة:</span>
+                                                {[
+                                                    { id: 'all', label: 'الكل' },
+                                                    { id: 'new', label: 'جديدة' },
+                                                    { id: 'in_review', label: 'قيد المراجعة' },
+                                                    { id: 'replied', label: 'تم الرد' },
+                                                    { id: 'closed', label: 'مغلقة' }
+                                                ].map(s => (
+                                                    <button 
+                                                        key={s.id} 
+                                                        onClick={() => setDevStatusFilter(s.id)} 
+                                                        className={`px-2 py-0.5 rounded-md ${devStatusFilter === s.id ? 'bg-white/20 text-white font-bold' : 'text-gray-500 hover:text-gray-300'}`}
+                                                    >
+                                                        {s.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Main Content Area: Split View */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                                        {/* Left Column: Feedbacks List */}
+                                        <div className={`lg:col-span-5 space-y-3 ${selectedDevFeedback ? 'hidden lg:block' : 'block'}`}>
+                                            <div className="flex justify-between items-center text-xs text-gray-400 font-bold px-1">
+                                                <span>قائمة الرسائل ({filteredFeedbacks.length})</span>
+                                                {filteredFeedbacks.length === 0 && <span className="text-[10px] text-gray-600">لا توجد نتائج matching</span>}
+                                            </div>
+
+                                            <div className="space-y-2.5 max-h-[70vh] overflow-y-auto custom-scrollbar pr-1">
+                                                {filteredFeedbacks.length === 0 ? (
+                                                    <div className="bg-[#050807] border border-white/5 p-8 rounded-2xl text-center text-gray-500 space-y-2">
+                                                        <MessageSquare size={28} className="mx-auto text-gray-600 opacity-50" />
+                                                        <p className="text-xs font-bold">لا توجد رسائل مطابقة لخيارات التصفية الحالية.</p>
+                                                    </div>
+                                                ) : (
+                                                    filteredFeedbacks.map((item) => {
+                                                        const isSelected = selectedDevFeedback?.id === item.id;
+                                                        const lastMsg = item.messages?.[item.messages.length - 1];
+                                                        
+                                                        let typeBadge = { label: 'عام', bg: 'bg-gray-800 text-gray-300' };
+                                                        if (item.type === 'suggestion') typeBadge = { label: 'اقتراح', bg: 'bg-amber-950/60 text-amber-300 border-amber-800/50' };
+                                                        if (item.type === 'feature') typeBadge = { label: 'إضافة جديدة', bg: 'bg-purple-950/60 text-purple-300 border-purple-800/50' };
+                                                        if (item.type === 'bug') typeBadge = { label: 'مشكلة أو خطأ', bg: 'bg-rose-950/60 text-rose-300 border-rose-800/50' };
+                                                        if (item.type === 'inquiry') typeBadge = { label: 'استفسار', bg: 'bg-blue-950/60 text-blue-300 border-blue-800/50' };
+
+                                                        let statusBadge = { label: 'جديدة', bg: 'bg-amber-500/20 text-amber-400' };
+                                                        if (item.status === 'in_review') statusBadge = { label: 'قيد المراجعة', bg: 'bg-blue-500/20 text-blue-400' };
+                                                        if (item.status === 'replied') statusBadge = { label: 'تم الرد', bg: 'bg-emerald-500/20 text-emerald-400' };
+                                                        if (item.status === 'closed') statusBadge = { label: 'مغلقة', bg: 'bg-gray-800 text-gray-400' };
+
+                                                        return (
+                                                            <div 
+                                                                key={item.id} 
+                                                                onClick={() => handleSelectFeedback(item)}
+                                                                className={`p-3.5 rounded-2xl border transition-all cursor-pointer relative overflow-hidden ${
+                                                                    isSelected 
+                                                                    ? 'bg-[#105541]/30 border-emerald-500 shadow-md' 
+                                                                    : item.devUnread 
+                                                                    ? 'bg-[#0f1713] border-amber-500/40 hover:border-amber-500/70' 
+                                                                    : 'bg-[#0c1310] border-white/5 hover:border-white/15'
+                                                                }`}
+                                                            >
+                                                                {item.devUnread && (
+                                                                    <div className="absolute top-3 left-3 w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping"></div>
+                                                                )}
+                                                                
+                                                                <div className="flex justify-between items-start gap-2 mb-1.5">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="text-xs font-black text-white">{item.userName || 'معلم'}</span>
+                                                                        {item.starred && <span className="text-amber-400 text-xs">★</span>}
+                                                                    </div>
+                                                                    <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${typeBadge.bg}`}>
+                                                                        {typeBadge.label}
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="text-[10px] text-gray-400 flex items-center gap-2 mb-2">
+                                                                    <span>المركز: <strong className="text-gray-300">{item.centerName || 'غير محدد'}</strong></span>
+                                                                    <span>•</span>
+                                                                    <span>الحلقة: <strong className="text-gray-300">{item.circleName || 'غير محدد'}</strong></span>
+                                                                </div>
+
+                                                                <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed mb-2 font-semibold">
+                                                                    {lastMsg?.text || item.subject || 'بدون نص'}
+                                                                </p>
+
+                                                                <div className="flex justify-between items-center text-[9px] pt-2 border-t border-white/5 text-gray-500">
+                                                                    <span className={`px-2 py-0.5 rounded-md font-bold ${statusBadge.bg}`}>
+                                                                        {statusBadge.label}
+                                                                    </span>
+                                                                    <span>{item.createdAt ? new Date(item.createdAt).toLocaleDateString('ar-EG', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {/* Right Column: Feedback Detail View */}
+                                        <div className={`lg:col-span-7 ${!selectedDevFeedback ? 'hidden lg:block' : 'block'}`}>
+                                            {!selectedDevFeedback ? (
+                                                <div className="bg-[#0c1310] border border-white/5 rounded-3xl p-12 text-center text-gray-500 space-y-3">
+                                                    <MessageSquare size={48} className="mx-auto text-gray-700 opacity-40 animate-pulse" />
+                                                    <p className="text-xs font-bold text-gray-400">حدد رسالة من القائمة لعرض كامل تفاصيل المعلم والمحادثة والرد عليه.</p>
+                                                </div>
+                                            ) : (
+                                                <div className="bg-[#0c1310] border border-white/10 rounded-3xl p-5 space-y-5">
+                                                    {/* Top Controls Header */}
+                                                    <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-white/10">
+                                                        <div className="flex items-center gap-2">
+                                                            <button 
+                                                                onClick={() => setSelectedDevFeedback(null)} 
+                                                                className="lg:hidden p-2 bg-[#050807] hover:bg-white/10 text-gray-300 rounded-xl text-xs font-bold flex items-center gap-1"
+                                                            >
+                                                                <ArrowLeft size={14} />
+                                                                <span>الرجوع</span>
+                                                            </button>
+                                                            <h4 className="text-xs font-black text-emerald-400">تفاصيل الرسالة والمحادثة</h4>
+                                                        </div>
+
+                                                        {/* Status & Actions Dropdown */}
+                                                        <div className="flex items-center gap-2 flex-wrap">
+                                                            <select 
+                                                                value={selectedDevFeedback.status || 'new'} 
+                                                                onChange={(e) => handleUpdateFeedbackStatus(e.target.value as FeedbackStatus)} 
+                                                                className="bg-[#050807] border border-white/10 text-white text-[11px] font-bold rounded-xl px-2.5 py-1.5 focus:outline-none focus:border-emerald-500"
+                                                            >
+                                                                <option value="new">جديدة</option>
+                                                                <option value="in_review">قيد المراجعة</option>
+                                                                <option value="replied">تم الرد</option>
+                                                                <option value="closed">مغلقة</option>
+                                                            </select>
+
+                                                            <button 
+                                                                onClick={handleToggleFeedbackStar} 
+                                                                className={`p-2 rounded-xl text-xs font-bold border transition-all ${selectedDevFeedback.starred ? 'bg-amber-500/20 border-amber-500 text-amber-300' : 'bg-[#050807] border-white/10 text-gray-400 hover:text-amber-300'}`}
+                                                                title="تمييز بنجمة"
+                                                            >
+                                                                ★
+                                                            </button>
+
+                                                            <button 
+                                                                onClick={handleToggleFeedbackArchive} 
+                                                                className={`p-2 rounded-xl text-xs font-bold border transition-all ${selectedDevFeedback.archived ? 'bg-gray-700 border-gray-600 text-white' : 'bg-[#050807] border-white/10 text-gray-400 hover:text-white'}`}
+                                                                title={selectedDevFeedback.archived ? "إلغاء الأرشفة" : "أرشفة الرسالة"}
+                                                            >
+                                                                {selectedDevFeedback.archived ? 'إلغاء الأرشفة' : 'أرشفة'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Teacher Info Card */}
+                                                    {(() => {
+                                                        const matchedUser = users.find(u => u.uid === selectedDevFeedback.userId || u.email === selectedDevFeedback.userEmail);
+                                                        return (
+                                                            <div className="bg-[#050807] border border-white/5 p-4 rounded-2xl space-y-2">
+                                                                <div className="flex justify-between items-start">
+                                                                    <div>
+                                                                        <h5 className="text-xs font-black text-white flex items-center gap-2">
+                                                                            <span>{selectedDevFeedback.userName || 'معلم'}</span>
+                                                                            {matchedUser?.role && (
+                                                                                <span className="bg-white/10 text-gray-300 text-[9px] px-2 py-0.5 rounded-md font-normal">
+                                                                                    {matchedUser.role === 'admin' ? 'مشرف' : matchedUser.role === 'manager' ? 'مدير' : 'معلم'}
+                                                                                </span>
+                                                                            )}
+                                                                        </h5>
+                                                                        <span className="text-[10px] text-gray-400 block mt-0.5">{selectedDevFeedback.userEmail || 'بدون بريد'}</span>
+                                                                    </div>
+                                                                    <span className="text-[9px] bg-emerald-950/60 text-emerald-300 border border-emerald-800/40 px-2 py-0.5 rounded-md font-bold">
+                                                                        معلومات الحساب
+                                                                    </span>
+                                                                </div>
+
+                                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] pt-2 border-t border-white/5 text-gray-400">
+                                                                    <div>المركز: <strong className="text-gray-200">{selectedDevFeedback.centerName || 'غير محدد'}</strong></div>
+                                                                    <div>الحلقة: <strong className="text-gray-200">{selectedDevFeedback.circleName || 'غير محدد'}</strong></div>
+                                                                    <div>عدد الحلقات: <strong className="text-gray-200">{selectedDevFeedback.circlesCount || (matchedUser as any)?.joinedCircles?.length || 1}</strong></div>
+                                                                    {(matchedUser as any)?.phoneNumber && <div>الهاتف: <strong className="text-gray-200">{(matchedUser as any).phoneNumber}</strong></div>}
+                                                                    <div>تاريخ الرسالة: <strong className="text-gray-200">{selectedDevFeedback.createdAt ? new Date(selectedDevFeedback.createdAt).toLocaleDateString('ar-EG') : 'غير محدد'}</strong></div>
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })()}
+
+                                                    {/* Conversation Chat Stream */}
+                                                    <div className="space-y-3">
+                                                        <h6 className="text-[11px] font-black text-gray-300">سجل المحادثة ({selectedDevFeedback.messages?.length || 0})</h6>
+                                                        
+                                                        <div className="space-y-3 max-h-[350px] overflow-y-auto custom-scrollbar p-2 bg-[#050807] rounded-2xl border border-white/5">
+                                                            {selectedDevFeedback.messages?.map((msg) => {
+                                                                const isDev = msg.sender === 'developer';
+                                                                return (
+                                                                    <div 
+                                                                        key={msg.id} 
+                                                                        className={`flex flex-col ${isDev ? 'items-start' : 'items-end'}`}
+                                                                    >
+                                                                        <div className={`max-w-[85%] p-3 rounded-2xl text-xs leading-relaxed ${
+                                                                            isDev 
+                                                                            ? 'bg-[#105541] text-white rounded-tr-xs shadow-md border border-emerald-400/20' 
+                                                                            : 'bg-[#18261f] text-gray-100 rounded-tl-xs border border-white/10'
+                                                                        }`}>
+                                                                            <div className="flex items-center justify-between gap-3 text-[9px] opacity-75 mb-1 pb-1 border-b border-white/10 font-bold">
+                                                                                <span>{isDev ? 'فريق التطوير' : selectedDevFeedback.userName}</span>
+                                                                                <span>{msg.createdAt ? new Date(msg.createdAt).toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit' }) : ''}</span>
+                                                                            </div>
+                                                                            <p className="whitespace-pre-wrap">{msg.text}</p>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Reply Input Form */}
+                                                    <form onSubmit={handleDevSendReply} className="space-y-2 pt-2 border-t border-white/10">
+                                                        <label className="text-[11px] font-black text-gray-300 block">إضافة رد مباشر للمعلم:</label>
+                                                        <textarea 
+                                                            rows={3} 
+                                                            value={devFeedbackReplyText} 
+                                                            onChange={(e) => setDevFeedbackReplyText(e.target.value)} 
+                                                            placeholder="اكتب ردك الاحترافي للمعلم هنا..." 
+                                                            className="w-full bg-[#050807] border border-white/10 rounded-xl p-3 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-emerald-500 leading-relaxed resize-none"
+                                                        />
+                                                        <div className="flex justify-end">
+                                                            <button 
+                                                                type="submit" 
+                                                                disabled={isReplyingAsDev || !devFeedbackReplyText.trim()} 
+                                                                className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 shadow-md cursor-pointer"
+                                                            >
+                                                                <span>إرسال الرد وتحديث الحالة إلى (تم الرد)</span>
+                                                            </button>
+                                                        </div>
+                                                    </form>
+
+                                                    {/* Internal Developer Note */}
+                                                    <div className="p-3.5 bg-[#050807] rounded-2xl border border-white/5 space-y-2">
+                                                        <span className="text-[10px] font-black text-amber-400 block">ملاحظات داخلية للمطور (خاصة بك فقط، لا تظهر للمعلم):</span>
+                                                        <textarea 
+                                                            rows={2} 
+                                                            value={devInternalNote} 
+                                                            onChange={(e) => setDevInternalNote(e.target.value)} 
+                                                            placeholder="أضف ملاحظات تفكيرك، المهام المعلقة المرتبطة بهذا الاقتراح..." 
+                                                            className="w-full bg-[#0c1310] border border-white/10 rounded-xl p-2.5 text-xs text-gray-200 placeholder-gray-600 focus:outline-none focus:border-amber-500 resize-none"
+                                                        />
+                                                        <div className="flex justify-end">
+                                                            <button 
+                                                                type="button" 
+                                                                onClick={handleSaveDevInternalNote} 
+                                                                className="px-3 py-1.5 bg-amber-600/30 hover:bg-amber-600/50 text-amber-300 border border-amber-500/40 rounded-xl text-[10px] font-bold transition-all cursor-pointer"
+                                                            >
+                                                                حفظ الملاحظة الداخلية
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                             {isNotificationModalOpen && (
                                 <div className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto" dir="rtl">
                                     <motion.div 

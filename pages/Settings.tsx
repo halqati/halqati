@@ -1,6 +1,12 @@
-import React, { useRef } from 'react';
+import React, { useState, useRef } from 'react';
 import { CircleData, ConfirmationModalData, UserProfile } from '../types';
-import { FaInfoCircle, FaWhatsapp, FaTrash, FaChevronLeft, FaWrench, FaUserCircle, FaClipboardList, FaSave, FaTelegram, FaUsers, FaGlobe, FaSignInAlt, FaSignOutAlt, FaUser, FaUserShield, FaBookOpen, FaExclamationTriangle, FaAward, FaChalkboardTeacher } from 'react-icons/fa';
+import { 
+    FaInfoCircle, FaWhatsapp, FaTrash, FaChevronLeft, FaWrench, 
+    FaUserCircle, FaClipboardList, FaSave, FaTelegram, FaUsers, 
+    FaGlobe, FaSignInAlt, FaSignOutAlt, FaUser, FaUserShield, 
+    FaBookOpen, FaExclamationTriangle, FaAward, FaChalkboardTeacher,
+    FaYoutube, FaCode, FaExternalLinkAlt, FaTimes, FaLightbulb, FaCommentDots
+} from 'react-icons/fa';
 import { User } from '../firebase';
 
 interface SettingsProps {
@@ -19,6 +25,8 @@ interface SettingsProps {
     onNavigateToProfile: () => void;
     onNavigateToTestsAndPlans: () => void;
     onNavigateToCircleInfo: () => void;
+    onNavigateToFeedback?: () => void;
+    hasUnreadFeedbackReply?: boolean;
     onSwitchCircle: (id: string) => void;
     onCreateNewCircle: () => void;
     onDeleteCircle: (id: string) => void;
@@ -42,7 +50,7 @@ const SettingCard: React.FC<{ title: string, children: React.ReactNode, icon?: R
     </div>
 );
 
-const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick: () => void, variant?: 'default' | 'danger', disabled?: boolean }> = ({ label, icon: Icon, onClick, variant = 'default', disabled = false }) => (
+const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick: () => void, variant?: 'default' | 'danger', disabled?: boolean, hasNotification?: boolean }> = ({ label, icon: Icon, onClick, variant = 'default', disabled = false, hasNotification = false }) => (
      <button 
         onClick={onClick} 
         className={`w-full text-right p-2.5 rounded-lg flex items-center justify-between transition-all group cursor-pointer ${
@@ -62,15 +70,21 @@ const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick:
                 <Icon size={14} />
             </div>
             <span className={`text-sm font-bold ${variant === 'danger' ? 'text-red-600 dark:text-red-400' : 'text-gray-700 dark:text-gray-200'}`}>{label}</span>
+            {hasNotification && (
+                <span className="bg-red-500 text-white text-[9px] font-extrabold px-2 py-0.5 rounded-full animate-pulse mr-2">
+                    رد جديد
+                </span>
+            )}
         </div>
         {!disabled && <FaChevronLeft size={10} className={`text-gray-300 dark:text-gray-600 transition-transform group-hover:-translate-x-1`} />}
     </button>
 );
 
 
-const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile, isSynced, isOnline, onLogin, onLogout, onToggleAdminMode, onOpenAddonsModal, onNavigateToAbout, onNavigateToSupport, onNavigateToProfile, onNavigateToTestsAndPlans, onNavigateToCircleInfo, onSwitchCircle, onCreateNewCircle, onDeleteCircle, onOpenBackupRestore, onJoinCommunity, setConfirmationModal, onManualSync, onLinkCircles, onNavigateToSyncDiagnostics, hasCircleSettingsPermission = true, addToast }) => {
+const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile, isSynced, isOnline, onLogin, onLogout, onToggleAdminMode, onOpenAddonsModal, onNavigateToAbout, onNavigateToSupport, onNavigateToProfile, onNavigateToTestsAndPlans, onNavigateToCircleInfo, onNavigateToFeedback, hasUnreadFeedbackReply, onSwitchCircle, onCreateNewCircle, onDeleteCircle, onOpenBackupRestore, onJoinCommunity, setConfirmationModal, onManualSync, onLinkCircles, onNavigateToSyncDiagnostics, hasCircleSettingsPermission = true, addToast }) => {
     if (!data) return null;
 
+    const [showChannelsModal, setShowChannelsModal] = useState(false);
     const syncTimerRef = useRef<number | null>(null);
     const syncLongPressFired = useRef(false);
     const touchStartPos = useRef<{ x: number, y: number } | null>(null);
@@ -349,6 +363,15 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         </button>
                     </SettingCard>
 
+                    <SettingCard title="التواصل والتطوير" icon={FaLightbulb}>
+                        <SettingButton 
+                            label="اقتراحات وملاحظات" 
+                            icon={FaCommentDots} 
+                            onClick={() => onNavigateToFeedback?.()} 
+                            hasNotification={hasUnreadFeedbackReply}
+                        />
+                    </SettingCard>
+
                     <SettingCard title="البيانات" icon={FaSave}>
                         <SettingButton 
                             label="النسخة الاحتياطية والاستعادة" 
@@ -364,6 +387,23 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         />
                     </SettingCard>
 
+                    {/* ثالثًا: موقع نظام حلقتي */}
+                    <a 
+                        href="https://hlqt.vercel.app/" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-xl shadow-xs border border-primary/20 dark:border-accent/20 text-primary dark:text-accent hover:bg-primary/5 dark:hover:bg-accent/5 transition-all text-xs font-bold group cursor-pointer"
+                    >
+                        <div className="flex items-center gap-2.5">
+                            <div className="p-1.5 bg-primary/10 dark:bg-accent/10 rounded-lg">
+                                <FaGlobe size={14} />
+                            </div>
+                            <span>موقع نظام حلقتي</span>
+                        </div>
+                        <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
+                    </a>
+
+                    {/* أولًا: الدعم والمجتمع */}
                     <SettingCard title="الدعم والمجتمع" icon={FaUsers}>
                         <SettingButton label="الانتساب والدعم" icon={FaAward} onClick={onNavigateToSupport} />
                         <SettingButton label="حول التطبيق" icon={FaInfoCircle} onClick={onNavigateToAbout} />
@@ -376,23 +416,112 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                             </a>
                         </div>
                         
-                        <div className="flex items-center gap-2 mt-1">
-                            <button 
-                                onClick={() => onJoinCommunity(whatsappLink)} 
-                                className="flex-1 p-2 bg-white dark:bg-gray-800 border border-green-100 dark:border-green-900/30 text-green-600 dark:text-green-400 rounded-lg flex items-center justify-center gap-2 text-[10px] font-bold shadow-sm hover:bg-green-50 dark:hover:bg-green-900/10 transition-all cursor-pointer"
-                            >
-                                <FaWhatsapp size={12} /> واتساب
-                            </button>
-                            <button 
-                                onClick={() => onJoinCommunity(telegramLink)} 
-                                className="flex-1 p-2 bg-white dark:bg-gray-800 border border-blue-100 dark:border-blue-900/30 text-blue-600 dark:text-blue-400 rounded-lg flex items-center justify-center gap-2 text-[10px] font-bold shadow-sm hover:bg-blue-50 dark:hover:bg-blue-900/10 transition-all cursor-pointer"
-                            >
-                                <FaTelegram size={12} /> تليجرام
-                            </button>
-                        </div>
+                        {/* زر متابعة القنوات */}
+                        <button 
+                            onClick={() => setShowChannelsModal(true)} 
+                            className="w-full mt-2 p-2.5 bg-primary/10 dark:bg-accent/10 border border-primary/20 dark:border-accent/20 text-primary dark:text-accent rounded-lg flex items-center justify-center gap-2 text-xs font-bold hover:bg-primary/15 dark:hover:bg-accent/15 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+                        >
+                            <FaGlobe size={14} /> متابعة القنوات
+                        </button>
                     </SettingCard>
+
+                    {/* ثانيًا: التواصل مع المطور */}
+                    <div className="pt-1">
+                        <a 
+                            href="https://Athar.Q1.vercel.app/" 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="w-full flex items-center justify-center gap-2 p-3 bg-gradient-to-r from-gray-800 to-gray-900 dark:from-gray-700 dark:to-gray-800 text-white rounded-xl shadow-xs text-xs font-bold hover:opacity-95 transition-all active:scale-[0.99] cursor-pointer"
+                        >
+                            <FaCode size={14} className="text-amber-400" />
+                            <span>التواصل مع المطور</span>
+                            <FaExternalLinkAlt size={10} className="opacity-70 mr-1" />
+                        </a>
+                    </div>
                 </div>
             </div>
+
+            {/* نافذة منبثقة لمتابعة القنوات */}
+            {showChannelsModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs">
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl p-5 w-full max-w-sm shadow-2xl border border-gray-100 dark:border-gray-700 space-y-4 text-right">
+                        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-3">
+                            <h3 className="text-sm font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                                <FaGlobe className="text-primary dark:text-accent" size={15} />
+                                متابعة القنوات
+                            </h3>
+                            <button 
+                                onClick={() => setShowChannelsModal(false)}
+                                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                                aria-label="إغلاق"
+                            >
+                                <FaTimes size={14} />
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                            اختر القناة المفضل لديك لمتابعة أحدث الإعلانات والتحديثات:
+                        </p>
+
+                        <div className="space-y-2.5 pt-1">
+                            {/* 1 - قناة اليوتيوب */}
+                            <a 
+                                href="https://youtube.com/@athar.q1?si=r1QRtk7A3BniBxRx" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center justify-between p-3 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-xl border border-red-100 dark:border-red-900/30 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all group"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-red-600 text-white rounded-lg shadow-xs">
+                                        <FaYoutube size={16} />
+                                    </div>
+                                    <span>قناة اليوتيوب</span>
+                                </div>
+                                <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
+                            </a>
+
+                            {/* 2 - قناة الواتساب */}
+                            <a 
+                                href="https://whatsapp.com/channel/0029VbDEhFYJENy6EwuRY440" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 rounded-xl border border-green-100 dark:border-green-900/30 text-xs font-bold hover:bg-green-100 dark:hover:bg-green-900/30 transition-all group"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-green-600 text-white rounded-lg shadow-xs">
+                                        <FaWhatsapp size={16} />
+                                    </div>
+                                    <span>قناة الواتساب</span>
+                                </div>
+                                <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
+                            </a>
+
+                            {/* 3 - قناة التليجرام */}
+                            <a 
+                                href="https://t.me/nur_alquran_q" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="w-full flex items-center justify-between p-3 bg-sky-50 dark:bg-sky-950/20 text-sky-600 dark:text-sky-400 rounded-xl border border-sky-100 dark:border-sky-900/30 text-xs font-bold hover:bg-sky-100 dark:hover:bg-sky-900/30 transition-all group"
+                            >
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2 bg-sky-500 text-white rounded-lg shadow-xs">
+                                        <FaTelegram size={16} />
+                                    </div>
+                                    <span>قناة التليجرام</span>
+                                </div>
+                                <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
+                            </a>
+                        </div>
+
+                        <button 
+                            onClick={() => setShowChannelsModal(false)}
+                            className="w-full py-2.5 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-xl text-xs font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors mt-2"
+                        >
+                            إغلاق
+                        </button>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

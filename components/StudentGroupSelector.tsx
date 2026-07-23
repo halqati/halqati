@@ -2,8 +2,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { FaUsers, FaPlus, FaTrash, FaEdit, FaCheck, FaTimes, FaCog, FaCheckCircle, FaRegCircle } from 'react-icons/fa';
-import { Student, StudentGroup } from '../types';
+import { Student } from '../types';
 import StudentAvatar from './StudentAvatar';
+import { db, collection, doc, setDoc, deleteDoc, onSnapshot } from '../firebase';
+
+interface StudentGroup {
+    id: string;
+    name: string;
+    studentIds: number[];
+}
 
 interface StudentGroupSelectorProps {
     students: Student[];
@@ -28,38 +35,7 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
     const [autoSelectEnabled, setAutoSelectEnabled] = useState(false);
     const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
 
-    // Load groups and preferences
-    const loadGroups = () => {
-        if (window.getCloudStudentGroups) {
-            setGroups(window.getCloudStudentGroups(String(circleId)));
-        } else {
-            const storedGroups = localStorage.getItem(`studentgroups_groups_${circleId}`);
-            if (storedGroups) {
-                try {
-                    setGroups(JSON.parse(storedGroups));
-                } catch (e) {
-                    console.error("Failed to parse student groups", e);
-                }
-            }
-        }
-    };
-
-    useEffect(() => {
-        loadGroups();
-
-        const handleUpdate = (e: Event) => {
-            const customEvent = e as CustomEvent;
-            if (customEvent.detail?.circleId === String(circleId)) {
-                loadGroups();
-            }
-        };
-
-        window.addEventListener('studentgroups_updated', handleUpdate);
-        return () => {
-            window.removeEventListener('studentgroups_updated', handleUpdate);
-        };
-    }, [circleId]);
-
+    // Load auto-select preferences locally (kept per teacher / device)
     useEffect(() => {
         const storedAutoSelect = localStorage.getItem(`studentgroups_autoselect_enabled_${circleId}_${contextKey}`);
         if (storedAutoSelect === 'true') {
@@ -68,23 +44,82 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
             if (storedActiveGroupId) {
                 setActiveGroupId(storedActiveGroupId);
             }
-        } else {
-            setAutoSelectEnabled(false);
-            setActiveGroupId(null);
         }
     }, [circleId, contextKey]);
 
-    // Save groups to cloud/state whenever they change
-    const saveGroups = (updatedGroups: StudentGroup[]) => {
-        setGroups(updatedGroups);
-        if (window.saveCloudStudentGroups) {
-            window.saveCloudStudentGroups(String(circleId), updatedGroups);
-        } else {
-            localStorage.setItem(`studentgroups_groups_${circleId}`, JSON.stringify(updatedGroups));
-        }
-    };
+    // Real-time Cloud Sync for Student Groups & Legacy Local Migration
+    useEffect(() => {
+        if (!circleId) return;
 
-    // Save auto-select preferences
+        const circleIdStr = String(circleId);
+        let hasMigrated = false;
+
+        // Load local cache as immediate initial fallback
+        const storedGroups = localStorage.getItem(`studentgroups_groups_${circleIdStr}`);
+        let localGroupsCache: StudentGroup[] = [];
+        if (storedGroups) {
+            try {
+                localGroupsCache = JSON.parse(storedGroups);
+                setGroups(localGroupsCache);
+            } catch (e) {
+                console.error("Failed to parse local student groups", e);
+            }
+        }
+
+        if (!db) return;
+
+        // Cloud subcollection reference: circles/{circleId}/studentGroups
+        const colRef = collection(db, 'circles', circleIdStr, 'studentGroups');
+
+        const unsub = onSnapshot(colRef, async (snapshot) => {
+            const remoteGroups: StudentGroup[] = [];
+            snapshot.forEach(docSnap => {
+                const data = docSnap.data();
+                if (data && data.name) {
+                    remoteGroups.push({
+                        id: docSnap.id,
+                        name: data.name,
+                        studentIds: Array.isArray(data.studentIds) ? data.studentIds : []
+                    });
+                }
+            });
+
+            // Migrate legacy local groups to Firestore if they do not exist remotely yet
+            if (!hasMigrated && localGroupsCache.length > 0) {
+                hasMigrated = true;
+                for (const localG of localGroupsCache) {
+                    const existsRemotely = remoteGroups.some(rg => rg.id === localG.id);
+                    if (!existsRemotely) {
+                        try {
+                            const docRef = doc(db, 'circles', circleIdStr, 'studentGroups', localG.id);
+                            await setDoc(docRef, {
+                                id: localG.id,
+                                name: localG.name,
+                                studentIds: localG.studentIds,
+                                updatedAt: Date.now()
+                            }, { merge: true });
+                        } catch (e) {
+                            console.error("Error migrating local group to cloud:", e);
+                        }
+                    }
+                }
+            }
+
+            setGroups(remoteGroups);
+            // Cache in localStorage for offline availability
+            try {
+                localStorage.setItem(`studentgroups_groups_${circleIdStr}`, JSON.stringify(remoteGroups));
+            } catch (e) {}
+        }, (error) => {
+            console.error("Error listening to cloud student groups:", error);
+        });
+
+        return () => {
+            unsub();
+        };
+    }, [circleId]);
+
+    // Save auto-select preferences locally
     const saveAutoSelect = (enabled: boolean, groupId: string | null) => {
         setAutoSelectEnabled(enabled);
         setActiveGroupId(groupId);
@@ -101,7 +136,6 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
         if (autoSelectEnabled && activeGroupId) {
             const group = groups.find(g => g.id === activeGroupId);
             if (group) {
-                // Check if students in group are still available
                 const availableIds = new Set(students.map(s => s.id));
                 const validIds = group.studentIds.filter(id => availableIds.has(id));
                 
@@ -109,22 +143,13 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
                     onSelectionChange(validIds);
                 }
             }
-        } else if (!autoSelectEnabled && !activeGroupId && selectedIds.length === 0 && students.length > 0) {
-            // Default behavior: select all if no group and first time? 
-            // Actually, the original behavior should be preserved.
-            // The request says: "next times it returns to the current default state (selection of all students of the circle)."
-            // Wait, does "selecting all" happen by default?
-            // In Session, yes. In others, sometimes.
-            // I should only trigger selection CHANGE if it's explicitly set to ON.
         }
-    }, [groups, activeGroupId, autoSelectEnabled]); // Removed students and onSelectionChange from deps to avoid loops
+    }, [groups, activeGroupId, autoSelectEnabled]);
 
     const handleGroupClick = (group: StudentGroup) => {
         if (activeGroupId === group.id) {
             // Deselect group
             setActiveGroupId(null);
-            // If auto-select was ON, we might want to keep it ON but for "no group"? 
-            // Better to just return to default.
             if (autoSelectEnabled) {
                 saveAutoSelect(true, null);
             }
@@ -143,35 +168,75 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
         saveAutoSelect(newVal, newVal ? activeGroupId : null);
     };
 
-    const handleSaveGroup = () => {
-        if (!newGroupName.trim() || newGroupStudentIds.length === 0) return;
+    const handleSaveGroup = async () => {
+        if (!newGroupName.trim() || newGroupStudentIds.length === 0 || !circleId) return;
 
-        let updatedGroups;
-        if (editingGroup) {
-            updatedGroups = groups.map(g => g.id === editingGroup.id ? { ...g, name: newGroupName, studentIds: newGroupStudentIds } : g);
-        } else {
-            const newGroup: StudentGroup = {
-                id: Date.now().toString(),
-                name: newGroupName,
-                studentIds: newGroupStudentIds
-            };
-            updatedGroups = [...groups, newGroup];
+        const circleIdStr = String(circleId);
+        const groupId = editingGroup ? editingGroup.id : Date.now().toString();
+        const groupToSave: StudentGroup = {
+            id: groupId,
+            name: newGroupName.trim(),
+            studentIds: newGroupStudentIds
+        };
+
+        // Optimistic local state update
+        setGroups(prev => {
+            const exists = prev.some(g => g.id === groupId);
+            const next = exists ? prev.map(g => g.id === groupId ? groupToSave : g) : [...prev, groupToSave];
+            try {
+                localStorage.setItem(`studentgroups_groups_${circleIdStr}`, JSON.stringify(next));
+            } catch (e) {}
+            return next;
+        });
+
+        // Sync to Cloud Firestore Database
+        if (db) {
+            try {
+                const docRef = doc(db, 'circles', circleIdStr, 'studentGroups', groupId);
+                await setDoc(docRef, {
+                    id: groupId,
+                    name: groupToSave.name,
+                    studentIds: groupToSave.studentIds,
+                    updatedAt: Date.now()
+                }, { merge: true });
+            } catch (e) {
+                console.error("Error saving student group to cloud:", e);
+            }
         }
 
-        saveGroups(updatedGroups);
         setNewGroupName('');
         setNewGroupStudentIds([]);
         setEditingGroup(null);
         setShowManageModal(false);
     };
 
-    const handleDeleteGroup = (id: string) => {
-        const updatedGroups = groups.filter(g => g.id !== id);
-        saveGroups(updatedGroups);
+    const handleDeleteGroup = async (id: string) => {
+        if (!circleId) return;
+        const circleIdStr = String(circleId);
+
+        // Optimistic local state update
+        setGroups(prev => {
+            const next = prev.filter(g => g.id !== id);
+            try {
+                localStorage.setItem(`studentgroups_groups_${circleIdStr}`, JSON.stringify(next));
+            } catch (e) {}
+            return next;
+        });
+
         if (activeGroupId === id) {
             setActiveGroupId(null);
             if (autoSelectEnabled) {
                 saveAutoSelect(true, null);
+            }
+        }
+
+        // Remove from Cloud Firestore Database
+        if (db) {
+            try {
+                const docRef = doc(db, 'circles', circleIdStr, 'studentGroups', id);
+                await deleteDoc(docRef);
+            } catch (e) {
+                console.error("Error deleting student group from cloud:", e);
             }
         }
     };

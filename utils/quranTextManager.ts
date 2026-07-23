@@ -1,5 +1,4 @@
 // Manager for offline/online caching and retrieval of Quranic Text
-import quranDataLocal from './quranTextUthmani.json';
 
 export interface QuranVerse {
     numberInSurah: number;
@@ -14,16 +13,40 @@ export interface QuranSurahRange {
     ayahs: QuranVerse[];
 }
 
-/**
- * Checks if the full Quran is cached locally. Always true as it is pre-bundled/loaded.
- */
+let quranDataCache: any = null;
+
+async function getQuranData(): Promise<any> {
+    if (quranDataCache) {
+        return quranDataCache;
+    }
+
+    try {
+        const res = await fetch('/quranTextUthmani.json');
+        if (res.ok) {
+            quranDataCache = await res.json();
+            return quranDataCache;
+        }
+    } catch (e) {
+        // Ignore
+    }
+
+    try {
+        const res2 = await fetch('/utils/quranTextUthmani.json');
+        if (res2.ok) {
+            quranDataCache = await res2.json();
+            return quranDataCache;
+        }
+    } catch (e) {
+        // Ignore
+    }
+
+    return { data: { surahs: [] } };
+}
+
 export async function isFullQuranCached(): Promise<boolean> {
     return true;
 }
 
-/**
- * Simulates download since it's already pre-bundled/loaded.
- */
 export async function downloadFullQuranForOffline(
     onProgress: (progress: number) => void
 ): Promise<boolean> {
@@ -33,24 +56,18 @@ export async function downloadFullQuranForOffline(
     return true;
 }
 
-/**
- * Clears the cached Quran. No-op since we bundle it.
- */
 export async function deleteCachedQuran(): Promise<boolean> {
     return true;
 }
 
-/**
- * Fetches the Quranic text for a specific range of surahs and ayahs.
- * Fully offline, using pre-bundled local JSON data.
- */
 export async function fetchQuranTextRange(
     startSurahNum: number,
     startAyah: number,
     endSurahNum: number,
     endAyah: number
 ): Promise<QuranSurahRange[]> {
-    const allSurahs = quranDataLocal.data.surahs;
+    const quranData = await getQuranData();
+    const allSurahs = quranData.data ? quranData.data.surahs : (quranData.surahs || []);
     return extractRangeFromFullQuran(allSurahs, startSurahNum, startAyah, endSurahNum, endAyah);
 }
 

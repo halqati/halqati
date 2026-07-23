@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, SupervisorReportSettings, SystemSettings, SyncJob, StudentGroup } from './types';
+import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount } from './utils/helpers';
@@ -83,6 +83,7 @@ import RewardsManagerModal from './components/RewardsManagerModal';
 import VerificationScreen from './components/VerificationScreen';
 import ShareSessionCodeModal from './components/ShareSessionCodeModal';
 import ImportSessionCodeModal from './components/ImportSessionCodeModal';
+import TeacherFeedback from './pages/TeacherFeedback';
 
 
 import ManagementDashboard from './components/ManagementDashboard';
@@ -201,37 +202,6 @@ import LinkCirclesModal from './components/LinkCirclesModal';
 const App: React.FC = () => {
     const [appData, setAppData] = useLocalStorage<AppData>('tahfeezMultiCircleApp_v1', initialAppData);
     
-    // Expose cloud student groups functions on window for StudentGroupSelector to use
-    useEffect(() => {
-        window.getCloudStudentGroups = (circleId: string) => {
-            const circle = appData.circles.find(c => c && c.id === circleId);
-            return circle?.studentGroups || [];
-        };
-
-        window.saveCloudStudentGroups = (circleId: string, groups: StudentGroup[]) => {
-            setAppData(prev => {
-                const updatedCircles = prev.circles.map(c => {
-                    if (c && c.id === circleId) {
-                        return {
-                            ...c,
-                            studentGroups: groups,
-                            lastUpdated: Date.now()
-                        };
-                    }
-                    return c;
-                });
-                return { ...prev, circles: updatedCircles };
-            });
-            // Dispatch custom event to notify all listening StudentGroupSelector components
-            window.dispatchEvent(new CustomEvent('studentgroups_updated', { detail: { circleId } }));
-        };
-
-        return () => {
-            delete window.getCloudStudentGroups;
-            delete window.saveCloudStudentGroups;
-        };
-    }, [appData.circles, setAppData]);
-    
     // Auth state persistence logic
     const [user, setUser] = useState<User | null>(() => {
         const savedUser = localStorage.getItem('tahfeezAuthUser_v1');
@@ -318,6 +288,30 @@ const App: React.FC = () => {
         });
         return () => unsub();
     }, [db]);
+
+    const [hasUnreadFeedbackReply, setHasUnreadFeedbackReply] = useState(false);
+
+    useEffect(() => {
+        if (!user?.uid || !db) {
+            setHasUnreadFeedbackReply(false);
+            return;
+        }
+        try {
+            const q = query(
+                collection(db, 'teacher_feedbacks'),
+                where('userId', '==', user.uid),
+                where('teacherUnread', '==', true)
+            );
+            const unsub = onSnapshot(q, (snapshot) => {
+                setHasUnreadFeedbackReply(!snapshot.empty);
+            }, (err) => {
+                console.warn("Unread feedback listener error:", err);
+            });
+            return () => unsub();
+        } catch (e) {
+            console.warn("Unread feedback setup error:", e);
+        }
+    }, [user?.uid]);
 
     const executeDeveloperCommand = async (cmd: any) => {
         console.log("Executing developer command:", cmd);
@@ -977,7 +971,6 @@ const App: React.FC = () => {
             case 'announcements': return 'إعلان جديد';
             case 'studentReports': return 'تقرير طالب';
             case 'supervisorReports': return 'تقرير مشرف';
-            case 'studentGroups': return 'مجموعات الطلاب المشتركة';
             case 'circles': return 'بيانات حلقة';
             default: return col;
         }
@@ -988,8 +981,8 @@ const App: React.FC = () => {
     const totalSynced = useMemo(() => {
         let count = 0;
         appData.circles.forEach(circle => {
-            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups')[] = [
-                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports', 'studentGroups'
+            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports')[] = [
+                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports'
             ];
             collections.forEach(col => {
                 const arr = (circle[col] as any[]) || [];
@@ -1263,7 +1256,7 @@ const App: React.FC = () => {
     // Subcollection real-time delta merger (receives granular changes and merges into appData state)
     const updateSubcollectionItem = useCallback((
         circleId: string,
-        collectionName: 'students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups',
+        collectionName: 'students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports',
         changes: { type: 'added' | 'modified' | 'removed'; id: string | number; data: any }[]
     ) => {
         setAppData(prev => {
@@ -1308,13 +1301,6 @@ const App: React.FC = () => {
                 
                 const updatedCircle = { ...c, [collectionName]: currentArray };
                 lastLocalState.current[circleId] = JSON.parse(JSON.stringify(updatedCircle));
-                
-                if (collectionName === 'studentGroups') {
-                    setTimeout(() => {
-                        window.dispatchEvent(new CustomEvent('studentgroups_updated', { detail: { circleId } }));
-                    }, 0);
-                }
-                
                 return updatedCircle;
             });
             return { ...prev, circles };
@@ -1334,8 +1320,8 @@ const App: React.FC = () => {
 
         activeCircleIds.forEach(circleId => {
             if (!circleId) return;
-            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups')[] = [
-                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports', 'studentGroups'
+            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports')[] = [
+                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports'
             ];
 
             collections.forEach(colName => {
@@ -1417,8 +1403,8 @@ const App: React.FC = () => {
                 
                 enqueueSyncJob(circle.id, 'circles', circle.id, 'set', sanitizeForFirestore(getCircleMetadata(circle)));
                 
-                const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups')[] = [
-                    'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports', 'studentGroups'
+                const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports')[] = [
+                    'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports'
                 ];
                 
                 collections.forEach(col => {
@@ -1447,8 +1433,8 @@ const App: React.FC = () => {
 
             // Check subcollection items
             let circleModified = false;
-            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups')[] = [
-                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports', 'studentGroups'
+            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports')[] = [
+                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports'
             ];
 
             const newSubcollectionData: any = {};
@@ -1886,8 +1872,8 @@ const App: React.FC = () => {
         const newJobs: SyncJob[] = [];
 
         appData.circles.forEach(circle => {
-            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports' | 'studentGroups')[] = [
-                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports', 'studentGroups'
+            const collections: ('students' | 'sessions' | 'plans' | 'tests' | 'activities' | 'announcements' | 'studentReports' | 'supervisorReports')[] = [
+                'students', 'sessions', 'plans', 'tests', 'activities', 'announcements', 'studentReports', 'supervisorReports'
             ];
             
             collections.forEach(col => {
@@ -2922,7 +2908,6 @@ const App: React.FC = () => {
             hasAgreedToCommunityTerms: false,
             studentReports: [],
             supervisorReports: [],
-            studentGroups: [],
             tests: [],
             plans: [],
             activities: [],
@@ -4360,7 +4345,6 @@ const App: React.FC = () => {
             
             studentReports: (importedData.studentReports || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
             supervisorReports: (importedData.supervisorReports || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
-            studentGroups: (importedData.studentGroups || []).map((s: any) => ({ ...s, syncStatus: 'pending' as const })),
             deletedSessionIds: [],
             deletedStudentIds: []
         } as CircleData;
@@ -6672,7 +6656,22 @@ const App: React.FC = () => {
                             onNavigateToSyncDiagnostics={() => handleNavigate('syncDiagnostics')}
                             onLinkCircles={() => setShowLinkCirclesModal(true)}
                             onNavigateToSupport={() => navigateWithinSettings('support')}
+                            onNavigateToFeedback={() => navigateWithinSettings('feedback')}
+                            hasUnreadFeedbackReply={hasUnreadFeedbackReply}
                         />}
+                        {activeSettingsPage === 'feedback' && (
+                            <TeacherFeedback 
+                                user={user}
+                                userProfile={userProfile}
+                                allCircles={appData.circles}
+                                activeCircle={activeCircle}
+                                onBack={() => {
+                                    settingsHistoryRef.current.pop();
+                                    setActiveSettingsPage(settingsHistoryRef.current[settingsHistoryRef.current.length-1] || 'main');
+                                }}
+                                addToast={addToast}
+                            />
+                        )}
                         {activeSettingsPage === 'about' && <About onBack={() => {settingsHistoryRef.current.pop(); setActiveSettingsPage(settingsHistoryRef.current[settingsHistoryRef.current.length-1]);}} />}
                         {activeSettingsPage === 'support' && <Support onBack={() => {settingsHistoryRef.current.pop(); setActiveSettingsPage(settingsHistoryRef.current[settingsHistoryRef.current.length-1]);}} addToast={addToast} />}
                         {activeSettingsPage === 'profile' && (

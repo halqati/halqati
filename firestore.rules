@@ -94,6 +94,13 @@ service cloud.firestore {
       allow write: if isVerified() || isDeveloper();
     }
 
+    match /teacher_feedbacks/{feedbackId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isDeveloper() || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.userId == request.auth.uid || isDeveloper() || isAdmin());
+      allow delete: if isDeveloper() || isAdmin();
+    }
+
     match /system/settings {
       allow read: if isSignedIn();
       allow write: if isAdmin() || isDeveloper();
