@@ -863,17 +863,20 @@ const App: React.FC = () => {
     const [isInitialSyncComplete, setIsInitialSyncComplete] = useState(appData.circles.length > 0);
     const [authTriggerCounter, setAuthTriggerCounter] = useState(0);
 
-    // Fast transition safeguard: Avoid getting permanently stuck on the full-screen synchronization loading layer.
-    // If we have an active user but loading circles from Firestore is delayed (max 600ms), we bypass the loader
-    // to render the dashboard immediately. Real-time sync continues silently behind the scenes.
+    // Safeguard: Avoid getting permanently stuck on the sync loading layer if network is offline or unreachable.
     useEffect(() => {
         if (user && !isInitialSyncComplete) {
+            if (!isOnline) {
+                setIsInitialSyncComplete(true);
+                return;
+            }
+            // Allow up to 6 seconds for initial cloud sync before offering fallback, without dropping sync results
             const timer = setTimeout(() => {
                 setIsInitialSyncComplete(true);
-            }, 600);
+            }, 6000);
             return () => clearTimeout(timer);
         }
-    }, [user, isInitialSyncComplete]);
+    }, [user, isInitialSyncComplete, isOnline]);
 
     const checkRealConnectivity = async (): Promise<boolean> => {
         if (!navigator.onLine) return false;
@@ -1155,8 +1158,6 @@ const App: React.FC = () => {
         const q = query(collection(db, 'circles'), where('authorizedUserIds', 'array-contains', user.uid));
         
         const unsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
-            const firestoreCircles = snapshot.docs.map(doc => doc.data() as CircleData);
-            
             hasPendingWritesRef.current = snapshot.metadata.hasPendingWrites;
             if (!snapshot.metadata.hasPendingWrites) {
                 snapshot.docs.forEach(doc => {
@@ -1165,11 +1166,10 @@ const App: React.FC = () => {
                 });
             }
 
-            const synced = !snapshot.metadata.hasPendingWrites;
+            // Always mark initial sync as complete when a snapshot is received from Firestore
             setIsInitialSyncComplete(true);
 
-            if (snapshot.docChanges().length === 0 && isInitialSyncComplete) return;
-
+            // Avoid overwriting local circles if snapshot is from cache and empty while we have local circles
             const isFreshCacheEmpty = snapshot.empty && snapshot.metadata.fromCache && appData.circles.length > 0;
             
             if (!isFreshCacheEmpty) {
@@ -1177,64 +1177,62 @@ const App: React.FC = () => {
                     const circlesMap = new Map<string, CircleData>();
                     prev.circles.forEach(c => circlesMap.set(c.id, c));
                     
-                    let hasRealChanges = false;
-                    snapshot.docChanges().forEach(change => {
-                        const circleData = change.doc.data() as CircleData;
-                        if (change.type === 'added' || change.type === 'modified') {
-                            const existing = circlesMap.get(circleData.id);
-                            if (existing) {
-                                const merged = mergeCircleMetadata(existing, circleData);
-                                const normMerged = stripTemporaryFields(deepNormalizeTimestamps(getCircleMetadata(merged)));
-                                const normExisting = stripTemporaryFields(deepNormalizeTimestamps(getCircleMetadata(existing)));
-                                if (JSON.stringify(normMerged) !== JSON.stringify(normExisting)) {
-                                    circlesMap.set(circleData.id, merged);
-                                    hasRealChanges = true;
-                                    lastLocalState.current[merged.id] = JSON.parse(JSON.stringify(merged));
-                                }
-                            } else {
-                                // Load drafts from local storage if available
-                                const storedDraftsRaw = localStorage.getItem(`tahfeez_drafts_${user.uid}`);
-                                const storedDrafts = storedDraftsRaw ? JSON.parse(storedDraftsRaw) : {};
-                                const circleDrafts = storedDrafts[circleData.id] || {};
-                                
-                                const newCircle = {
-                                    ...defaultsForOptionalFields,
-                                    ...circleData,
-                                    students: [],
-                                    sessions: [],
-                                    plans: [],
-                                    tests: [],
-                                    activities: [],
-                                    announcements: [],
-                                    studentReports: [],
-                                    supervisorReports: [],
-                                    draftSession: circleDrafts.draftSession || null,
-                                    sessionDrafts: circleDrafts.sessionDrafts || {},
-                                    draftTest: circleDrafts.draftTest || null,
-                                    draftPlan: circleDrafts.draftPlan || null,
-                                    draftActivity: circleDrafts.draftActivity || null,
-                                    draftAnnouncement: circleDrafts.draftAnnouncement || null
-                                };
-                                circlesMap.set(circleData.id, newCircle);
-                                hasRealChanges = true;
-                                lastLocalState.current[circleData.id] = JSON.parse(JSON.stringify(newCircle));
-                            }
-                        } else if (change.type === 'removed') {
-                            circlesMap.delete(circleData.id);
-                            hasRealChanges = true;
-                            delete lastLocalState.current[circleData.id];
+                    const storedDraftsRaw = localStorage.getItem(`tahfeez_drafts_${user.uid}`);
+                    const storedDrafts = storedDraftsRaw ? JSON.parse(storedDraftsRaw) : {};
+
+                    const firestoreDocIds = new Set<string>();
+
+                    snapshot.docs.forEach(doc => {
+                        const circleData = doc.data() as CircleData;
+                        firestoreDocIds.add(circleData.id);
+
+                        const existing = circlesMap.get(circleData.id);
+                        if (existing) {
+                            const merged = mergeCircleMetadata(existing, circleData);
+                            circlesMap.set(circleData.id, merged);
+                            lastLocalState.current[merged.id] = JSON.parse(JSON.stringify(merged));
+                        } else {
+                            const circleDrafts = storedDrafts[circleData.id] || {};
+                            const newCircle: CircleData = {
+                                ...defaultsForOptionalFields,
+                                ...circleData,
+                                students: [],
+                                sessions: [],
+                                plans: [],
+                                tests: [],
+                                activities: [],
+                                announcements: [],
+                                studentReports: [],
+                                supervisorReports: [],
+                                draftSession: circleDrafts.draftSession || null,
+                                sessionDrafts: circleDrafts.sessionDrafts || {},
+                                draftTest: circleDrafts.draftTest || null,
+                                draftPlan: circleDrafts.draftPlan || null,
+                                draftActivity: circleDrafts.draftActivity || null,
+                                draftAnnouncement: circleDrafts.draftAnnouncement || null
+                            };
+                            circlesMap.set(circleData.id, newCircle);
+                            lastLocalState.current[circleData.id] = JSON.parse(JSON.stringify(newCircle));
                         }
                     });
-                    
-                    if (!hasRealChanges && isInitialSyncComplete) return prev;
+
+                    // If server snapshot (fromCache === false), remove circles authorized for this user that were deleted from server
+                    if (!snapshot.metadata.fromCache) {
+                        for (const [id, c] of circlesMap.entries()) {
+                            if (!firestoreDocIds.has(id) && c.authorizedUserIds?.includes(user.uid)) {
+                                circlesMap.delete(id);
+                                delete lastLocalState.current[id];
+                            }
+                        }
+                    }
 
                     let mergedCircles = Array.from(circlesMap.values());
                     
-                    if (!snapshot.metadata.fromCache) {
-                        const firestoreIds = new Set(firestoreCircles.map(c => c.id));
-                        mergedCircles = mergedCircles.filter(c => firestoreIds.has(c.id) || !c.authorizedUserIds?.includes(user.uid));
+                    // Check if circles list actually changed to prevent unnecessary re-renders
+                    if (prev.circles.length > 0 && JSON.stringify(mergedCircles) === JSON.stringify(prev.circles)) {
+                        return prev;
                     }
-                    
+
                     let newActiveId = prev.activeCircleId;
                     if (newActiveId && !mergedCircles.find(c => c.id === newActiveId)) {
                         newActiveId = mergedCircles.length > 0 ? mergedCircles[0].id : null;
