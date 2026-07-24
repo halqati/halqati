@@ -217,6 +217,21 @@ const App: React.FC = () => {
         emergencyMode: false
     });
     const [devNotifications, setDevNotifications] = useState<any[]>([]);
+    const [dismissedDevNotifIds, setDismissedDevNotifIds] = useState<string[]>(() => {
+        try {
+            return JSON.parse(localStorage.getItem('dismissed_dev_notifications') || '[]');
+        } catch {
+            return [];
+        }
+    });
+    const [timeTick, setTimeTick] = useState<number>(Date.now());
+
+    useEffect(() => {
+        const timer = setInterval(() => {
+            setTimeTick(Date.now());
+        }, 5000);
+        return () => clearInterval(timer);
+    }, []);
     
     const unsubProfileRef = React.useRef<(() => void) | null>(null);
     const unsubCommandsRef = React.useRef<(() => void) | null>(null);
@@ -565,22 +580,6 @@ const App: React.FC = () => {
                     });
                 }, (error) => {
                     console.warn("Commands snapshot listener warning/error:", error);
-                });
-
-                // Link local circles
-                setAppData(prev => {
-                    const needsLinking = prev.circles.some(c => !c.authorizedUserIds?.includes(targetUser.uid));
-                    if (!needsLinking) return prev;
-
-                    const updatedCircles = prev.circles.map(c => {
-                        const userIds = c.authorizedUserIds ? [...c.authorizedUserIds] : [];
-                        if (!userIds.includes(targetUser.uid)) {
-                            userIds.push(targetUser.uid);
-                            return { ...c, authorizedUserIds: userIds, lastUpdated: Date.now() };
-                        }
-                        return c;
-                    });
-                    return { ...prev, circles: updatedCircles };
                 });
             } else {
                 setIsProfileLoading(false);
@@ -1155,100 +1154,143 @@ const App: React.FC = () => {
             return;
         }
 
-        const q = query(collection(db, 'circles'), where('authorizedUserIds', 'array-contains', user.uid));
-        
-        const unsubscribe = onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
-            hasPendingWritesRef.current = snapshot.metadata.hasPendingWrites;
-            if (!snapshot.metadata.hasPendingWrites) {
-                snapshot.docs.forEach(doc => {
-                    const circleData = doc.data() as CircleData;
-                    lastSyncedCircles.current[circleData.id] = circleData;
-                });
-            }
+        let docsAuthorized: any[] = [];
+        let docsOwner: any[] = [];
+        let isAuthorizedFromCache = true;
+        let isOwnerFromCache = true;
+        let hasAuthPendingWrites = false;
+        let hasOwnerPendingWrites = false;
 
-            // Always mark initial sync as complete when a snapshot is received from Firestore
+        const processMergedSnapshots = () => {
+            const firestoreDocsMap = new Map<string, any>();
+            docsAuthorized.forEach(d => firestoreDocsMap.set(d.id, d));
+            docsOwner.forEach(d => firestoreDocsMap.set(d.id, d));
+
+            const allDocs = Array.from(firestoreDocsMap.values());
+            
+            // Auto-repair missing or incomplete authorizedUserIds in Firestore
+            allDocs.forEach(d => {
+                const data = d.data() as CircleData;
+                const isOwner = data.ownerId === user.uid;
+                const isTeacher = !!data.teachers?.[user.uid];
+                const lacksAuth = !data.authorizedUserIds || !data.authorizedUserIds.includes(user.uid);
+                
+                if ((isOwner || isTeacher) && lacksAuth) {
+                    updateDoc(doc(db, 'circles', d.id), {
+                        authorizedUserIds: arrayUnion(user.uid)
+                    }).catch(err => console.warn("Auto-repair authorizedUserIds failed:", err));
+                }
+            });
+
+            hasPendingWritesRef.current = hasAuthPendingWrites || hasOwnerPendingWrites;
+            
+            allDocs.forEach(d => {
+                const circleData = d.data() as CircleData;
+                lastSyncedCircles.current[circleData.id] = circleData;
+            });
+
             setIsInitialSyncComplete(true);
 
-            // Avoid overwriting local circles if snapshot is from cache and empty while we have local circles
-            const isFreshCacheEmpty = snapshot.empty && snapshot.metadata.fromCache && appData.circles.length > 0;
-            
-            if (!isFreshCacheEmpty) {
-                setAppData(prev => {
-                    const circlesMap = new Map<string, CircleData>();
-                    prev.circles.forEach(c => circlesMap.set(c.id, c));
-                    
-                    const storedDraftsRaw = localStorage.getItem(`tahfeez_drafts_${user.uid}`);
-                    const storedDrafts = storedDraftsRaw ? JSON.parse(storedDraftsRaw) : {};
+            const isBothServerSynced = !isAuthorizedFromCache && !isOwnerFromCache;
 
-                    const firestoreDocIds = new Set<string>();
+            setAppData(prev => {
+                const circlesMap = new Map<string, CircleData>();
+                prev.circles.forEach(c => circlesMap.set(c.id, c));
+                
+                const storedDraftsRaw = localStorage.getItem(`tahfeez_drafts_${user.uid}`);
+                const storedDrafts = storedDraftsRaw ? JSON.parse(storedDraftsRaw) : {};
 
-                    snapshot.docs.forEach(doc => {
-                        const circleData = doc.data() as CircleData;
-                        firestoreDocIds.add(circleData.id);
+                const firestoreDocIds = new Set<string>();
 
-                        const existing = circlesMap.get(circleData.id);
-                        if (existing) {
-                            const merged = mergeCircleMetadata(existing, circleData);
-                            circlesMap.set(circleData.id, merged);
-                            lastLocalState.current[merged.id] = JSON.parse(JSON.stringify(merged));
-                        } else {
-                            const circleDrafts = storedDrafts[circleData.id] || {};
-                            const newCircle: CircleData = {
-                                ...defaultsForOptionalFields,
-                                ...circleData,
-                                students: [],
-                                sessions: [],
-                                plans: [],
-                                tests: [],
-                                activities: [],
-                                announcements: [],
-                                studentReports: [],
-                                supervisorReports: [],
-                                draftSession: circleDrafts.draftSession || null,
-                                sessionDrafts: circleDrafts.sessionDrafts || {},
-                                draftTest: circleDrafts.draftTest || null,
-                                draftPlan: circleDrafts.draftPlan || null,
-                                draftActivity: circleDrafts.draftActivity || null,
-                                draftAnnouncement: circleDrafts.draftAnnouncement || null
-                            };
-                            circlesMap.set(circleData.id, newCircle);
-                            lastLocalState.current[circleData.id] = JSON.parse(JSON.stringify(newCircle));
-                        }
-                    });
+                allDocs.forEach(d => {
+                    const circleData = d.data() as CircleData;
+                    firestoreDocIds.add(circleData.id);
 
-                    // If server snapshot (fromCache === false), remove circles authorized for this user that were deleted from server
-                    if (!snapshot.metadata.fromCache) {
-                        for (const [id, c] of circlesMap.entries()) {
-                            if (!firestoreDocIds.has(id) && c.authorizedUserIds?.includes(user.uid)) {
-                                circlesMap.delete(id);
-                                delete lastLocalState.current[id];
-                            }
-                        }
+                    const existing = circlesMap.get(circleData.id);
+                    if (existing) {
+                        const merged = mergeCircleMetadata(existing, circleData);
+                        circlesMap.set(circleData.id, merged);
+                        lastLocalState.current[merged.id] = JSON.parse(JSON.stringify(merged));
+                    } else {
+                        const circleDrafts = storedDrafts[circleData.id] || {};
+                        const newCircle: CircleData = {
+                            ...defaultsForOptionalFields,
+                            ...circleData,
+                            students: [],
+                            sessions: [],
+                            plans: [],
+                            tests: [],
+                            activities: [],
+                            announcements: [],
+                            studentReports: [],
+                            supervisorReports: [],
+                            draftSession: circleDrafts.draftSession || null,
+                            sessionDrafts: circleDrafts.sessionDrafts || {},
+                            draftTest: circleDrafts.draftTest || null,
+                            draftPlan: circleDrafts.draftPlan || null,
+                            draftActivity: circleDrafts.draftActivity || null,
+                            draftAnnouncement: circleDrafts.draftAnnouncement || null
+                        };
+                        circlesMap.set(circleData.id, newCircle);
+                        lastLocalState.current[circleData.id] = JSON.parse(JSON.stringify(newCircle));
                     }
-
-                    let mergedCircles = Array.from(circlesMap.values());
-                    
-                    // Check if circles list actually changed to prevent unnecessary re-renders
-                    if (prev.circles.length > 0 && JSON.stringify(mergedCircles) === JSON.stringify(prev.circles)) {
-                        return prev;
-                    }
-
-                    let newActiveId = prev.activeCircleId;
-                    if (newActiveId && !mergedCircles.find(c => c.id === newActiveId)) {
-                        newActiveId = mergedCircles.length > 0 ? mergedCircles[0].id : null;
-                    } else if (!newActiveId && mergedCircles.length > 0) {
-                        newActiveId = mergedCircles[0].id;
-                    }
-
-                    return { ...prev, circles: mergedCircles, activeCircleId: newActiveId };
                 });
-            }
+
+                // If both queries have synced with server (not cache), remove circles that were deleted from server
+                if (isBothServerSynced) {
+                    for (const [id, c] of circlesMap.entries()) {
+                        const isUserCircle = c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid);
+                        if (!firestoreDocIds.has(id) && isUserCircle) {
+                            circlesMap.delete(id);
+                            delete lastLocalState.current[id];
+                        }
+                    }
+                }
+
+                let mergedCircles = Array.from(circlesMap.values());
+                
+                if (prev.circles.length > 0 && JSON.stringify(mergedCircles) === JSON.stringify(prev.circles)) {
+                    return prev;
+                }
+
+                let newActiveId = prev.activeCircleId;
+                if (newActiveId && !mergedCircles.find(c => c.id === newActiveId)) {
+                    newActiveId = mergedCircles.length > 0 ? mergedCircles[0].id : null;
+                } else if (!newActiveId && mergedCircles.length > 0) {
+                    newActiveId = mergedCircles[0].id;
+                }
+
+                return { ...prev, circles: mergedCircles, activeCircleId: newActiveId };
+            });
+        };
+
+        const qAuthorized = query(collection(db, 'circles'), where('authorizedUserIds', 'array-contains', user.uid));
+        const qOwner = query(collection(db, 'circles'), where('ownerId', '==', user.uid));
+
+        const unsubAuthorized = onSnapshot(qAuthorized, { includeMetadataChanges: true }, (snapshot) => {
+            docsAuthorized = snapshot.docs;
+            isAuthorizedFromCache = snapshot.metadata.fromCache;
+            hasAuthPendingWrites = snapshot.metadata.hasPendingWrites;
+            processMergedSnapshots();
         }, (error) => {
-            console.error("Firestore metadata sync error:", error);
-            setIsInitialSyncComplete(true); 
+            console.error("Firestore authorized circles sync error:", error);
+            setIsInitialSyncComplete(true);
         });
 
-        return () => unsubscribe();
+        const unsubOwner = onSnapshot(qOwner, { includeMetadataChanges: true }, (snapshot) => {
+            docsOwner = snapshot.docs;
+            isOwnerFromCache = snapshot.metadata.fromCache;
+            hasOwnerPendingWrites = snapshot.metadata.hasPendingWrites;
+            processMergedSnapshots();
+        }, (error) => {
+            console.error("Firestore owner circles sync error:", error);
+            setIsInitialSyncComplete(true);
+        });
+
+        return () => {
+            unsubAuthorized();
+            unsubOwner();
+        };
     }, [user]);
 
     // Subcollection real-time delta merger (receives granular changes and merges into appData state)
@@ -5228,23 +5270,59 @@ const App: React.FC = () => {
     const currentActiveDevNotification = useMemo(() => {
         if (!user || !userProfile || devNotifications.length === 0) return null;
         
-        const dismissedIds = JSON.parse(localStorage.getItem('dismissed_dev_notifications') || '[]');
+        const now = timeTick;
         
-        // Find first active notification that is not dismissed and applies to the current user
         const eligible = devNotifications.filter(notif => {
             if (!notif.active) return false;
-            if (dismissedIds.includes(notif.id)) return false;
-            
-            // Check targets
-            if (!notif.targetType || notif.targetType === 'all') return true;
+            if (dismissedDevNotifIds.includes(notif.id)) return false;
+
+            // Start time check (scheduledAt / startDate)
+            const startTimeMs = notif.scheduledAt || (notif.startDate ? new Date(notif.startDate).getTime() : null);
+            if (startTimeMs && now < startTimeMs) return false;
+
+            // End time check (expiresAt / endDate)
+            const endTimeMs = notif.expiresAt || (notif.endDate ? new Date(notif.endDate).getTime() : null);
+            if (endTimeMs && now > endTimeMs) return false;
+
+            // Target checks
+            if (!notif.targetType || notif.targetType === 'all') {
+                if (notif.excludeCircleIds && notif.excludeCircleIds.length > 0) {
+                    const userCircleIds = appData.circles.filter(c => c.authorizedUserIds?.includes(user.uid)).map(c => c.id);
+                    if (userCircleIds.length > 0 && userCircleIds.every(id => notif.excludeCircleIds.includes(id))) {
+                        return false;
+                    }
+                }
+                return true;
+            }
             
             if (notif.targetType === 'users') {
-                return notif.targetUids?.includes(user.uid) || notif.targetUserIds?.includes(user.uid);
+                const targetList = [
+                    ...(notif.targetUids || []),
+                    ...(notif.targetUserIds || []),
+                    ...(notif.targetUserId ? [notif.targetUserId] : []),
+                    ...(notif.userId ? [notif.userId] : [])
+                ];
+                return targetList.includes(user.uid);
             }
             
             if (notif.targetType === 'circles') {
-                const userCircleIds = appData.circles.map(c => c.id);
-                return notif.targetCircleIds?.some((id: string) => userCircleIds.includes(id));
+                const userCircles = appData.circles.filter(c => c.authorizedUserIds?.includes(user.uid));
+                const userCircleIds = userCircles.map(c => c.id);
+                const userNumericIds = userCircles.map(c => c.numericId).filter(Boolean);
+                
+                const targetCircleIds = notif.targetCircleIds || [];
+                const matches = targetCircleIds.some((id: string) => 
+                    userCircleIds.includes(id) || userNumericIds.includes(id)
+                );
+                
+                if (!matches) return false;
+                
+                if (notif.excludeCircleIds && notif.excludeCircleIds.length > 0) {
+                    if (userCircleIds.length > 0 && userCircleIds.every(id => notif.excludeCircleIds.includes(id))) {
+                        return false;
+                    }
+                }
+                return true;
             }
             
             if (notif.targetType === 'roles') {
@@ -5261,20 +5339,28 @@ const App: React.FC = () => {
         // Sort by date (newest first)
         const sorted = [...eligible].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
         return sorted[0] || null;
-    }, [user, userProfile, devNotifications, appData.circles]);
+    }, [user, userProfile, devNotifications, appData.circles, dismissedDevNotifIds, timeTick]);
 
     const unreadDevNotification = useMemo(() => {
         return currentActiveDevNotification;
     }, [currentActiveDevNotification]);
 
     const handleDismissDevNotification = async (notif: any, buttonClicked?: string) => {
+        if (!notif || !notif.id) return;
+
+        // Immediately hide from screen via local state
+        setDismissedDevNotifIds(prev => {
+            if (prev.includes(notif.id)) return prev;
+            const updated = [...prev, notif.id];
+            try {
+                localStorage.setItem('dismissed_dev_notifications', JSON.stringify(updated));
+            } catch (err) {
+                console.error("LocalStorage error saving dismissed dev notifs:", err);
+            }
+            return updated;
+        });
+
         if (!user || !db) return;
-        
-        const dismissedIds = JSON.parse(localStorage.getItem('dismissed_dev_notifications') || '[]');
-        if (!dismissedIds.includes(notif.id)) {
-            dismissedIds.push(notif.id);
-            localStorage.setItem('dismissed_dev_notifications', JSON.stringify(dismissedIds));
-        }
 
         try {
             const notifRef = doc(db, 'developer_notifications', notif.id);

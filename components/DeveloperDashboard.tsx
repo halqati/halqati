@@ -353,6 +353,7 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const [isNotificationModalOpen, setIsNotificationModalOpen] = useState(false);
     const [isEditingNotification, setIsEditingNotification] = useState<boolean>(false);
     const [editingNotificationId, setEditingNotificationId] = useState<string | null>(null);
+    const [selectedNotifDetails, setSelectedNotifDetails] = useState<any | null>(null);
     const [showPreview, setShowPreview] = useState<boolean>(false);
 
     // Form states for advanced notification creation/edit
@@ -2492,16 +2493,16 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                             )}
 
                             {activeTab === 'notifications' && (
-                                <div className="space-y-6">
+                                <div className="space-y-5">
                                     {/* Header card with Action button */}
-                                    <div className="bg-gradient-to-l from-[#105541]/10 to-transparent p-5 rounded-3xl border border-[#105541]/15 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                    <div className="bg-gradient-to-l from-[#105541]/10 to-transparent p-4 sm:p-5 rounded-2xl border border-[#105541]/20 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                                         <div>
-                                            <h3 className="text-sm font-black text-white flex items-center gap-2">
-                                                <Megaphone className="text-emerald-400" size={18} />
-                                                <span>نظام التنبيهات المنبثقة والإشعارات الاحترافية</span>
+                                            <h3 className="text-xs sm:text-sm font-black text-white flex items-center gap-2">
+                                                <Megaphone className="text-emerald-400 shrink-0" size={18} />
+                                                <span>نظام التنبيهات المنبثقة والإشعارات الذكي</span>
                                             </h3>
                                             <p className="text-[10px] text-gray-400 mt-1 leading-relaxed">
-                                                قم بإنشاء وتعديل ونشر التنبيهات العاجلة للمستخدمين مع تحديد الجمهور المستهدف، جدولة العرض، وإرفاق أزرار مخصصة وتتبع الإحصاءات في الوقت الفعلي.
+                                                قم بإنشاء وتحديث التنبيهات العاجلة للمستخدمين مع تحديد المستهدفين وجدولة الوقت وإرفاق أزرار التفاعل المباشرة.
                                             </p>
                                         </div>
                                         <button 
@@ -2509,165 +2510,125 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                 resetNotificationForm();
                                                 setIsNotificationModalOpen(true);
                                             }}
-                                            className="px-5 py-3 bg-gradient-to-l from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-2xl text-xs font-bold shadow-lg shadow-emerald-500/10 hover:shadow-emerald-500/20 active:scale-95 transition-all flex items-center gap-2 outline-none"
+                                            className="w-full sm:w-auto px-4 py-2.5 bg-gradient-to-l from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-white rounded-xl text-xs font-bold shadow-md shadow-emerald-500/10 active:scale-95 transition-all flex items-center justify-center gap-2 outline-none shrink-0"
                                         >
-                                            <span>+ إنشاء إشعار عاجل جديد</span>
+                                            <span>+ إنشاء إشعار جديد</span>
                                         </button>
                                     </div>
 
                                     {/* Notifications List */}
-                                    <div className="space-y-4">
-                                        <h4 className="text-xs font-black text-emerald-400 uppercase tracking-widest">التنبيهات الحالية ({developerNotifications.length})</h4>
+                                    <div className="space-y-3">
+                                        <div className="flex justify-between items-center px-1">
+                                            <h4 className="text-xs font-black text-emerald-400">التنبيهات الحالية ({developerNotifications.length})</h4>
+                                            <span className="text-[9px] text-gray-500">اضغط على أي بطاقة لتفاصيل الإحصاءات</span>
+                                        </div>
                                         
                                         {developerNotifications.length === 0 ? (
-                                            <div className="bg-[#050807] border border-white/5 p-12 rounded-3xl text-center space-y-3">
-                                                <Megaphone size={36} className="text-gray-600 mx-auto animate-pulse" />
-                                                <p className="text-xs text-gray-400 font-semibold">لا توجد أي إشعارات أو تنبيهات منشورة حالياً.</p>
-                                                <p className="text-[10px] text-gray-500">انقر على زر الإنشاء بالعلوي لبدء نشر أول تنبيه عاجل للمستخدمين.</p>
+                                            <div className="bg-[#050807] border border-white/5 p-10 rounded-2xl text-center space-y-2">
+                                                <Megaphone size={32} className="text-gray-600 mx-auto animate-pulse" />
+                                                <p className="text-xs text-gray-400 font-semibold">لا توجد إشعارات أو تنبيهات منشورة حالياً.</p>
+                                                <p className="text-[10px] text-gray-500">انقر على زر الإنشاء لبدء إرسال إشعارات فورية.</p>
                                             </div>
                                         ) : (
-                                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                                                 {developerNotifications.map((notif) => {
                                                     const isCurrentlyActive = !!notif.active;
                                                     const viewsCount = notif.stats?.viewed?.length || 0;
                                                     const deliveredCount = notif.stats?.delivered?.length || 0;
-                                                    const closedCount = notif.stats?.closed?.length || 0;
                                                     
                                                     return (
-                                                        <div key={notif.id} className="bg-[#0c1310] border border-white/5 rounded-3xl p-5 hover:border-[#105541]/30 transition-all duration-300 relative overflow-hidden flex flex-col justify-between text-right">
-                                                            {/* Top Bar inside card */}
-                                                            <div className="flex justify-between items-start gap-3 mb-3">
-                                                                <div className="space-y-1">
-                                                                    <span className={`text-[8px] px-2 py-0.5 rounded-full font-black uppercase tracking-wider ${
-                                                                        notif.type === 'update' ? 'bg-purple-500/15 text-purple-400' :
-                                                                        notif.type === 'warning' ? 'bg-red-500/15 text-red-400' :
-                                                                        notif.type === 'maintenance' ? 'bg-amber-500/15 text-amber-400' :
-                                                                        notif.type === 'announcement' ? 'bg-emerald-500/15 text-emerald-400' :
-                                                                        'bg-blue-500/15 text-blue-400'
+                                                        <div 
+                                                            key={notif.id} 
+                                                            onClick={() => setSelectedNotifDetails(notif)}
+                                                            className="bg-[#0c1310] border border-white/10 hover:border-emerald-500/40 rounded-2xl p-3.5 transition-all cursor-pointer shadow-sm hover:shadow-emerald-500/5 flex flex-col justify-between space-y-3 group relative text-right overflow-hidden"
+                                                        >
+                                                            {/* Top Badges Row */}
+                                                            <div className="flex items-center justify-between gap-2">
+                                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-black ${
+                                                                        notif.type === 'update' ? 'bg-purple-500/20 text-purple-300' :
+                                                                        notif.type === 'warning' ? 'bg-red-500/20 text-red-300' :
+                                                                        notif.type === 'maintenance' ? 'bg-amber-500/20 text-amber-300' :
+                                                                        notif.type === 'announcement' ? 'bg-emerald-500/20 text-emerald-300' :
+                                                                        'bg-blue-500/20 text-blue-300'
                                                                     }`}>
-                                                                        {notif.type === 'update' ? 'تحديث متوفر' :
-                                                                         notif.type === 'warning' ? 'تحذير شديد' :
-                                                                         notif.type === 'maintenance' ? 'صيانة مجدولة' :
-                                                                         notif.type === 'announcement' ? 'إعلان هام' :
-                                                                         'تنبيه عاجل'}
+                                                                        {notif.type === 'update' ? 'تحديث 🚀' :
+                                                                         notif.type === 'warning' ? 'تحذير ⚠️' :
+                                                                         notif.type === 'maintenance' ? 'صيانة 🛠️' :
+                                                                         notif.type === 'announcement' ? 'إعلان 📢' :
+                                                                         'تنبيه 🔔'}
                                                                     </span>
+
                                                                     {notif.isMandatory && (
-                                                                        <span className="text-[8px] mr-1 px-1.5 py-0.5 bg-red-500/10 text-red-400 rounded-full font-bold">
-                                                                            إجباري ⚠️
+                                                                        <span className="text-[8px] px-1.5 py-0.5 bg-red-500/15 text-red-400 rounded-full font-bold">
+                                                                            إجباري
                                                                         </span>
                                                                     )}
                                                                 </div>
 
-                                                                <div className="flex gap-1.5">
+                                                                <span className={`text-[8px] font-bold px-2 py-0.5 rounded-full ${isCurrentlyActive ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-gray-800 text-gray-500'}`}>
+                                                                    {isCurrentlyActive ? 'نشط' : 'معطل'}
+                                                                </span>
+                                                            </div>
+
+                                                            {/* Title & brief preview */}
+                                                            <div className="space-y-1">
+                                                                <h4 className="text-xs font-bold text-white group-hover:text-emerald-400 transition-colors line-clamp-1">{notif.title}</h4>
+                                                                <p className="text-[10px] text-gray-400 line-clamp-2 leading-snug">{notif.description}</p>
+                                                            </div>
+
+                                                            {/* Meta Info Bar */}
+                                                            <div className="flex items-center justify-between text-[9px] text-gray-400 pt-1.5 border-t border-white/5">
+                                                                <span className="truncate max-w-[120px]">
+                                                                    {notif.targetType === 'all' ? 'الجميع 👥' :
+                                                                     notif.targetType === 'circles' ? `حلقات (${notif.targetCircleIds?.length || 0}) ⭕` :
+                                                                     `مستخدمون (${notif.targetUids?.length || 0}) 👤`}
+                                                                </span>
+                                                                <span className="font-mono text-gray-400 text-[8px] bg-black/40 px-1.5 py-0.5 rounded-md">
+                                                                    👁️ {viewsCount} | 📥 {deliveredCount}
+                                                                </span>
+                                                            </div>
+
+                                                            {/* Actions Bar */}
+                                                            <div 
+                                                                onClick={(e) => e.stopPropagation()} 
+                                                                className="flex items-center justify-between pt-2 border-t border-white/5 gap-2"
+                                                            >
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <span className="text-[8px] text-gray-400 font-medium">التفعيل:</span>
                                                                     <button
-                                                                        onClick={() => handleEditNotification(notif)}
-                                                                        title="تعديل الإشعار"
-                                                                        className="p-1.5 hover:bg-white/5 text-gray-400 hover:text-white rounded-lg transition-all"
-                                                                    >
-                                                                        <Settings size={13} />
-                                                                    </button>
-                                                                    <button
-                                                                        onClick={() => handleDeleteNotification(notif.id)}
-                                                                        title="حذف نهائي"
-                                                                        className="p-1.5 hover:bg-red-500/10 text-red-400 hover:text-red-300 rounded-lg transition-all"
-                                                                    >
-                                                                        <X size={13} />
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-
-                                                            {/* Title and message details */}
-                                                            <div className="space-y-1 mb-4 text-right">
-                                                                <h4 className="text-xs font-black text-white">{notif.title}</h4>
-                                                                <p className="text-[10px] text-gray-400 line-clamp-2 leading-relaxed">{notif.description}</p>
-                                                                
-                                                                {/* Multi image preview indicator */}
-                                                                {notif.imageUrls && notif.imageUrls.length > 0 && (
-                                                                    <div className="flex gap-1.5 mt-2 overflow-x-auto py-0.5">
-                                                                        {notif.imageUrls.map((url: string, idx: number) => (
-                                                                            <img key={idx} src={url} alt="" className="w-8 h-8 object-cover rounded-lg border border-white/5 shrink-0" referrerPolicy="no-referrer" />
-                                                                        ))}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Timing & Targeting Info */}
-                                                            <div className="bg-black/20 p-2.5 rounded-2xl border border-white/5 space-y-1.5 mb-4 text-[9px] text-gray-400">
-                                                                <div className="flex justify-between">
-                                                                    <span>الجمهور المستهدف:</span>
-                                                                    <span className="font-semibold text-white">
-                                                                        {notif.targetType === 'all' ? 'جميع المستخدمين 👥' :
-                                                                         notif.targetType === 'circles' ? `حلقات محددة (${notif.targetCircleIds?.length || 0}) ⭕` :
-                                                                         `معلمون محددون (${notif.targetUids?.length || 0}) 👤`}
-                                                                    </span>
-                                                                </div>
-                                                                {notif.excludeCircleIds && notif.excludeCircleIds.length > 0 && (
-                                                                    <div className="flex justify-between text-red-400/80">
-                                                                        <span>استبعاد حلقات:</span>
-                                                                        <span>مستبعد ({notif.excludeCircleIds.length}) 🚫</span>
-                                                                    </div>
-                                                                )}
-                                                                <div className="flex justify-between">
-                                                                    <span>تاريخ النشر:</span>
-                                                                    <span>{notif.scheduledAt ? new Date(notif.scheduledAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' }) : 'فوري ⚡'}</span>
-                                                                </div>
-                                                                {notif.expiresAt && (
-                                                                    <div className="flex justify-between text-rose-400/80">
-                                                                        <span>تاريخ انتهاء الصلاحية:</span>
-                                                                        <span>{new Date(notif.expiresAt).toLocaleString('ar-EG', { dateStyle: 'short', timeStyle: 'short' })}</span>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Realtime Analytics tracking counts */}
-                                                            <div className="bg-[#105541]/5 p-3 rounded-2xl border border-[#105541]/10 mb-4">
-                                                                <span className="text-[8px] font-black text-emerald-400 block mb-1.5">📊 إحصاءات التفاعل المباشرة</span>
-                                                                <div className="grid grid-cols-3 gap-1.5 text-center text-[9px]">
-                                                                    <div className="bg-[#050807] p-1.5 rounded-xl">
-                                                                        <span className="text-gray-500 block">تم التوصيل</span>
-                                                                        <span className="font-mono font-bold text-white text-[11px]">{deliveredCount}</span>
-                                                                    </div>
-                                                                    <div className="bg-[#050807] p-1.5 rounded-xl">
-                                                                        <span className="text-gray-500 block">تم العرض</span>
-                                                                        <span className="font-mono font-bold text-emerald-400 text-[11px]">{viewsCount}</span>
-                                                                    </div>
-                                                                    <div className="bg-[#050807] p-1.5 rounded-xl">
-                                                                        <span className="text-gray-500 block">تم الإغلاق</span>
-                                                                        <span className="font-mono font-bold text-gray-400 text-[11px]">{closedCount}</span>
-                                                                    </div>
-                                                                </div>
-
-                                                                {/* Custom buttons click stats */}
-                                                                {notif.buttons && notif.buttons.length > 0 && (
-                                                                    <div className="mt-2.5 pt-2 border-t border-white/5 space-y-1">
-                                                                        <span className="text-[8px] text-gray-400 block mb-1">نقرات الأزرار المخصصة:</span>
-                                                                        <div className="grid grid-cols-2 gap-1">
-                                                                            {notif.buttons.map((btn: any) => {
-                                                                                const clicks = notif.stats?.buttonClicks?.[btn.id]?.length || 0;
-                                                                                return (
-                                                                                    <div key={btn.id} className="bg-[#050807] p-1 rounded-lg flex justify-between px-1.5 text-[8px]">
-                                                                                        <span className="text-gray-400 line-clamp-1">{btn.text}:</span>
-                                                                                        <span className="font-mono font-bold text-blue-400">{clicks}</span>
-                                                                                    </div>
-                                                                                );
-                                                                            })}
-                                                                        </div>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-
-                                                            {/* Active status Toggle Switch */}
-                                                            <div className="flex justify-between items-center pt-2 border-t border-white/5">
-                                                                <span className="text-[9px] text-gray-400">حالة النشر الحالية:</span>
-                                                                <div className="flex items-center gap-2">
-                                                                    <span className={`text-[8px] font-black ${isCurrentlyActive ? 'text-emerald-400' : 'text-gray-500'}`}>
-                                                                        {isCurrentlyActive ? 'نشط ويظهر للمستهدفين' : 'موقف ومخفي'}
-                                                                    </span>
-                                                                    <button
+                                                                        type="button"
                                                                         onClick={() => handleToggleNotificationActive(notif.id, isCurrentlyActive)}
-                                                                        className={`w-9 h-5 rounded-full transition-all relative ${isCurrentlyActive ? 'bg-emerald-500' : 'bg-gray-800'}`}
+                                                                        className={`w-7 h-4 rounded-full transition-all relative ${isCurrentlyActive ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                                                                        title={isCurrentlyActive ? 'تعطيل الإشعار' : 'تفعيل الإشعار'}
                                                                     >
-                                                                        <div className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${isCurrentlyActive ? 'right-4.5' : 'right-0.5'}`}></div>
+                                                                        <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${isCurrentlyActive ? 'right-3.5' : 'right-0.5'}`}></div>
+                                                                    </button>
+                                                                </div>
+
+                                                                <div className="flex items-center gap-1">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => setSelectedNotifDetails(notif)}
+                                                                        className="px-2 py-1 bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-300 text-[9px] rounded-lg font-bold transition-all"
+                                                                    >
+                                                                        التفاصيل
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleEditNotification(notif)}
+                                                                        className="p-1 hover:bg-white/10 text-gray-400 hover:text-white rounded-lg transition-all"
+                                                                        title="تعديل الإشعار"
+                                                                    >
+                                                                        <Settings size={12} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleDeleteNotification(notif.id)}
+                                                                        className="p-1 hover:bg-red-500/20 text-red-400 hover:text-red-300 rounded-lg transition-all"
+                                                                        title="حذف الإشعار"
+                                                                    >
+                                                                        <X size={12} />
                                                                     </button>
                                                                 </div>
                                                             </div>
@@ -2676,6 +2637,149 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                 })}
                                             </div>
                                         )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Details Modal */}
+                            {selectedNotifDetails && (
+                                <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+                                    <div className="bg-[#0b120e] border border-emerald-500/20 rounded-3xl p-5 max-w-lg w-full max-h-[90vh] overflow-y-auto space-y-4 text-right shadow-2xl relative">
+                                        {/* Header */}
+                                        <div className="flex justify-between items-start border-b border-white/10 pb-3">
+                                            <div className="space-y-1">
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-black ${
+                                                        selectedNotifDetails.type === 'update' ? 'bg-purple-500/20 text-purple-300' :
+                                                        selectedNotifDetails.type === 'warning' ? 'bg-red-500/20 text-red-300' :
+                                                        'bg-blue-500/20 text-blue-300'
+                                                    }`}>
+                                                        {selectedNotifDetails.type}
+                                                    </span>
+                                                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold ${selectedNotifDetails.active ? 'bg-emerald-500/20 text-emerald-400' : 'bg-gray-800 text-gray-400'}`}>
+                                                        {selectedNotifDetails.active ? 'نشط حالياً' : 'معطل'}
+                                                    </span>
+                                                </div>
+                                                <h3 className="text-sm font-black text-white">{selectedNotifDetails.title}</h3>
+                                            </div>
+                                            <button 
+                                                onClick={() => setSelectedNotifDetails(null)}
+                                                className="p-2 bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white rounded-xl transition-all"
+                                            >
+                                                <X size={16} />
+                                            </button>
+                                        </div>
+
+                                        {/* Description */}
+                                        <div className="bg-black/30 p-3 rounded-2xl border border-white/5 space-y-2">
+                                            <span className="text-[10px] text-gray-400 block font-bold">نص الإشعار الكامل:</span>
+                                            <p className="text-xs text-gray-200 leading-relaxed whitespace-pre-wrap">{selectedNotifDetails.description}</p>
+                                        </div>
+
+                                        {/* Image attachments if any */}
+                                        {selectedNotifDetails.imageUrls && selectedNotifDetails.imageUrls.length > 0 && (
+                                            <div className="space-y-1">
+                                                <span className="text-[10px] text-gray-400 font-bold block">الصور المرفقة:</span>
+                                                <div className="flex gap-2 overflow-x-auto py-1">
+                                                    {selectedNotifDetails.imageUrls.map((url: string, i: number) => (
+                                                        <img key={i} src={url} alt="" className="w-20 h-20 object-cover rounded-xl border border-white/10 shrink-0" referrerPolicy="no-referrer" />
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Targeting & Timing details */}
+                                        <div className="bg-black/20 p-3 rounded-2xl border border-white/5 space-y-1.5 text-[10px] text-gray-300">
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-400">الفئة المستهدفة:</span>
+                                                <span className="font-bold text-emerald-400">
+                                                    {selectedNotifDetails.targetType === 'all' ? 'جميع مستخدمي المنصة 👥' :
+                                                     selectedNotifDetails.targetType === 'circles' ? `حلقات محددة (${selectedNotifDetails.targetCircleIds?.length || 0}) ⭕` :
+                                                     `معلمون محددون (${selectedNotifDetails.targetUids?.length || 0}) 👤`}
+                                                </span>
+                                            </div>
+                                            <div className="flex justify-between">
+                                                <span className="text-gray-400">تاريخ ووقت البدء:</span>
+                                                <span>{selectedNotifDetails.scheduledAt ? new Date(selectedNotifDetails.scheduledAt).toLocaleString('ar-EG') : 'فوري عند الإنشاء'}</span>
+                                            </div>
+                                            {selectedNotifDetails.expiresAt && (
+                                                <div className="flex justify-between text-rose-300">
+                                                    <span>تاريخ ووقت الانتهاء:</span>
+                                                    <span>{new Date(selectedNotifDetails.expiresAt).toLocaleString('ar-EG')}</span>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Comprehensive Realtime Stats */}
+                                        <div className="bg-emerald-950/20 p-3.5 rounded-2xl border border-emerald-500/20 space-y-2">
+                                            <span className="text-[10px] font-black text-emerald-400 block">📊 إحصاءات التفاعل المباشرة</span>
+                                            <div className="grid grid-cols-3 gap-2 text-center text-[10px]">
+                                                <div className="bg-black/40 p-2 rounded-xl">
+                                                    <span className="text-gray-400 block text-[9px]">وصل إلى</span>
+                                                    <span className="font-mono font-bold text-white text-sm">{selectedNotifDetails.stats?.delivered?.length || 0}</span>
+                                                </div>
+                                                <div className="bg-black/40 p-2 rounded-xl">
+                                                    <span className="text-gray-400 block text-[9px]">شاهده</span>
+                                                    <span className="font-mono font-bold text-emerald-400 text-sm">{selectedNotifDetails.stats?.viewed?.length || 0}</span>
+                                                </div>
+                                                <div className="bg-black/40 p-2 rounded-xl">
+                                                    <span className="text-gray-400 block text-[9px]">أغلقه</span>
+                                                    <span className="font-mono font-bold text-gray-300 text-sm">{selectedNotifDetails.stats?.closed?.length || 0}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Buttons clicks */}
+                                            {selectedNotifDetails.buttons && selectedNotifDetails.buttons.length > 0 && (
+                                                <div className="space-y-1 pt-2 border-t border-white/5">
+                                                    <span className="text-[9px] text-gray-400 block font-bold">نقرات الأزرار التفاعلية:</span>
+                                                    <div className="space-y-1">
+                                                        {selectedNotifDetails.buttons.map((btn: any) => {
+                                                            const clicks = selectedNotifDetails.stats?.buttonClicks?.[btn.id]?.length || 0;
+                                                            return (
+                                                                <div key={btn.id} className="bg-black/40 px-2.5 py-1.5 rounded-xl flex justify-between items-center text-[10px]">
+                                                                    <span className="text-gray-300">{btn.text} ({btn.action})</span>
+                                                                    <span className="font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-lg">{clicks} نقرة</span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* Actions in Details Modal */}
+                                        <div className="flex gap-2 pt-2 border-t border-white/10">
+                                            <button
+                                                onClick={() => {
+                                                    const notif = selectedNotifDetails;
+                                                    setSelectedNotifDetails(null);
+                                                    handleEditNotification(notif);
+                                                }}
+                                                className="flex-1 py-2.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-xs font-bold transition-all"
+                                            >
+                                                تعديل الإشعار
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const notif = selectedNotifDetails;
+                                                    handleToggleNotificationActive(notif.id, !!notif.active);
+                                                    setSelectedNotifDetails({ ...notif, active: !notif.active });
+                                                }}
+                                                className="px-3 py-2.5 bg-white/5 hover:bg-white/10 text-gray-300 rounded-xl text-xs font-bold transition-all"
+                                            >
+                                                {selectedNotifDetails.active ? 'تعطيل' : 'تفعيل'}
+                                            </button>
+                                            <button
+                                                onClick={() => {
+                                                    const notifId = selectedNotifDetails.id;
+                                                    setSelectedNotifDetails(null);
+                                                    handleDeleteNotification(notifId);
+                                                }}
+                                                className="px-3 py-2.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-xl text-xs font-bold transition-all"
+                                            >
+                                                حذف
+                                            </button>
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -3320,27 +3424,48 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
 
                                                 {/* Customizable Buttons */}
                                                 <div className="bg-[#0b0f0c] p-4 rounded-2xl border border-white/5 space-y-3">
-                                                    <div className="flex justify-between items-center">
+                                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                                                         <span className="text-[10px] font-black text-emerald-400">4. أزرار تفاعلية مخصصة للإشعار ({notifButtons.length})</span>
-                                                        <button 
-                                                            type="button"
-                                                            onClick={() => {
-                                                                if (notifButtons.length >= 3) {
-                                                                    addToast('⚠️ الحد الأقصى هو 3 أزرار فقط للحفاظ على المظهر العام.', 'info');
-                                                                    return;
-                                                                }
-                                                                setNotifButtons([...notifButtons, {
-                                                                    id: 'btn_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-                                                                    text: 'موافق وفهمت',
-                                                                    action: 'ok',
-                                                                    link: '',
-                                                                    page: 'overview'
-                                                                }]);
-                                                            }}
-                                                            className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[9px] font-black transition-all"
-                                                        >
-                                                            + إضافة زر إجراء
-                                                        </button>
+                                                        <div className="flex gap-1.5 flex-wrap">
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (notifButtons.length >= 3) {
+                                                                        addToast('⚠️ الحد الأقصى هو 3 أزرار فقط للحفاظ على المظهر العام.', 'info');
+                                                                        return;
+                                                                    }
+                                                                    setNotifButtons([...notifButtons, {
+                                                                        id: 'btn_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                                                                        text: 'تحميل التحديث الآن 🚀',
+                                                                        action: 'external_link',
+                                                                        link: 'https://',
+                                                                        page: 'overview'
+                                                                    }]);
+                                                                }}
+                                                                className="px-2 py-1 bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 rounded-lg text-[9px] font-black transition-all"
+                                                            >
+                                                                + زر تحميل تحديث 🚀
+                                                            </button>
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    if (notifButtons.length >= 3) {
+                                                                        addToast('⚠️ الحد الأقصى هو 3 أزرار فقط للحفاظ على المظهر العام.', 'info');
+                                                                        return;
+                                                                    }
+                                                                    setNotifButtons([...notifButtons, {
+                                                                        id: 'btn_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                                                                        text: 'موافق وفهمت',
+                                                                        action: 'ok',
+                                                                        link: '',
+                                                                        page: 'overview'
+                                                                    }]);
+                                                                }}
+                                                                className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[9px] font-black transition-all"
+                                                            >
+                                                                + إضافة زر عادي
+                                                            </button>
+                                                        </div>
                                                     </div>
 
                                                     {notifButtons.length === 0 ? (

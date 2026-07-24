@@ -69,22 +69,12 @@ const logoutUser = async () => {
 
 const loginWithUsername = async (username: string, password: string) => {
   if (!auth) throw new Error("Firebase is not initialized.");
-  const email = `${username.toLowerCase().trim()}@quran.app`;
+  const email = username.includes('@') ? username.trim() : `${username.toLowerCase().trim()}@quran.app`;
   try {
     const result = await signInWithEmailAndPassword(auth, email, password);
     return result.user;
   } catch (error: any) {
-    if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential') {
-      // Try to create the user if it doesn't exist (simple auto-signup for this use case)
-      // Note: auth/invalid-credential might be returned if user doesn't exist in some configs
-      try {
-        const result = await createUserWithEmailAndPassword(auth, email, password);
-        return result.user;
-      } catch (signupError: any) {
-        // If it's just a wrong password for existing user, it will fail here too
-        throw signupError;
-      }
-    }
+    console.error("Login failed:", error);
     throw error;
   }
 };

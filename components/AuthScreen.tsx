@@ -499,12 +499,16 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
       localStorage.removeItem('auth_saving_prompt_pending');
       console.error("Auth error:", error);
       let message = 'حدث خطأ أثناء العملية';
-      if (error.code === 'auth/user-not-found') message = 'المستخدم غير موجود';
-      else if (error.code === 'auth/wrong-password') message = 'كلمة المرور خاطئة';
-      else if (error.code === 'auth/email-already-in-use') message = 'البريد الإلكتروني مستخدم بالفعل';
-      else if (error.code === 'auth/weak-password') message = 'كلمة المرور ضعيفة جداً';
-      else if (error.code === 'auth/operation-not-allowed') message = 'طريقة التسجيل هذه غير مفعلة. يرجى تفعيلها من لوحة التحكم.';
-      else if (error.code === 'auth/invalid-credential') message = 'بيانات الاعتماد غير صالحة. تأكد من بريدك وكلمة المرور.';
+      if (error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password') {
+        message = 'اسم المستخدم أو كلمة المرور غير صحيحة. يرجى التأكد من البيانات والمحاولة مجدداً.';
+      } else if (error.code === 'auth/email-already-in-use') {
+        message = 'هذا الحساب مسجل بالفعل مسبقاً. تم تحويلك لصفحة تسجيل الدخول.';
+        setIsLogin(true);
+      } else if (error.code === 'auth/weak-password') {
+        message = 'كلمة المرور ضعيفة جداً. يرجى اختيار كلمة مرور أطول.';
+      } else if (error.code === 'auth/operation-not-allowed') {
+        message = 'طريقة التسجيل هذه غير مفعلة. يرجى تفعيلها من لوحة التحكم.';
+      }
       addToast(message, 'error');
     } finally {
       setIsLoading(false);
@@ -558,7 +562,9 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLoginSuccess, addToast, syste
       console.error("Signup error:", error);
       let message = 'حدث خطأ أثناء عملية الإنشاء';
       if (error.code === 'auth/email-already-in-use') {
-        message = 'البريد الإلكتروني أو اسم المستخدم هذا مستخدم بالفعل مسبقاً.';
+        message = 'هذا الحساب مسجل بالفعل مسبقاً. تم تحويلك لصفحة تسجيل الدخول، يرجى كتابة كلمة المرور للدخول.';
+        setShowReviewModal(false);
+        setIsLogin(true);
       } else if (error.code === 'auth/weak-password') {
         message = 'كلمة المرور ضعيفة جداً.';
       } else if (error.message) {

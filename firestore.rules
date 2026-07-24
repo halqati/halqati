@@ -101,6 +101,12 @@ service cloud.firestore {
       allow delete: if isDeveloper() || isAdmin();
     }
 
+    match /developer_notifications/{notifId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isDeveloper() || isAdmin();
+      allow update: if isSignedIn();
+    }
+
     match /system/settings {
       allow read: if isSignedIn();
       allow write: if isAdmin() || isDeveloper();
