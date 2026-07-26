@@ -1767,15 +1767,375 @@ export const calculatePagesCount = (
     return roundToQuranFraction(totalRatios);
 };
 
+export const formatPagesCount = (count: number): string => {
+    if (count === undefined || count === null || isNaN(count)) return '0';
+    const rounded = Math.round((count + Number.EPSILON) * 100) / 100;
+    if (Math.abs(rounded) < 0.0001) return '0';
+    if (Number.isInteger(rounded)) {
+        return rounded.toString();
+    }
+    if (Math.round(rounded * 10) / 10 === rounded) {
+        return rounded.toFixed(1);
+    }
+    return rounded.toFixed(2);
+};
+
 export const formatPagesCountArabic = (count: number): string => {
-    const formattedCount = parseFloat(count.toFixed(2));
-    if (formattedCount === 1 || (formattedCount > 1 && formattedCount < 2)) {
+    const formattedCount = formatPagesCount(count);
+    const num = parseFloat(formattedCount);
+    if (num === 1 || (num > 1 && num < 2)) {
         return `${formattedCount} صفحة`;
-    } else if (formattedCount >= 2 && formattedCount <= 10) {
+    } else if (num >= 2 && num <= 10 && Number.isInteger(num)) {
         return `${formattedCount} صفحات`;
-    } else if (formattedCount > 10) {
+    } else if (num > 10) {
         return `${formattedCount} صفحة`;
     } else {
         return `${formattedCount} صفحة`;
     }
 };
+
+export interface SurahPeriodStatItem {
+    surahName: string;
+    totalVerses: number;
+    isCompleted: boolean;
+    displayLabel: string;
+    recitedVersesCount: number;
+    rangesLabel: string;
+    recitedByStudentsCount: number;
+}
+
+export interface PeriodSurahStatsResult {
+    completedSurahs: SurahPeriodStatItem[];
+    incompleteSurahs: SurahPeriodStatItem[];
+}
+
+export const getPeriodSurahStats = (
+    sessions: any[],
+    studentsFilter?: number[]
+): PeriodSurahStatsResult => {
+    const surahMap = new Map<string, {
+        surahObj: { name: string; verses: number };
+        recitedVersesSet: Set<number>;
+        studentsSet: Set<number>;
+    }>();
+
+    sessions.forEach(session => {
+        if (!session || !session.students) return;
+        session.students.forEach((ss: any) => {
+            if (studentsFilter && studentsFilter.length > 0 && !studentsFilter.includes(ss.id)) {
+                return;
+            }
+
+            const recitations: Array<{ fromSurah?: string; fromAyah?: number | string; toSurah?: string; toAyah?: number | string }> = [];
+
+            if (ss.memorization && ss.memorization.hasMemorization && ss.memorization.fromSurah) {
+                recitations.push(ss.memorization);
+            }
+            if (Array.isArray(ss.extraMemorizations)) {
+                ss.extraMemorizations.forEach((em: any) => {
+                    if (em && em.hasMemorization && em.fromSurah) {
+                        recitations.push(em);
+                    }
+                });
+            }
+            if (ss.review && ss.review.hasReview && ss.review.fromSurah) {
+                recitations.push(ss.review);
+            }
+            if (Array.isArray(ss.extraReviews)) {
+                ss.extraReviews.forEach((er: any) => {
+                    if (er && er.hasReview && er.fromSurah) {
+                        recitations.push(er);
+                    }
+                });
+            }
+
+            recitations.forEach(rec => {
+                const fromSurahName = rec.fromSurah ? getCorrectSurahName(rec.fromSurah) : '';
+                if (!fromSurahName) return;
+
+                const toSurahName = rec.toSurah ? getCorrectSurahName(rec.toSurah) : fromSurahName;
+
+                let fromIdx = surahs.findIndex(s => normalizeText(s.name) === normalizeText(fromSurahName));
+                let toIdx = surahs.findIndex(s => normalizeText(s.name) === normalizeText(toSurahName));
+
+                if (fromIdx === -1 && toIdx === -1) return;
+                if (fromIdx === -1) fromIdx = toIdx;
+                if (toIdx === -1) toIdx = fromIdx;
+
+                if (fromIdx > toIdx) {
+                    const temp = fromIdx;
+                    fromIdx = toIdx;
+                    toIdx = temp;
+                }
+
+                const parsedFromAyah = parseInt(String(rec.fromAyah || 1), 10) || 1;
+                const parsedToAyah = parseInt(String(rec.toAyah || 0), 10);
+
+                for (let i = fromIdx; i <= toIdx; i++) {
+                    const sObj = surahs[i];
+                    if (!sObj) continue;
+
+                    if (!surahMap.has(sObj.name)) {
+                        surahMap.set(sObj.name, {
+                            surahObj: sObj,
+                            recitedVersesSet: new Set<number>(),
+                            studentsSet: new Set<number>()
+                        });
+                    }
+
+                    const entry = surahMap.get(sObj.name)!;
+                    entry.studentsSet.add(ss.id);
+
+                    let startA = 1;
+                    let endA = sObj.verses;
+
+                    if (i === fromIdx && i === toIdx) {
+                        startA = Math.max(1, parsedFromAyah);
+                        endA = parsedToAyah > 0 ? Math.min(sObj.verses, parsedToAyah) : sObj.verses;
+                    } else if (i === fromIdx) {
+                        startA = Math.max(1, parsedFromAyah);
+                        endA = sObj.verses;
+                    } else if (i === toIdx) {
+                        startA = 1;
+                        endA = parsedToAyah > 0 ? Math.min(sObj.verses, parsedToAyah) : sObj.verses;
+                    }
+
+                    for (let a = startA; a <= endA; a++) {
+                        entry.recitedVersesSet.add(a);
+                    }
+                }
+            });
+        });
+    });
+
+    const completedSurahs: SurahPeriodStatItem[] = [];
+    const incompleteSurahs: SurahPeriodStatItem[] = [];
+
+    surahMap.forEach(({ surahObj, recitedVersesSet, studentsSet }) => {
+        const totalVerses = surahObj.verses;
+        const count = recitedVersesSet.size;
+        const isCompleted = count >= totalVerses;
+
+        if (isCompleted) {
+            completedSurahs.push({
+                surahName: surahObj.name,
+                totalVerses,
+                isCompleted: true,
+                displayLabel: `سورة ${surahObj.name}`,
+                recitedVersesCount: count,
+                rangesLabel: 'مكتملة',
+                recitedByStudentsCount: studentsSet.size
+            });
+        } else {
+            const sortedAyahs = Array.from(recitedVersesSet).sort((a, b) => a - b);
+            const ranges: Array<{ start: number; end: number }> = [];
+
+            if (sortedAyahs.length > 0) {
+                let start = sortedAyahs[0];
+                let prev = sortedAyahs[0];
+
+                for (let i = 1; i < sortedAyahs.length; i++) {
+                    const curr = sortedAyahs[i];
+                    if (curr === prev + 1) {
+                        prev = curr;
+                    } else {
+                        ranges.push({ start, end: prev });
+                        start = curr;
+                        prev = curr;
+                    }
+                }
+                ranges.push({ start, end: prev });
+            }
+
+            const rangesStr = ranges.map(r => r.start === r.end ? `${r.start}` : `${r.start}-${r.end}`).join('، ');
+            const displayLabel = `سورة ${surahObj.name} (${rangesStr})`;
+
+            incompleteSurahs.push({
+                surahName: surahObj.name,
+                totalVerses,
+                isCompleted: false,
+                displayLabel,
+                recitedVersesCount: count,
+                rangesLabel: rangesStr,
+                recitedByStudentsCount: studentsSet.size
+            });
+        }
+    });
+
+    completedSurahs.sort((a, b) => {
+        const idxA = surahs.findIndex(s => s.name === a.surahName);
+        const idxB = surahs.findIndex(s => s.name === b.surahName);
+        return idxA - idxB;
+    });
+
+    incompleteSurahs.sort((a, b) => {
+        const idxA = surahs.findIndex(s => s.name === a.surahName);
+        const idxB = surahs.findIndex(s => s.name === b.surahName);
+        return idxA - idxB;
+    });
+
+    return { completedSurahs, incompleteSurahs };
+};
+
+export interface StudentSurahPeriodSummary {
+    memoCompleted: string[];
+    memoIncomplete: string[];
+    memoText: string;
+    reviewCompleted: string[];
+    reviewIncomplete: string[];
+    reviewText: string;
+    allText: string;
+    totalCompletedSurahsCount: number;
+}
+
+export const getStudentSurahSummaryForPeriod = (
+    sessions: any[],
+    studentId: number
+): StudentSurahPeriodSummary => {
+    const studentSessions = (sessions || []).filter(s => s && s.students && s.students.some((ss: any) => ss.id === studentId));
+    
+    const memoSurahMap = new Map<string, Set<number>>();
+    const reviewSurahMap = new Map<string, Set<number>>();
+
+    const processRecitationList = (recList: any[], targetMap: Map<string, Set<number>>) => {
+        recList.forEach(rec => {
+            if (!rec || !rec.fromSurah) return;
+            const fromSurahName = getCorrectSurahName(rec.fromSurah);
+            if (!fromSurahName) return;
+            const toSurahName = rec.toSurah ? getCorrectSurahName(rec.toSurah) : fromSurahName;
+
+            let fromIdx = surahs.findIndex(s => normalizeText(s.name) === normalizeText(fromSurahName));
+            let toIdx = surahs.findIndex(s => normalizeText(s.name) === normalizeText(toSurahName));
+
+            if (fromIdx === -1 && toIdx === -1) return;
+            if (fromIdx === -1) fromIdx = toIdx;
+            if (toIdx === -1) toIdx = fromIdx;
+
+            if (fromIdx > toIdx) {
+                const temp = fromIdx;
+                fromIdx = toIdx;
+                toIdx = temp;
+            }
+
+            const parsedFromAyah = parseInt(String(rec.fromAyah || 1), 10) || 1;
+            const parsedToAyah = parseInt(String(rec.toAyah || 0), 10);
+
+            for (let i = fromIdx; i <= toIdx; i++) {
+                const sObj = surahs[i];
+                if (!sObj) continue;
+
+                if (!targetMap.has(sObj.name)) {
+                    targetMap.set(sObj.name, new Set<number>());
+                }
+                const set = targetMap.get(sObj.name)!;
+
+                let startA = 1;
+                let endA = sObj.verses;
+
+                if (i === fromIdx && i === toIdx) {
+                    startA = Math.max(1, parsedFromAyah);
+                    endA = parsedToAyah > 0 ? Math.min(sObj.verses, parsedToAyah) : sObj.verses;
+                } else if (i === fromIdx) {
+                    startA = Math.max(1, parsedFromAyah);
+                    endA = sObj.verses;
+                } else if (i === toIdx) {
+                    startA = 1;
+                    endA = parsedToAyah > 0 ? Math.min(sObj.verses, parsedToAyah) : sObj.verses;
+                }
+
+                for (let a = startA; a <= endA; a++) {
+                    set.add(a);
+                }
+            }
+        });
+    };
+
+    studentSessions.forEach(session => {
+        const ss = session.students.find((st: any) => st.id === studentId);
+        if (!ss) return;
+
+        const memoRecs: any[] = [];
+        if (ss.memorization && ss.memorization.hasMemorization && ss.memorization.fromSurah) {
+            memoRecs.push(ss.memorization);
+        }
+        if (Array.isArray(ss.extraMemorizations)) {
+            ss.extraMemorizations.forEach((em: any) => {
+                if (em && em.hasMemorization && em.fromSurah) {
+                    memoRecs.push(em);
+                }
+            });
+        }
+        processRecitationList(memoRecs, memoSurahMap);
+
+        const reviewRecs: any[] = [];
+        if (ss.review && ss.review.hasReview && ss.review.fromSurah) {
+            reviewRecs.push(ss.review);
+        }
+        if (Array.isArray(ss.extraReviews)) {
+            ss.extraReviews.forEach((er: any) => {
+                if (er && er.hasReview && er.fromSurah) {
+                    reviewRecs.push(er);
+                }
+            });
+        }
+        processRecitationList(reviewRecs, reviewSurahMap);
+    });
+
+    const formatSurahMapResult = (map: Map<string, Set<number>>) => {
+        const completed: string[] = [];
+        const incomplete: string[] = [];
+
+        map.forEach((recitedSet, surahName) => {
+            const sObj = surahs.find(s => normalizeText(s.name) === normalizeText(surahName));
+            const totalVerses = sObj ? sObj.verses : 0;
+
+            if (totalVerses > 0 && recitedSet.size >= totalVerses) {
+                completed.push(surahName);
+            } else {
+                const versesArr = Array.from(recitedSet).sort((a, b) => a - b);
+                if (versesArr.length === 0) return;
+
+                const ranges: string[] = [];
+                let start = versesArr[0];
+                let prev = versesArr[0];
+
+                for (let i = 1; i < versesArr.length; i++) {
+                    if (versesArr[i] === prev + 1) {
+                        prev = versesArr[i];
+                    } else {
+                        ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+                        start = versesArr[i];
+                        prev = versesArr[i];
+                    }
+                }
+                ranges.push(start === prev ? `${start}` : `${start}-${prev}`);
+
+                incomplete.push(`${surahName} (${ranges.join('، ')})`);
+            }
+        });
+
+        const allFormatted = [...completed, ...incomplete];
+        return {
+            completed,
+            incomplete,
+            text: allFormatted.join('، ')
+        };
+    };
+
+    const memoRes = formatSurahMapResult(memoSurahMap);
+    const reviewRes = formatSurahMapResult(reviewSurahMap);
+
+    const totalCompletedSurahsCount = new Set([...memoRes.completed, ...reviewRes.completed]).size;
+
+    return {
+        memoCompleted: memoRes.completed,
+        memoIncomplete: memoRes.incomplete,
+        memoText: memoRes.text,
+        reviewCompleted: reviewRes.completed,
+        reviewIncomplete: reviewRes.incomplete,
+        reviewText: reviewRes.text,
+        allText: [memoRes.text ? `حفظ: ${memoRes.text}` : '', reviewRes.text ? `مراجعة: ${reviewRes.text}` : ''].filter(Boolean).join(' | '),
+        totalCompletedSurahsCount
+    };
+};
+

@@ -5,7 +5,7 @@ import { Session, Student, CircleData, Test } from '../types';
 import { Chart, CategoryScale, LinearScale, Tooltip, Legend, PointElement, LineElement, Filler } from 'chart.js';
 import { FaTimes, FaCalendarAlt, FaTrophy, FaUsers, FaWalking, FaRunning, FaStar, FaSadTear, FaChartLine, FaClipboardList, FaFileAlt, FaChevronDown, FaClipboardCheck, FaPercentage, FaSearch } from 'react-icons/fa';
 import StudentAvatar from './StudentAvatar';
-import { normalizeText } from '../utils/helpers';
+import { normalizeText, formatPagesCount, getPeriodSurahStats } from '../utils/helpers';
 
 Chart.register(CategoryScale, LinearScale, Tooltip, Legend, PointElement, LineElement, Filler);
 
@@ -168,6 +168,10 @@ const StatsModal: React.FC<{ students: Student[]; sessions: Session[]; onClose: 
             return testDate >= dateRange.startDate && testDate <= dateRange.endDate;
         });
     }, [data.tests, dateRange]);
+
+    const surahStats = useMemo(() => {
+        return getPeriodSurahStats(filteredSessions);
+    }, [filteredSessions]);
     
     const stats = useMemo(() => {
         if (filteredSessions.length === 0 || students.length === 0) return null;
@@ -497,8 +501,9 @@ const StatsModal: React.FC<{ students: Student[]; sessions: Session[]; onClose: 
                 )}
             </header>
             
-            <div className="flex-shrink-0 flex justify-around border-b dark:border-gray-700 bg-white dark:bg-gray-800/30">
+            <div className="flex-shrink-0 flex justify-around border-b dark:border-gray-700 bg-white dark:bg-gray-800/30 overflow-x-auto no-scrollbar">
                 <TabButton label="نظرة عامة" active={activeTab === 'overview'} onClick={() => setActiveTab('overview')} />
+                <TabButton label="إحصائية السور" active={activeTab === 'surahs'} onClick={() => setActiveTab('surahs')} />
                 <TabButton label="الحضور" active={activeTab === 'attendance'} onClick={() => setActiveTab('attendance')} />
                 <TabButton label="الأداء" active={activeTab === 'performance'} onClick={() => setActiveTab('performance')} />
                 <TabButton label="الطلاب" active={activeTab === 'students'} onClick={() => setActiveTab('students')} />
@@ -514,6 +519,83 @@ const StatsModal: React.FC<{ students: Student[]; sessions: Session[]; onClose: 
                 ) : (
                     <AnimatePresence mode="wait">
                     <motion.div key={activeTab} initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} exit={{opacity:0, y:-10}} className="space-y-4 h-full flex flex-col">
+                        {activeTab === 'surahs' && (
+                            <div className="space-y-4">
+                                <div className="grid grid-cols-2 gap-3">
+                                    <div className="bg-emerald-50 dark:bg-emerald-950/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800/60 text-center">
+                                        <p className="font-extrabold text-2xl text-emerald-700 dark:text-emerald-400 font-mono">
+                                            {surahStats.completedSurahs.length}
+                                        </p>
+                                        <p className="text-xs font-bold text-emerald-900 dark:text-emerald-300 mt-0.5">سور مكتملة</p>
+                                    </div>
+                                    <div className="bg-amber-50 dark:bg-amber-950/40 p-3 rounded-xl border border-amber-200 dark:border-amber-800/60 text-center">
+                                        <p className="font-extrabold text-2xl text-amber-700 dark:text-amber-400 font-mono">
+                                            {surahStats.incompleteSurahs.length}
+                                        </p>
+                                        <p className="text-xs font-bold text-amber-900 dark:text-amber-300 mt-0.5">سور غير مكتملة</p>
+                                    </div>
+                                </div>
+
+                                {/* Completed Surahs Card */}
+                                <div className="bg-white dark:bg-gray-800 rounded-xl p-3.5 border-2 border-emerald-500/40 shadow-xs space-y-2.5">
+                                    <div className="flex items-center justify-between border-b border-emerald-100 dark:border-emerald-800/40 pb-2">
+                                        <h3 className="font-bold text-xs text-emerald-800 dark:text-emerald-400 flex items-center gap-1.5">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span>
+                                            السور المكتملة بالفترة
+                                        </h3>
+                                        <span className="text-[10px] bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full font-bold font-mono">
+                                            {surahStats.completedSurahs.length} سورة
+                                        </span>
+                                    </div>
+
+                                    {surahStats.completedSurahs.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1.5 pt-1">
+                                            {surahStats.completedSurahs.map((item, idx) => (
+                                                <div key={idx} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-50/80 dark:bg-emerald-900/30 border border-emerald-300 dark:border-emerald-700/60 shadow-2xs">
+                                                    <span className="w-4 h-4 rounded-full bg-emerald-600 text-white flex items-center justify-center text-[9px] font-bold">✓</span>
+                                                    <span className="font-bold text-xs text-emerald-950 dark:text-emerald-100">{item.displayLabel}</span>
+                                                    <span className="text-[9px] bg-emerald-200/60 dark:bg-emerald-800/80 text-emerald-900 dark:text-emerald-200 px-1.5 py-0.2 rounded font-mono font-bold">
+                                                        {item.totalVerses} آية
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-center text-gray-400 dark:text-gray-500 py-3 font-medium">لا توجد سور مكتملة مسمعة خلال الفترة المحددة.</p>
+                                    )}
+                                </div>
+
+                                {/* Incomplete Surahs Card */}
+                                <div className="bg-white dark:bg-gray-800 rounded-xl p-3.5 border-2 border-amber-500/40 shadow-xs space-y-2.5">
+                                    <div className="flex items-center justify-between border-b border-amber-100 dark:border-amber-800/40 pb-2">
+                                        <h3 className="font-bold text-xs text-amber-800 dark:text-amber-400 flex items-center gap-1.5">
+                                            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 inline-block"></span>
+                                            السور غير المكتملة بالفترة
+                                        </h3>
+                                        <span className="text-[10px] bg-amber-100 dark:bg-amber-900/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full font-bold font-mono">
+                                            {surahStats.incompleteSurahs.length} سورة
+                                        </span>
+                                    </div>
+
+                                    {surahStats.incompleteSurahs.length > 0 ? (
+                                        <div className="flex flex-wrap gap-1.5 pt-1">
+                                            {surahStats.incompleteSurahs.map((item, idx) => (
+                                                <div key={idx} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-50/80 dark:bg-amber-900/30 border border-amber-300 dark:border-amber-700/60 shadow-2xs">
+                                                    <span className="text-amber-600 dark:text-amber-400 font-mono text-[10px]">⏳</span>
+                                                    <span className="font-bold text-xs text-amber-950 dark:text-amber-100">{item.displayLabel}</span>
+                                                    <span className="text-[9px] bg-amber-200/60 dark:bg-amber-800/80 text-amber-900 dark:text-amber-200 px-1.5 py-0.2 rounded font-mono font-bold">
+                                                        {item.recitedVersesCount}/{item.totalVerses} آية
+                                                    </span>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-center text-gray-400 dark:text-gray-500 py-3 font-medium">لا توجد سور غير مكتملة مسمعة خلال الفترة المحددة.</p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
                         {activeTab === 'overview' && (
                             <div className="space-y-4 flex flex-col h-full">
                                 <div className="grid grid-cols-3 gap-3 flex-shrink-0">

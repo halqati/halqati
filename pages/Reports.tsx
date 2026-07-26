@@ -13,7 +13,7 @@ import {
     Award as AwardLucide, Star as StarLucide, RefreshCw, X as XLucide
 } from 'lucide-react';
 import { CircleData, Student, Session, Test } from '../types';
-import { formatDate } from '../utils/helpers';
+import { formatDate, formatPagesCount, getPeriodSurahStats, getStudentSurahSummaryForPeriod } from '../utils/helpers';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import SmartRecitationFormModal from '../components/SmartRecitationFormModal';
@@ -274,21 +274,60 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                 else if (ss.attendance === 'absent') sStat.absent += 1;
                 else if (ss.attendance === 'excused') sStat.excused += 1;
 
-                // Sum up Pages
-                if (ss.memorization && ss.memorization.hasMemorization) {
-                    sStat.memorizedPages += ss.memorization.pages_count || 0;
-                    if (ss.memorization.fromSurah) {
-                        sStat.lastMemoSurah = ss.memorization.toSurah || ss.memorization.fromSurah;
-                        sStat.lastMemoAyah = ss.memorization.toAyah || ss.memorization.fromAyah;
+                // Sum up Pages (Main + Extra Recitations)
+                const getItemPages = (rec: any): number => {
+                    if (!rec) return 0;
+                    if (typeof rec.pages_count === 'number' && rec.pages_count > 0) {
+                        return rec.pages_count;
                     }
-                }
-                if (ss.review && ss.review.hasReview) {
-                    sStat.reviewedPages += ss.review.pages_count || 0;
-                    if (ss.review.fromSurah) {
-                        sStat.lastReviewSurah = ss.review.toSurah || ss.review.fromSurah;
-                        sStat.lastReviewAyah = ss.review.toAyah || ss.review.fromAyah;
+                    if (rec.fromSurah) {
+                        return calculatePagesCount(
+                            rec.fromSurah,
+                            rec.fromAyah,
+                            rec.toSurah || rec.fromSurah,
+                            rec.toAyah
+                        );
                     }
+                    return 0;
+                };
+
+                let sessionMemoPages = 0;
+                if (ss.memorization && ss.memorization.hasMemorization !== false && ss.memorization.fromSurah) {
+                    sessionMemoPages += getItemPages(ss.memorization);
+                    sStat.lastMemoSurah = ss.memorization.toSurah || ss.memorization.fromSurah;
+                    sStat.lastMemoAyah = ss.memorization.toAyah || ss.memorization.fromAyah;
                 }
+                if (Array.isArray(ss.extraMemorizations)) {
+                    ss.extraMemorizations.forEach((em: any) => {
+                        if (em && em.hasMemorization !== false && em.fromSurah) {
+                            sessionMemoPages += getItemPages(em);
+                            if (em.toSurah || em.fromSurah) {
+                                sStat.lastMemoSurah = em.toSurah || em.fromSurah;
+                                sStat.lastMemoAyah = em.toAyah || em.fromAyah;
+                            }
+                        }
+                    });
+                }
+                sStat.memorizedPages += sessionMemoPages;
+
+                let sessionReviewPages = 0;
+                if (ss.review && ss.review.hasReview !== false && ss.review.fromSurah) {
+                    sessionReviewPages += getItemPages(ss.review);
+                    sStat.lastReviewSurah = ss.review.toSurah || ss.review.fromSurah;
+                    sStat.lastReviewAyah = ss.review.toAyah || ss.review.fromAyah;
+                }
+                if (Array.isArray(ss.extraReviews)) {
+                    ss.extraReviews.forEach((er: any) => {
+                        if (er && er.hasReview !== false && er.fromSurah) {
+                            sessionReviewPages += getItemPages(er);
+                            if (er.toSurah || er.fromSurah) {
+                                sStat.lastReviewSurah = er.toSurah || er.fromSurah;
+                                sStat.lastReviewAyah = er.toAyah || er.fromAyah;
+                            }
+                        }
+                    });
+                }
+                sStat.reviewedPages += sessionReviewPages;
 
                 // Points calculation for this session
                 const ps = session.pointsSettingsSnapshot || activeCircle.settings.pointsSettings || defaultPointsSettings;
@@ -464,6 +503,11 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         };
     }, [filteredSessions, activeStudents]);
 
+    // Dynamic Period-Specific Surah Statistics
+    const periodSurahStats = useMemo(() => {
+        return getPeriodSurahStats(filteredSessions);
+    }, [filteredSessions]);
+
     // Overall Evaluation Helper (Calculated strictly based on real metrics, no stars)
     const getOverallEvaluation = (stat: any) => {
         const attendanceScore = stat.attendanceRate || 0;
@@ -620,29 +664,22 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                 </div>
 
                                 {/* Center: System Emblem / Circle Logo */}
-                                <div className="flex flex-col items-center">
+                                <div className="flex flex-col items-center justify-center">
                                     {activeCircle.logo ? (
                                         <div className="relative flex flex-col items-center">
                                             <img 
                                                 src={activeCircle.logo} 
                                                 alt="Logo" 
-                                                className="w-11 h-11 object-contain rounded-xl border border-emerald-800/20 p-0.5 bg-white shadow-sm"
+                                                className="w-12 h-12 object-contain rounded-xl border border-emerald-800/20 p-0.5 bg-white shadow-2xs"
                                                 referrerPolicy="no-referrer"
                                             />
-                                            <span className="text-[9px] font-black tracking-widest text-emerald-800 mt-1">{activeCircle.circle}</span>
+                                            <span className="text-[9.5px] font-black tracking-widest text-emerald-800 mt-1">{activeCircle.circle}</span>
                                         </div>
                                     ) : (
-                                        <div className="flex flex-col items-center">
-                                            <div className="w-11 h-11 bg-emerald-50 border border-double border-emerald-800/40 text-emerald-800 rounded-xl flex items-center justify-center shadow-inner">
-                                                <svg className="w-6 h-6 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                                    <path d="M12 3L1 9L12 15L23 9L12 3Z" strokeLinecap="round" strokeLinejoin="round" />
-                                                    <path d="M12 15V21" strokeLinecap="round" strokeLinejoin="round" />
-                                                    <path d="M17 17.5V21" strokeLinecap="round" strokeLinejoin="round" />
-                                                    <path d="M7 17.5V21" strokeLinecap="round" strokeLinejoin="round" />
-                                                    <path d="M12 21H22M12 21H2" strokeLinecap="round" strokeLinejoin="round" />
-                                                </svg>
+                                        <div className="flex flex-col items-center justify-center py-0.5">
+                                            <div className="text-base font-black text-[#105541] border-b-2 border-emerald-800/25 px-4 py-1 bg-emerald-50/70 rounded-xl shadow-2xs text-center tracking-wide">
+                                                {activeCircle.circle}
                                             </div>
-                                            <span className="text-[9px] font-black tracking-widest text-emerald-800 mt-1">{activeCircle.circle}</span>
                                         </div>
                                     )}
                                 </div>
@@ -685,13 +722,13 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                     <span className="text-[8.5px] font-black text-emerald-800 block">الإنجاز القرآني بالفترة</span>
                                     <div className="text-lg font-black text-emerald-900 font-mono leading-none">
                                         {reportType === 'memorization' || reportType === 'comprehensive' 
-                                            ? `${overallStats.totalMemoPages} ص` 
+                                            ? `${formatPagesCount(overallStats.totalMemoPages)} ص` 
                                             : `${overallStats.totalPoints} ن`
                                         }
                                     </div>
                                     <span className="text-[7.5px] text-gray-500 block truncate">
                                         {reportType === 'memorization' || reportType === 'comprehensive'
-                                            ? `مراجعة: ${overallStats.totalReviewPages} صفحة`
+                                            ? `مراجعة: ${formatPagesCount(overallStats.totalReviewPages)} صفحة`
                                             : 'نقطة مكتسبة'
                                         }
                                     </span>
@@ -765,42 +802,43 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                     )}
 
                     {/* STATISTICAL TABLE */}
-                    <div className="flex-grow text-right" dir="rtl">
+                    <div className="flex-grow text-right mb-2" dir="rtl">
                         <table className="w-full text-right border-collapse text-[10px] border border-gray-900 text-black">
                             <thead>
-                                <tr className="bg-gray-100 text-[9px] font-black h-8 text-gray-800">
-                                    <th className="border border-gray-900 w-[5%] text-center">م</th>
-                                    <th className="border border-gray-900 w-[27%] px-2">اسم الطالب</th>
-                                    <th className="border border-gray-900 w-[9%] text-center text-emerald-800">حضور</th>
-                                    <th className="border border-gray-900 w-[9%] text-center text-red-600">غياب</th>
-                                    <th className="border border-gray-900 w-[9%] text-center text-amber-600">تأخر</th>
-                                    <th className="border border-gray-900 w-[9%] text-center text-blue-500">استئذان</th>
-                                    <th className="border border-gray-900 w-[11%] text-center">الالتزام</th>
+                                <tr className="bg-emerald-800/10 text-[9px] font-black h-8 text-emerald-950">
+                                    <th className="border border-gray-900 w-[3.5%] text-center">م</th>
+                                    <th className="border border-gray-900 w-[18%] px-2 text-right">اسم الطالب</th>
+                                    <th className="border border-gray-900 w-[4.5%] text-center text-emerald-800">حضور</th>
+                                    <th className="border border-gray-900 w-[4.5%] text-center text-red-600">غياب</th>
+                                    <th className="border border-gray-900 w-[4.5%] text-center text-amber-600">تأخر</th>
+                                    <th className="border border-gray-900 w-[4.5%] text-center text-blue-600">استئذان</th>
+                                    <th className="border border-gray-900 w-[6%] text-center">الالتزام</th>
                                     
                                     {/* Dynamic Headers based on type */}
                                     {(reportType === 'comprehensive' || reportType === 'memorization') && (
                                         <>
-                                            <th className="border border-gray-900 w-[11%] text-center">الحفظ</th>
-                                            <th className="border border-gray-900 w-[11%] text-center">المراجعة</th>
+                                            <th className="border border-gray-900 w-[6.5%] text-center">الحفظ</th>
+                                            <th className="border border-gray-900 w-[6.5%] text-center">المراجعة</th>
                                         </>
                                     )}
 
                                     {reportType === 'points' && (
                                         <>
-                                            <th className="border border-gray-900 w-[11%] text-center">النقاط</th>
-                                            <th className="border border-gray-900 w-[11%] text-center">التميز</th>
+                                            <th className="border border-gray-900 w-[6.5%] text-center">النقاط</th>
+                                            <th className="border border-gray-900 w-[6.5%] text-center">التميز</th>
                                         </>
                                     )}
 
                                     {reportType === 'tests' && (
                                         <>
-                                            <th className="border border-gray-900 w-[7%] text-center">اختبارات</th>
-                                            <th className="border border-gray-900 w-[7%] text-center">أعلى علامة</th>
-                                            <th className="border border-gray-900 w-[8%] text-center">المعدل</th>
+                                            <th className="border border-gray-900 w-[4.5%] text-center">اختبارات</th>
+                                            <th className="border border-gray-900 w-[4.5%] text-center">أعلى علامة</th>
+                                            <th className="border border-gray-900 w-[4%] text-center">المعدل</th>
                                         </>
                                     )}
 
-                                    <th className="border border-gray-900 px-2 text-center w-[15%]">التقييم العام</th>
+                                    <th className="border border-gray-900 px-1.5 text-right w-[32%]">السور المسمعة بالفترة</th>
+                                    <th className="border border-gray-900 px-1 text-center w-[9.5%]">التقييم العام</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -817,27 +855,27 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                     const evalData = getOverallEvaluation(stat);
 
                                     return (
-                                        <tr key={student.id} className="h-7 text-[9.5px] hover:bg-gray-50 transition-colors">
-                                            <td className="border border-gray-900 text-center font-bold bg-gray-50/50">{absoluteIndex}</td>
-                                            <td className="border border-gray-900 px-2 font-black text-gray-900">{student.name}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-emerald-800 bg-emerald-50/5">{stat.present}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-red-700 bg-red-50/5">{stat.absent}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-amber-700 bg-amber-50/5">{stat.late}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-blue-700 bg-blue-50/5">{stat.excused}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-black text-gray-900">{stat.attendanceRate}%</td>
+                                        <tr key={student.id} className={`h-7 text-[9px] transition-colors align-middle ${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/20'}`}>
+                                            <td className="border border-gray-900 text-center font-bold align-middle">{absoluteIndex}</td>
+                                            <td className="border border-gray-900 px-2 font-black text-gray-900 align-middle text-right">{student.name}</td>
+                                            <td className="border border-gray-900 text-center font-mono font-bold text-emerald-800 align-middle">{stat.present}</td>
+                                            <td className="border border-gray-900 text-center font-mono font-bold text-red-700 align-middle">{stat.absent}</td>
+                                            <td className="border border-gray-900 text-center font-mono font-bold text-amber-700 align-middle">{stat.late}</td>
+                                            <td className="border border-gray-900 text-center font-mono font-bold text-blue-700 align-middle">{stat.excused}</td>
+                                            <td className="border border-gray-900 text-center font-mono font-black text-gray-900 align-middle">{stat.attendanceRate}%</td>
 
                                             {/* Dynamic Columns */}
                                             {(reportType === 'comprehensive' || reportType === 'memorization') && (
                                                 <>
-                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-[#105541] bg-emerald-50/10">{stat.memorizedPages} ص</td>
-                                                    <td className="border border-gray-900 text-center font-mono font-bold text-gray-600 bg-gray-50/10">{stat.reviewedPages} ص</td>
+                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-[#105541] align-middle">{formatPagesCount(stat.memorizedPages)} ص</td>
+                                                    <td className="border border-gray-900 text-center font-mono font-bold text-gray-600 align-middle">{formatPagesCount(stat.reviewedPages)} ص</td>
                                                 </>
                                             )}
 
                                             {reportType === 'points' && (
                                                 <>
-                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-amber-700 bg-amber-50/10">{stat.pointsGained} ن</td>
-                                                    <td className="border border-gray-900 text-center text-[8.5px] font-black text-amber-800 bg-amber-50/20 px-1 py-0.5 truncate">
+                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-amber-700 align-middle">{stat.pointsGained} ن</td>
+                                                    <td className="border border-gray-900 text-center text-[8.5px] font-black text-amber-800 px-1 py-0.5 truncate align-middle">
                                                         {stat.pointsGained >= 200 ? '💎 ماسي' : stat.pointsGained >= 120 ? '🥇 ذهبي' : stat.pointsGained >= 60 ? '🥈 فضي' : '🥉 برونزي'}
                                                     </td>
                                                 </>
@@ -845,13 +883,38 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
 
                                             {reportType === 'tests' && (
                                                 <>
-                                                    <td className="border border-gray-900 text-center font-mono">{stat.testsTaken}</td>
-                                                    <td className="border border-gray-900 text-center font-mono font-bold text-emerald-800">{stat.highestTestScore}%</td>
-                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-emerald-700 bg-emerald-50/10">{stat.testAverage}%</td>
+                                                    <td className="border border-gray-900 text-center font-mono align-middle">{stat.testsTaken}</td>
+                                                    <td className="border border-gray-900 text-center font-mono font-bold text-emerald-800 align-middle">{stat.highestTestScore}%</td>
+                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-emerald-700 align-middle">{stat.testAverage}%</td>
                                                 </>
                                             )}
 
-                                            <td className={`border border-gray-900 text-center text-[8.5px] px-1.5 font-bold ${evalData.color}`}>
+                                            {/* Recited Surahs in Period (Penultimate column) */}
+                                            {(() => {
+                                                const surahSummary = getStudentSurahSummaryForPeriod(filteredSessions, student.id);
+                                                return (
+                                                    <td className="border border-gray-900 px-1.5 py-1 text-[7.5px] leading-tight text-right font-medium align-middle">
+                                                        {surahSummary.memoText && (
+                                                            <div className="text-emerald-950 font-medium">
+                                                                <span className="font-extrabold text-emerald-800">حفظ: </span>
+                                                                {surahSummary.memoText}
+                                                            </div>
+                                                        )}
+                                                        {surahSummary.reviewText && (
+                                                            <div className="text-blue-950 font-medium mt-0.5">
+                                                                <span className="font-extrabold text-blue-800">مراجعة: </span>
+                                                                {surahSummary.reviewText}
+                                                            </div>
+                                                        )}
+                                                        {!surahSummary.memoText && !surahSummary.reviewText && (
+                                                            <span className="text-gray-400 font-bold block text-center">—</span>
+                                                        )}
+                                                    </td>
+                                                );
+                                            })()}
+
+                                            {/* Overall Evaluation (Last column) */}
+                                            <td className={`border border-gray-900 text-center text-[8.5px] px-1 font-bold align-middle ${evalData.color}`}>
                                                 {evalData.text}
                                             </td>
                                         </tr>
@@ -861,57 +924,30 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                         </table>
                     </div>
 
-                    {/* PAGE 1 OR LAST PAGE SPECIFIC ATTACHMENTS */}
-                    {pageIndex === studentChunks.length - 1 && (
-                        <>
-                            {/* Signature Block */}
-                            {includeSignatures && (
-                                <div className="grid grid-cols-3 gap-4 text-center text-[9px] text-gray-600 font-bold border-t border-gray-150 pt-2.5 mt-4 text-right" dir="rtl">
-                                    <div className="space-y-3">
-                                        <div>معلم الحلقة</div>
-                                        <div className="h-[0.5px] w-20 bg-gray-300 mx-auto"></div>
-                                        <div className="text-[8px] text-gray-400 font-medium">التوقيع: ..........................</div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div>المشرف التربوي</div>
-                                        <div className="h-[0.5px] w-20 bg-gray-350 mx-auto"></div>
-                                        <div className="text-[8px] text-gray-400 font-medium">التوقيع: ..........................</div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div>إدارة المركز</div>
-                                        <div className="h-[0.5px] w-20 bg-gray-350 mx-auto"></div>
-                                        <div className="text-[8px] text-gray-400 font-medium">الختم والتوقيع: ....................</div>
-                                    </div>
-                                </div>
-                            )}
-                        </>
-                    )}
-
-                    {/* ABSOLUTE DOCUMENT FOOTER */}
-                    <div className="absolute left-0 right-0 bottom-0 pt-2 border-t border-gray-200 flex items-center justify-between text-[8px] text-gray-500 pb-0.5 font-bold text-right" dir="rtl">
-                        <div>
-                            {showPrintDate && (
-                                <span>تم إصدار هذا التقرير في: {new Date().toLocaleString('ar', { dateStyle: 'long', timeStyle: 'short' })}</span>
-                            )}
-                        </div>
-
-                        <div className="flex items-center gap-2 bg-gray-50/50 p-1 px-3 rounded-lg border border-gray-150 shadow-sm leading-tight text-right">
-                            <div className="flex flex-col text-right">
-                                <span className="font-extrabold text-[7.5px] text-[#105541]">نظام حلقة الموثق والمقيد برمز الاستجابة السريع</span>
-                                <span className="text-[6.5px] text-gray-400 font-normal">لمتابعة أداء الطلاب الفوري واللحظي</span>
+                    {/* SIGNATURES & BOTTOM FOOTER - ON EVERY PAGE */}
+                    <div className="mt-auto pt-2">
+                        <div className="flex items-center justify-between text-[8.5px] text-gray-800 font-bold border-t border-gray-300 pt-1.5 px-1" dir="rtl">
+                            <div className="text-right">
+                                إدارة التحفيظ: <span className="font-normal text-gray-400">............................</span>
                             </div>
-                            <img 
-                                src="https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=https://hlqt.vercel.app" 
-                                alt="QR Code" 
-                                className="w-6 h-6 border p-0.5 rounded bg-white shadow-sm" 
-                                referrerPolicy="no-referrer"
-                            />
+                            <div className="text-center text-[8px] text-gray-500 font-bold">
+                                {showPageNumbers && (
+                                    <span>صفحة {pageIndex + 1} من {studentChunks.length}</span>
+                                )}
+                            </div>
+                            <div className="text-left" dir="rtl">
+                                المعلم: <span className="font-normal text-gray-400">............................</span>
+                            </div>
                         </div>
 
-                        <div>
-                            {showPageNumbers && (
-                                <span>صفحة {pageIndex + 1} من {studentChunks.length}</span>
-                            )}
+                        {/* SUBTLE SYSTEM FOOTER & TIMESTAMP */}
+                        <div className="flex items-center justify-between text-[7px] text-gray-400 font-medium pt-1 border-t border-gray-150 mt-1 px-1" dir="rtl">
+                            <div className="text-right">
+                                تم إنشاء هذا الكشف عبر نظام حلقتي لإدارة المدارس القرآنية
+                            </div>
+                            <div className="text-left font-mono" dir="ltr">
+                                {todayStr} {new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                            </div>
                         </div>
                     </div>
 
@@ -990,11 +1026,25 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                                         setExportProgress(`جاري معالجة الصفحة ${i + 1} من ${pages.length}...`);
                                                         
                                                         const canvas = await html2canvas(pages[i] as HTMLElement, {
-                                                            scale: 2.5, // Crisp high density
+                                                            scale: 3, // High density pixel-perfect output
                                                             useCORS: true,
+                                                            allowTaint: true,
                                                             logging: false,
                                                             backgroundColor: '#ffffff',
-                                                            windowWidth: orientation === 'landscape' ? 1122 : 794
+                                                            windowWidth: orientation === 'landscape' ? 1122 : 794,
+                                                            onclone: (clonedDoc) => {
+                                                                const clonedPages = clonedDoc.querySelectorAll('#export-target-container .report-page-element');
+                                                                clonedPages.forEach((pageEl: any) => {
+                                                                    pageEl.style.transform = 'none';
+                                                                    pageEl.style.margin = '0 auto';
+                                                                    pageEl.style.boxShadow = 'none';
+                                                                });
+                                                                const container = clonedDoc.querySelector('#export-target-container') as HTMLElement;
+                                                                if (container) {
+                                                                    container.style.transform = 'none';
+                                                                    container.style.padding = '0';
+                                                                }
+                                                            }
                                                         });
 
                                                         const imgData = canvas.toDataURL('image/jpeg', 0.95);
@@ -1038,11 +1088,25 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                                         setExportProgress(`جاري تصوير الصفحة ${i + 1} من ${pages.length}...`);
                                                         
                                                         const canvas = await html2canvas(pages[i] as HTMLElement, {
-                                                            scale: 2.5,
+                                                            scale: 3,
                                                             useCORS: true,
+                                                            allowTaint: true,
                                                             logging: false,
                                                             backgroundColor: '#ffffff',
-                                                            windowWidth: orientation === 'landscape' ? 1122 : 794
+                                                            windowWidth: orientation === 'landscape' ? 1122 : 794,
+                                                            onclone: (clonedDoc) => {
+                                                                const clonedPages = clonedDoc.querySelectorAll('#export-target-container .report-page-element');
+                                                                clonedPages.forEach((pageEl: any) => {
+                                                                    pageEl.style.transform = 'none';
+                                                                    pageEl.style.margin = '0 auto';
+                                                                    pageEl.style.boxShadow = 'none';
+                                                                });
+                                                                const container = clonedDoc.querySelector('#export-target-container') as HTMLElement;
+                                                                if (container) {
+                                                                    container.style.transform = 'none';
+                                                                    container.style.padding = '0';
+                                                                }
+                                                            }
                                                         });
 
                                                         const imgData = canvas.toDataURL('image/png');
