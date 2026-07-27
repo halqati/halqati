@@ -6389,60 +6389,6 @@ const App: React.FC = () => {
                         currentUserId={user?.uid || ''}
                         addToast={addToast} 
                         setConfirmationModal={setConfirmationModal}
-                        onDeleteCircle={(id) => {
-                            const circleToDelete = appData.circles.find(c => c.id === id);
-                            if (!circleToDelete) return;
-                            
-                            const teacher = user ? circleToDelete.teachers?.[user.uid] : null;
-                            const isOwner = circleToDelete.ownerId === user?.uid || teacher?.role === 'owner';
-                            const isFullAccess = teacher?.accessLevel === 'full' || teacher?.permissions?.canEditCircleSettings !== false;
-                            const canDeleteCircle = isOwner || (teacher?.role === 'teacher' && isFullAccess);
-                            
-                            setConfirmationModal({
-                                isOpen: true, 
-                                title: canDeleteCircle ? 'حذف الحلقة نهائياً' : 'الخروج من الحلقة', 
-                                message: canDeleteCircle 
-                                    ? `هل أنت متأكد من حذف حلقة (${circleToDelete.circle}) نهائياً؟ سيتم حذف جميع البيانات المرتبطة بها.` 
-                                    : `لا تملك صلاحية حذف هذه الحلقة، ولكن يمكنك الخروج منها وإزالة ارتباط حسابك بها. هل أنت متأكد من الخروج من حلقة (${circleToDelete.circle})؟`, 
-                                onConfirm: async () => {
-                                    if (user && db) {
-                                        try {
-                                            if (canDeleteCircle) {
-                                                await deleteDoc(doc(db, 'circles', id));
-                                            } else {
-                                                const updatedAuthorizedIds = (circleToDelete.authorizedUserIds || []).filter(uid => uid !== user.uid);
-                                                const updatedTeachers = { ...(circleToDelete.teachers || {}) };
-                                                const teacherName = updatedTeachers[user.uid]?.name || userProfile?.displayName || 'معلم';
-                                                delete updatedTeachers[user.uid];
-
-                                                const leaveNotification: Notification = {
-                                                    id: `leave_${user.uid}_${Date.now()}`,
-                                                    type: 'warning',
-                                                    category: 'system',
-                                                    message: `المعلم (${teacherName}) قام بالخروج من إدارة الحلقة.`,
-                                                    createdAt: Date.now()
-                                                };
-
-                                                const updatedNotifications = [leaveNotification, ...(circleToDelete.notifications || [])];
-                                                
-                                                await updateDoc(doc(db, 'circles', id), {
-                                                    authorizedUserIds: updatedAuthorizedIds,
-                                                    teachers: updatedTeachers,
-                                                    notifications: updatedNotifications,
-                                                    lastUpdated: Date.now()
-                                                });
-                                            }
-                                        } catch (e) {
-                                            console.error("Operation failed:", e);
-                                        }
-                                    }
-                                    setAppData(d => ({...d, circles: d.circles.filter(c => c.id !== id)})); 
-                                    setConfirmationModal(p => ({...p, isOpen:false})); 
-                                    addToast(canDeleteCircle ? '🗑️ تم حذف الحلقة بنجاح' : '🚪 تم الخروج من الحلقة بنجاح');
-                                },
-                                delay: canDeleteCircle ? 5 : 0
-                            });
-                        }}
                     />
                 )}
                 {activePage === 'notifications' && activeCircle && (
