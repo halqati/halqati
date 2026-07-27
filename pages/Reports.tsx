@@ -13,7 +13,7 @@ import {
     Award as AwardLucide, Star as StarLucide, RefreshCw, X as XLucide
 } from 'lucide-react';
 import { CircleData, Student, Session, Test } from '../types';
-import { formatDate, formatPagesCount, getPeriodSurahStats, getStudentSurahSummaryForPeriod } from '../utils/helpers';
+import { formatDate, formatPagesCount, calculatePagesCount, getPeriodSurahStats, getStudentSurahSummaryForPeriod } from '../utils/helpers';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import SmartRecitationFormModal from '../components/SmartRecitationFormModal';

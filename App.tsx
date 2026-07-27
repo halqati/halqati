@@ -869,10 +869,10 @@ const App: React.FC = () => {
                 setIsInitialSyncComplete(true);
                 return;
             }
-            // Allow up to 6 seconds for initial cloud sync before offering fallback, without dropping sync results
+            // Allow up to 10 seconds for initial cloud sync before offering fallback
             const timer = setTimeout(() => {
                 setIsInitialSyncComplete(true);
-            }, 6000);
+            }, 10000);
             return () => clearTimeout(timer);
         }
     }, [user, isInitialSyncComplete, isOnline]);
@@ -1189,9 +1189,11 @@ const App: React.FC = () => {
                 lastSyncedCircles.current[circleData.id] = circleData;
             });
 
-            setIsInitialSyncComplete(true);
-
             const isBothServerSynced = !isAuthorizedFromCache && !isOwnerFromCache;
+
+            if (allDocs.length > 0 || isBothServerSynced || !isOnline) {
+                setIsInitialSyncComplete(true);
+            }
 
             setAppData(prev => {
                 const circlesMap = new Map<string, CircleData>();
@@ -5613,10 +5615,6 @@ const App: React.FC = () => {
             <>
                 <SyncLoadingScreen 
                     onLogout={handleLogout} 
-                    onContinueOffline={() => {
-                        console.warn("User bypassed cloud sync, continuing offline.");
-                        setIsInitialSyncComplete(true);
-                    }} 
                 />
                 <ToastContainer toasts={toasts} />
             </>
@@ -7258,7 +7256,7 @@ const App: React.FC = () => {
 
 export default App;
 
-const SyncLoadingScreen: React.FC<{ onLogout: () => void; onContinueOffline?: () => void }> = ({ onLogout, onContinueOffline }) => {
+const SyncLoadingScreen: React.FC<{ onLogout: () => void }> = ({ onLogout }) => {
     const tips = [
         "يمكنك متابعة حفظ ومراجعة الطلاب بشكل فردي من صفحة 'السجل'",
         "يوفر النظام تقارير شاملة للمشرفين بضغطة زر واحدة من صفحة التقارير",
@@ -7268,20 +7266,12 @@ const SyncLoadingScreen: React.FC<{ onLogout: () => void; onContinueOffline?: ()
         "ميزة 'متابعة أولياء الأمور' تمكنك من إرسال رسائل دورية مخصصة للآباء"
     ];
     const [tipIndex, setTipIndex] = useState(0);
-    const [showOfflineOption, setShowOfflineOption] = useState(false);
 
     useEffect(() => {
         const interval = setInterval(() => {
             setTipIndex(prev => (prev + 1) % tips.length);
         }, 5000);
         return () => clearInterval(interval);
-    }, []);
-
-    useEffect(() => {
-        const timeout = setTimeout(() => {
-            setShowOfflineOption(true);
-        }, 4000);
-        return () => clearTimeout(timeout);
     }, []);
 
     return (
@@ -7365,17 +7355,6 @@ const SyncLoadingScreen: React.FC<{ onLogout: () => void; onContinueOffline?: ()
                        </motion.div>
                    </AnimatePresence>
                 </div>
-
-                {showOfflineOption && onContinueOffline && (
-                    <motion.button
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        onClick={onContinueOffline}
-                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-l from-[#105541] to-teal-700 hover:opacity-95 text-white font-semibold py-3 px-4 rounded-2xl shadow-lg transition-all text-xs cursor-pointer mt-2"
-                    >
-                        <span>الاستمرار بدون اتصال (محلياً)</span>
-                    </motion.button>
-                )}
 
                 <button 
                     onClick={onLogout}
