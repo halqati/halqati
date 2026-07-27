@@ -5216,15 +5216,36 @@ const App: React.FC = () => {
         }
     }, [activePage]);
 
-    const handleUpdateDirectEntry = useCallback((enabled: boolean) => {
-        if (!activeCircle) return;
+    const handleUpdateDirectEntry = useCallback(async (enabled: boolean) => {
+        if (!activeCircle || !db) return;
         setActiveCircleData((d: CircleData) => ({ ...d, allowDirectEntry: enabled }));
-    }, [activeCircle, setActiveCircleData]);
+        try {
+            await updateDoc(doc(db, 'circles', activeCircle.id), {
+                allowDirectEntry: enabled,
+                lastUpdated: Date.now()
+            });
+            addToast(enabled ? 'تم تفعيل الدخول المباشر للمعلمين' : 'تم تعطيل الدخول المباشر (يتطلب موافقة المشرف)', 'success');
+        } catch (err) {
+            console.error("Failed to update direct entry setting:", err);
+            addToast('فشل في حفظ إعدادات الدخول المباشر', 'error');
+        }
+    }, [activeCircle, db, setActiveCircleData, addToast]);
 
-    const handleUpdateTransferPassword = useCallback((code: string) => {
-        if (!activeCircle) return;
-        setActiveCircleData((d: CircleData) => ({ ...d, transferPassword: code }));
-    }, [activeCircle, setActiveCircleData]);
+    const handleUpdateTransferPassword = useCallback(async (code: string) => {
+        if (!activeCircle || !db) return;
+        setActiveCircleData((d: CircleData) => ({ ...d, transferPassword: code, transferCode: code }));
+        try {
+            await updateDoc(doc(db, 'circles', activeCircle.id), {
+                transferPassword: code,
+                transferCode: code,
+                lastUpdated: Date.now()
+            });
+            addToast('تم تحديث رمز الدخول بنجاح', 'success');
+        } catch (err) {
+            console.error("Failed to update entry password:", err);
+            addToast('فشل في حفظ رمز الدخول', 'error');
+        }
+    }, [activeCircle, db, setActiveCircleData, addToast]);
 
     const handleUpdateProfile = async (updatedData: Partial<CircleData>) => {
         if (!user) return;
@@ -6005,6 +6026,23 @@ const App: React.FC = () => {
             notifications = [statusNotif, ...notifications];
         }
 
+        // 1. Persist directly to Firestore for immediate real-time sync across all clients
+        if (db && activeCircle.id) {
+            try {
+                await updateDoc(doc(db, 'circles', activeCircle.id), {
+                    ownerId: newOwnerId,
+                    teachers: updatedTeachers,
+                    authorizedUserIds: updatedAuthorizedIds,
+                    notifications: notifications,
+                    lastUpdated: Date.now()
+                });
+            } catch (error) {
+                console.error("Failed to update supervisor/teacher permissions in Firestore:", error);
+                addToast('حدث خطأ أثناء حفظ التغييرات في قواعد البيانات السحابية', 'error');
+                return;
+            }
+        }
+
         // 2. Update Local State
         setActiveCircleData(d => ({
             ...d,
@@ -6022,6 +6060,68 @@ const App: React.FC = () => {
         } else {
             addToast('تم تحديث بيانات المعلم بنجاح', 'success');
         }
+    };
+
+    const handleDeleteCircle = (id: string) => {
+        const circleToDelete = appData.circles.find(c => c.id === id);
+        if (!circleToDelete) return;
+        
+        const isOwner = circleToDelete.ownerId === user?.uid || circleToDelete.teachers?.[user?.uid || '']?.role === 'owner';
+        
+        setConfirmationModal({
+            isOpen: true, 
+            title: isOwner ? 'حذف حلقة' : 'الخروج من إدارة الحلقة', 
+            message: isOwner 
+                ? `هل أنت متأكد من حذف حلقة (${circleToDelete.circle})؟ وجميع بياناتها بشكل نهائي.` 
+                : `لا تملك صلاحية حذف هذه الحلقة، يمكنك فقط الخروج منها. هل أنت متأكد من الخروج من إدارة حلقة (${circleToDelete.circle})؟`, 
+            onConfirm: async () => {
+                if (user && db) {
+                    try {
+                        if (isOwner) {
+                            await deleteDoc(doc(db, 'circles', id));
+                        } else {
+                            const updatedAuthorizedIds = (circleToDelete.authorizedUserIds || []).filter(uid => uid !== user.uid);
+                            const updatedTeachers = { ...(circleToDelete.teachers || {}) };
+                            const teacherName = updatedTeachers[user.uid]?.name || userProfile?.displayName || 'معلم';
+                            delete updatedTeachers[user.uid];
+
+                            const leaveNotification: Notification = {
+                                id: `leave_${user.uid}_${Date.now()}`,
+                                type: 'warning',
+                                category: 'system',
+                                message: `المعلم (${teacherName}) قام بالخروج من إدارة الحلقة.`,
+                                createdAt: Date.now()
+                            };
+
+                            const updatedNotifications = [leaveNotification, ...(circleToDelete.notifications || [])];
+                            
+                            await updateDoc(doc(db, 'circles', id), {
+                                authorizedUserIds: updatedAuthorizedIds,
+                                teachers: updatedTeachers,
+                                notifications: updatedNotifications,
+                                lastUpdated: Date.now()
+                            });
+                        }
+                    } catch (e) {
+                        console.error("Operation failed:", e);
+                    }
+                }
+                setAppData(d => {
+                    const newCircles = d.circles.filter(c => c.id !== id);
+                    return {
+                        ...d,
+                        circles: newCircles,
+                        activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
+                    };
+                }); 
+                setConfirmationModal(p => ({...p, isOpen:false})); 
+                addToast(isOwner ? '🗑️ تم حذف الحلقة بنجاح' : '🚪 تم الخروج من إدارة الحلقة بنجاح');
+                if (activePage === 'circleInfo') {
+                    setActivePage('settings');
+                }
+            },
+            delay: isOwner ? 5 : 0
+        });
     };
 
     const handleMarkNotificationsAsRead = (ids: string[]) => {
@@ -6389,6 +6489,7 @@ const App: React.FC = () => {
                         currentUserId={user?.uid || ''}
                         addToast={addToast} 
                         setConfirmationModal={setConfirmationModal}
+                        onDeleteCircle={handleDeleteCircle}
                     />
                 )}
                 {activePage === 'notifications' && activeCircle && (
@@ -6765,57 +6866,7 @@ const App: React.FC = () => {
                             onCreateNewCircle={() => {setShowNewCircleForm(true); pushStateSafely();}} 
                             hasCircleSettingsPermission={hasCircleSettingsPermission}
                             addToast={addToast} 
-                            onDeleteCircle={(id) => {
-                                const circleToDelete = appData.circles.find(c => c.id === id);
-                                if (!circleToDelete) return;
-                                
-                                const isOwner = circleToDelete.ownerId === user?.uid || circleToDelete.teachers?.[user?.uid || '']?.role === 'owner';
-                                
-                                setConfirmationModal({
-                                    isOpen: true, 
-                                    title: isOwner ? 'حذف حلقة' : 'الخروج من إدارة الحلقة', 
-                                    message: isOwner 
-                                        ? `هل أنت متأكد من حذف حلقة (${circleToDelete.circle})؟ وجميع بياناتها بشكل نهائي.` 
-                                        : `لا تملك صلاحية حذف هذه الحلقة، يمكنك فقط الخروج منها. هل أنت متأكد من الخروج من إدارة حلقة (${circleToDelete.circle})؟`, 
-                                    onConfirm: async () => {
-                                        if (user && db) {
-                                            try {
-                                                if (isOwner) {
-                                                    await deleteDoc(doc(db, 'circles', id));
-                                                } else {
-                                                    const updatedAuthorizedIds = (circleToDelete.authorizedUserIds || []).filter(uid => uid !== user.uid);
-                                                    const updatedTeachers = { ...(circleToDelete.teachers || {}) };
-                                                    const teacherName = updatedTeachers[user.uid]?.name || userProfile?.displayName || 'معلم';
-                                                    delete updatedTeachers[user.uid];
-
-                                                    const leaveNotification: Notification = {
-                                                        id: `leave_${user.uid}_${Date.now()}`,
-                                                        type: 'warning',
-                                                        category: 'system',
-                                                        message: `المعلم (${teacherName}) قام بالخروج من إدارة الحلقة.`,
-                                                        createdAt: Date.now()
-                                                    };
-
-                                                    const updatedNotifications = [leaveNotification, ...(circleToDelete.notifications || [])];
-                                                    
-                                                    await updateDoc(doc(db, 'circles', id), {
-                                                        authorizedUserIds: updatedAuthorizedIds,
-                                                        teachers: updatedTeachers,
-                                                        notifications: updatedNotifications,
-                                                        lastUpdated: Date.now()
-                                                    });
-                                                }
-                                            } catch (e) {
-                                                console.error("Operation failed:", e);
-                                            }
-                                        }
-                                        setAppData(d => ({...d, circles: d.circles.filter(c => c.id !== id)})); 
-                                        setConfirmationModal(p => ({...p, isOpen:false})); 
-                                        addToast(isOwner ? '🗑️ تم حذف الحلقة بنجاح' : '🚪 تم الخروج من إدارة الحلقة بنجاح');
-                                    },
-                                    delay: isOwner ? 5 : 0
-                                });
-                            }}
+                            onDeleteCircle={handleDeleteCircle}
                             onOpenBackupRestore={() => {setBackupRestoreModalOpen(true); pushStateSafely();}} onJoinCommunity={handleJoinCommunity} setConfirmationModal={setConfirmationModal} onManualSync={handleManualSync} 
                             onNavigateToSyncDiagnostics={() => handleNavigate('syncDiagnostics')}
                             onLinkCircles={() => setShowLinkCirclesModal(true)}

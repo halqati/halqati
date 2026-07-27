@@ -14,6 +14,7 @@ interface CircleInfoProps {
     currentUserId: string;
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
     setConfirmationModal?: (data: any) => void;
+    onDeleteCircle?: (id: string) => void;
 }
 
 const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string, subLabel: string, color?: string, onClick?: () => void, isEditable?: boolean }> = ({ icon: Icon, label, value, subLabel, color = "text-gray-400", onClick, isEditable }) => (
@@ -39,7 +40,7 @@ const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string,
     </div>
 );
 
-const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal }) => {
+const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal, onDeleteCircle }) => {
     const [isEditingCode, setIsEditingCode] = useState(false);
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
     const [showPermissionsModal, setShowPermissionsModal] = useState(false);
