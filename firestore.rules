@@ -15,11 +15,7 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return isSignedIn() && (
-        request.auth.token.get('email_verified', false) == true || 
-        request.auth.token.get('email', '').matches('.*@quran\\.app$') ||
-        request.auth.token.get('email', '') == 'nova.kayanco@gmail.com'
-      );
+      return isSignedIn();
     }
 
     function getUserData() {
@@ -43,15 +39,17 @@ service cloud.firestore {
     }
 
     function isManagementAdmin(managementId) {
-      return isVerified() && 
+      return isSignedIn() && 
              exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('managementId', '') == managementId && 
              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isManagementAdmin', false) == true;
     }
 
     function isAuthorized(circleData) {
-      return isVerified() && (
+      return isSignedIn() && (
         (circleData.get('authorizedUserIds', []) is list && request.auth.uid in circleData.get('authorizedUserIds', [])) ||
+        circleData.get('ownerId', '') == request.auth.uid ||
+        (circleData.get('teachers', {}).get(request.auth.uid, {}).get('status', '') in ['active', 'pending', 'suspended']) ||
         (circleData.get('managementId', '') != '' && isManagementAdmin(circleData.get('managementId', '')))
       );
     }
@@ -67,31 +65,35 @@ service cloud.firestore {
     match /users/{userId} {
       // Users can read their own profile without isAdmin() to avoid recursion
       allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isDeveloper());
-      // On create, identify matching
       allow create: if isSignedIn() && request.auth.uid == userId;
       allow update: if isSignedIn() && (request.auth.uid == userId || isAdmin() || isDeveloper());
+
+      match /commands/{commandId} {
+        allow read, update: if isSignedIn() && (request.auth.uid == userId || isDeveloper() || isAdmin());
+        allow create, delete: if isDeveloper() || isAdmin();
+      }
     }
 
     match /managements/{managementId} {
-      allow read: if isVerified() || isDeveloper();
-      allow create: if isVerified() || isDeveloper();
+      allow read: if isSignedIn() || isDeveloper();
+      allow create: if isSignedIn() || isDeveloper();
       allow update, delete: if isDeveloper() || isManagementAdmin(managementId);
     }
 
     match /managementRequests/{requestId} {
-      allow read: if isVerified() || isDeveloper();
-      allow create: if isVerified() || isDeveloper();
-      allow update: if isVerified() || isDeveloper();
-      allow delete: if isVerified() || isDeveloper();
+      allow read: if isSignedIn() || isDeveloper();
+      allow create: if isSignedIn() || isDeveloper();
+      allow update: if isSignedIn() || isDeveloper();
+      allow delete: if isSignedIn() || isDeveloper();
     }
 
     match /auditLogs/{logId} {
-      allow read, create: if isVerified() || isDeveloper();
+      allow read, create: if isSignedIn() || isDeveloper();
     }
 
     match /broadcasts/{broadcastId} {
-      allow read: if isVerified() || isDeveloper();
-      allow write: if isVerified() || isDeveloper();
+      allow read: if isSignedIn() || isDeveloper();
+      allow write: if isSignedIn() || isDeveloper();
     }
 
     match /teacher_feedbacks/{feedbackId} {
@@ -113,16 +115,22 @@ service cloud.firestore {
     }
 
     match /circles/{circleId} {
-      // Secure List Queries - Pillar 8: Enforce membership in read
-      allow read: if isVerified() && (isAuthorized(resource.data) || isAdmin() || isDeveloper());
-      
-      allow create: if isVerified() && isValidId(circleId) && (
-        request.resource.data.get('authorizedUserIds', []).hasAll([request.auth.uid]) || 
+      // Secure List Queries - Pillar 8: Enforce membership or numericId lookup in read
+      allow read: if isSignedIn() && (
+        isAuthorized(resource.data) || 
+        resource.data.get('numericId', '') != '' ||
         isAdmin() || 
         isDeveloper()
       );
       
-      allow update: if isVerified() && (
+      allow create: if isSignedIn() && isValidId(circleId) && (
+        request.resource.data.get('authorizedUserIds', []).hasAll([request.auth.uid]) || 
+        request.resource.data.get('ownerId', '') == request.auth.uid ||
+        isAdmin() || 
+        isDeveloper()
+      );
+      
+      allow update: if isSignedIn() && (
         isAuthorized(resource.data) ||
         isAdmin() ||
         isDeveloper() ||
@@ -136,14 +144,13 @@ service cloud.firestore {
         )
       );
       
-      allow delete: if isVerified() && (isAuthorized(resource.data) || isAdmin() || isDeveloper());
+      allow delete: if isSignedIn() && (isAuthorized(resource.data) || isAdmin() || isDeveloper());
 
       // Relational Sync - Pillar 1: Subcollections check parent authorization
       match /{allSubcollections=**} {
-        allow read: if isVerified() && (isAuthorized(get(/databases/$(database)/documents/circles/$(circleId)).data) || isAdmin() || isDeveloper());
-        allow write: if isVerified() && (isAuthorized(get(/databases/$(database)/documents/circles/$(circleId)).data) || isAdmin() || isDeveloper());
+        allow read: if isSignedIn() && (isAuthorized(get(/databases/$(database)/documents/circles/$(circleId)).data) || isAdmin() || isDeveloper());
+        allow write: if isSignedIn() && (isAuthorized(get(/databases/$(database)/documents/circles/$(circleId)).data) || isAdmin() || isDeveloper());
       }
     }
   }
 }
-

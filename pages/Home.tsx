@@ -131,6 +131,8 @@ const Home: React.FC<HomeProps> = ({ data, onNavigate, onDeleteNotification, onS
         const q = query(collection(db, 'broadcasts'), where('managementId', '==', data.managementId));
         const unsubscribe = onSnapshot(q, (snapshot) => {
             setBroadcasts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast)).sort((a, b) => b.createdAt - a.createdAt));
+        }, (error) => {
+            console.warn("Home broadcasts listener error:", error);
         });
 
         return () => unsubscribe();

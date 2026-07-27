@@ -336,21 +336,30 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ managementId,
                 }
             }
             setIsLoading(false);
+        }, (err) => {
+            console.warn("Management listener error:", err);
+            setIsLoading(false);
         });
 
         const qRequests = query(collection(db, 'managementRequests'), where('managementId', '==', managementId));
         const unsubscribeRequests = onSnapshot(qRequests, (snapshot) => {
             setRequests(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as ManagementRequest)));
+        }, (err) => {
+            console.warn("Management requests listener error:", err);
         });
 
         const qBroadcasts = query(collection(db, 'broadcasts'), where('managementId', '==', managementId));
         const unsubscribeBroadcasts = onSnapshot(qBroadcasts, (snapshot) => {
             setBroadcasts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Broadcast)).sort((a, b) => b.createdAt - a.createdAt));
+        }, (err) => {
+            console.warn("Management broadcasts listener error:", err);
         });
 
         const qLogs = query(collection(db, 'auditLogs'), where('managementId', '==', managementId));
         const unsubscribeLogs = onSnapshot(qLogs, (snapshot) => {
             setLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AuditLog)).sort((a, b) => b.createdAt - a.createdAt));
+        }, (err) => {
+            console.warn("Management logs listener error:", err);
         });
 
         const qCircles = query(collection(db, 'circles'), where('managementId', '==', managementId));
@@ -364,6 +373,8 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ managementId,
                 if (c.sessions) sessions.push(...c.sessions);
             });
             setAllSessions(sessions);
+        }, (err) => {
+            console.warn("Management circles listener error:", err);
         });
 
         return () => {

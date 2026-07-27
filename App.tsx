@@ -285,24 +285,28 @@ const App: React.FC = () => {
     }, [user, db]);
 
     useEffect(() => {
-        if (!db) return;
+        if (!db || !user) return;
         const unsub = onSnapshot(doc(db, 'system', 'settings'), (snap) => {
             if (snap.exists()) {
                 setSystemSettings(snap.data() as SystemSettings);
             }
+        }, (error) => {
+            console.warn("System settings snapshot listener error:", error);
         });
         return () => unsub();
-    }, []);
+    }, [user, db]);
 
     useEffect(() => {
-        if (!db) return;
+        if (!db || !user) return;
         const q = query(collection(db, 'developer_notifications'), where('active', '==', true));
         const unsub = onSnapshot(q, (snapshot) => {
             const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setDevNotifications(list);
+        }, (error) => {
+            console.warn("Dev notifications snapshot listener error:", error);
         });
         return () => unsub();
-    }, [db]);
+    }, [user, db]);
 
     const [hasUnreadFeedbackReply, setHasUnreadFeedbackReply] = useState(false);
 
