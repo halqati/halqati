@@ -21,7 +21,7 @@ const toastColors = {
 
 const ToastContainer: React.FC<ToastContainerProps> = ({ toasts }) => {
     return (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[9999] flex flex-col items-center gap-2 pointer-events-none">
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[999999] flex flex-col items-center gap-2 pointer-events-none">
             <AnimatePresence>
                 {toasts.map(toast => (
                     <motion.div

@@ -1,8 +1,3 @@
-
-
-
-
-
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { CircleData, SavedAccount } from '../types';
@@ -13,12 +8,13 @@ import { COUNTRIES } from '../constants';
 interface SetupProps {
     onSave: (data: Pick<CircleData, 'teacher' | 'circle' | 'center' | 'logo' | 'teacherGender' | 'transferPassword' | 'town'>) => void;
     onImport: (numericId: string, password?: string, teacherName?: string, teacherGender?: 'male' | 'female') => void;
-    onFetchPreview: (numericId: string) => Promise<{ circle: string; center: string } | null>;
+    onFetchPreview: (numericId: string) => Promise<{ circle: string; center: string; town?: string; teacher?: string } | null>;
     isNewCircle: boolean;
     isImporting?: boolean;
     onBack?: () => void;
     onLogout?: () => void;
     userProfile?: { displayName: string | null; gender?: 'male' | 'female' } | null;
+    addToast?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 const pageVariants = {
@@ -27,11 +23,11 @@ const pageVariants = {
   exit: { opacity: 0, y: -20 },
 };
 
-const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCircle, isImporting, onBack, onLogout, userProfile }) => {
+const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCircle, isImporting, onBack, onLogout, userProfile, addToast }) => {
     const [mode, setMode] = useState<'create' | 'import'>('create');
     const [isLegacyImportOpen, setIsLegacyImportOpen] = useState(false);
     const [importData, setImportData] = useState({ numericId: '', password: '', teacherName: userProfile?.displayName || '', teacherGender: userProfile?.gender || 'male' });
-    const [preview, setPreview] = useState<{ circle: string; center: string } | null>(null);
+    const [preview, setPreview] = useState<{ circle: string; center: string; town?: string; teacher?: string } | null>(null);
     const [isFetchingPreview, setIsFetchingPreview] = useState(false);
     const [savedAccounts, setSavedAccounts] = useState<SavedAccount[]>([]);
     const [showSuggestions, setShowSuggestions] = useState(false);
@@ -71,6 +67,7 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
             }));
         }
     }, [userProfile]);
+
     const [logoPreview, setLogoPreview] = useState<string | null>(null);
     const [isCountrySelectorOpen, setIsCountrySelectorOpen] = useState(false);
     const [countrySearch, setCountrySearch] = useState('');
@@ -88,6 +85,11 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
             const res = await onFetchPreview(sanitized);
             setPreview(res);
             setIsFetchingPreview(false);
+            if (res) {
+                if (addToast) addToast("تم العثور على الحلقة بنجاح", 'success');
+            } else {
+                if (addToast) addToast("لم يتم العثور على حلقة بهذه البيانات", 'error');
+            }
         } else {
             setPreview(null);
         }
@@ -111,8 +113,26 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
     };
     
     const handleSubmit = () => {
+        const teacherName = (userProfile?.displayName || data.teacher).trim();
+        if (!teacherName) {
+            if (addToast) addToast("يرجى إدخال اسم المعلم / المعلمة", 'error');
+            return;
+        }
+        if (!data.circle.trim()) {
+            if (addToast) addToast("يرجى إدخال اسم الحلقة", 'error');
+            return;
+        }
+        if (!data.center.trim()) {
+            if (addToast) addToast("يرجى إدخال اسم المركز أو المسجد", 'error');
+            return;
+        }
+        if (!data.town.trim()) {
+            if (addToast) addToast("يرجى اختيار البلد", 'error');
+            return;
+        }
+
         const dataToSave = {
-            teacher: (userProfile?.displayName || data.teacher).trim(),
+            teacher: teacherName,
             circle: data.circle.trim(),
             center: data.center.trim(),
             town: data.town.trim(),
@@ -123,12 +143,36 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
         onSave(dataToSave as any);
     };
 
+    const handleImportSubmit = () => {
+        const teacher = (userProfile?.displayName || importData.teacherName).trim();
+        if (!importData.numericId.trim()) {
+            if (addToast) addToast("يرجى إدخال رقم الحلقة (6 أرقام)", 'error');
+            return;
+        }
+        if (importData.numericId.trim().length !== 6) {
+            if (addToast) addToast("رقم الحلقة يجب أن يتكون من 6 أرقام", 'error');
+            return;
+        }
+        if (!teacher) {
+            if (addToast) addToast("يرجى إدخال اسم المعلم / المعلمة", 'error');
+            return;
+        }
+        if (!importData.password.trim()) {
+            if (addToast) addToast("يرجى إدخال كلمة مرور النقل (4 أرقام)", 'error');
+            return;
+        }
+        if (importData.password.trim().length !== 4) {
+            if (addToast) addToast("كلمة مرور النقل يجب أن تتكون من 4 أرقام", 'error');
+            return;
+        }
+
+        onImport(importData.numericId, importData.password, teacher, importData.teacherGender);
+    };
+
     const filteredCountries = COUNTRIES.filter(c => 
         c.ar.includes(countrySearch) || 
         c.en.toLowerCase().includes(countrySearch.toLowerCase())
     );
-
-    const isFormValid = data.circle.trim() && data.center.trim() && data.town.trim() && (userProfile?.displayName || data.teacher.trim());
 
     return (
         <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -214,10 +258,11 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                                 <button 
                                     onClick={() => setIsCountrySelectorOpen(true)}
                                     className="w-full bg-gray-50 border border-gray-200 rounded-lg p-3 flex items-center justify-between text-right outline-none focus:ring-2 focus:ring-primary"
+                                    type="button"
                                 >
                                     <div className="flex items-center gap-2">
                                         <FaGlobeAmericas className="text-gray-400" />
-                                        <span className={data.town ? 'text-gray-800' : 'text-gray-400'}>
+                                        <span className={data.town ? 'text-gray-800 font-medium' : 'text-gray-400'}>
                                             {data.town || 'اختر البلد'}
                                         </span>
                                     </div>
@@ -226,7 +271,7 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
 
                                 <AnimatePresence>
                                     {isCountrySelectorOpen && (
-                                        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                                        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
                                             <motion.div 
                                                 initial={{ opacity: 0 }}
                                                 animate={{ opacity: 1 }}
@@ -264,13 +309,14 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                                                                 {filteredCountries.map(country => (
                                                                     <button
                                                                         key={country.code}
+                                                                        type="button"
                                                                         onClick={() => {
                                                                             setData(prev => ({ ...prev, town: country.ar }));
                                                                             setIsCountrySelectorOpen(false);
                                                                             setCountrySearch('');
                                                                         }}
                                                                         className={`w-full text-right px-4 py-3 rounded-xl transition-all flex items-center justify-between group ${
-                                                                            data.town === country.ar ? 'bg-primary text-white' : 'hover:bg-gray-50 text-gray-700'
+                                                                            data.town === country.ar ? 'bg-primary text-white font-bold' : 'hover:bg-gray-50 text-gray-700'
                                                                         }`}
                                                                     >
                                                                         <span className="font-medium">{country.ar}</span>
@@ -298,14 +344,19 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                               <input type="file" id="logo" onChange={handleLogoChange} className="hidden" accept="image/*" />
                             </div>
 
-                            <button onClick={handleSubmit} disabled={!isFormValid} className="w-full mt-2 bg-primary text-white font-bold p-3 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary/20">
+                            <button 
+                                onClick={handleSubmit} 
+                                className="w-full mt-2 bg-primary text-white font-bold p-3 rounded-lg transition-all shadow-lg shadow-primary/20 hover:bg-primary/90"
+                                type="button"
+                            >
                                 حفظ والمتابعة
                             </button>
 
                             {!isNewCircle && onLogout && (
                                 <button 
+                                    type="button"
                                     onClick={onLogout}
-                                    className="w-full mt-4 text-sm text-gray-400 hover:text-primary transition-colors flex items-center justify-center gap-2"
+                                    className="w-full mt-4 text-sm text-gray-400 hover:text-primary transition-colors flex items-center justify-center gap-2 py-2"
                                 >
                                     <FaArrowLeft size={12} />
                                     <span>العودة لصفحة تسجيل الدخول</span>
@@ -324,6 +375,7 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                             
                             <div className="grid grid-cols-2 gap-3">
                                 <button 
+                                    type="button"
                                     onClick={() => setImportData(prev => ({...prev, teacherGender: 'male'}))} 
                                     className={`p-2.5 rounded-lg border-2 text-xs transition-all ${importData.teacherGender === 'male' ? 'bg-primary/10 border-primary text-primary' : 'border-gray-100 text-gray-500'} ${userProfile ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     disabled={!!userProfile}
@@ -331,6 +383,7 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                                     معلم
                                 </button>
                                 <button 
+                                    type="button"
                                     onClick={() => setImportData(prev => ({...prev, teacherGender: 'female'}))} 
                                     className={`p-2.5 rounded-lg border-2 text-xs transition-all ${importData.teacherGender === 'female' ? 'bg-primary/10 border-primary text-primary' : 'border-gray-100 text-gray-500'} ${userProfile ? 'opacity-50 cursor-not-allowed' : ''}`}
                                     disabled={!!userProfile}
@@ -387,7 +440,7 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                                             >
                                                 <div className="p-2 border-b border-gray-50 bg-gray-50/50 flex items-center justify-between">
                                                     <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-2">المحفوظات مؤخراً</span>
-                                                    <button onClick={() => setShowSuggestions(false)} className="text-gray-300 hover:text-gray-500 p-1"><FaTimes size={10} /></button>
+                                                    <button onClick={() => setShowSuggestions(false)} className="text-gray-300 hover:text-gray-500 p-1" type="button"><FaTimes size={10} /></button>
                                                 </div>
                                                 <div className="max-h-[200px] overflow-y-auto custom-scrollbar">
                                                     {savedAccounts.map((account) => (
@@ -439,11 +492,34 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                                 <motion.div 
                                     initial={{ opacity: 0, y: -10 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    className="bg-primary/5 border border-primary/20 p-3 rounded-xl"
+                                    className="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl text-right space-y-1.5"
                                 >
-                                    <p className="text-[10px] text-primary font-bold uppercase mb-1">تم العثور على حلقة:</p>
-                                    <p className="text-sm font-bold text-gray-800">{preview.circle}</p>
-                                    <p className="text-[10px] text-gray-500">المركز: {preview.center}</p>
+                                    <div className="flex items-center gap-2 text-emerald-700 font-bold text-xs">
+                                        <FaCheckCircle className="text-emerald-500 shrink-0" size={14} />
+                                        <span>تم العثور على الحلقة بنجاح</span>
+                                    </div>
+                                    <div className="bg-white/80 rounded-lg p-2.5 border border-emerald-100 text-xs space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-gray-500 font-medium">اسم الحلقة:</span>
+                                            <span className="font-bold text-gray-800">{preview.circle}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center">
+                                            <span className="text-gray-500 font-medium">المركز/المسجد:</span>
+                                            <span className="font-bold text-gray-800">{preview.center || 'غير محدد'}</span>
+                                        </div>
+                                        {preview.town && (
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-gray-500 font-medium">البلد / المنطقة:</span>
+                                                <span className="font-bold text-gray-800">{preview.town}</span>
+                                            </div>
+                                        )}
+                                        {preview.teacher && (
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-gray-500 font-medium">المعلم المسؤول:</span>
+                                                <span className="font-bold text-gray-800">{preview.teacher}</span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </motion.div>
                             )}
 
@@ -460,9 +536,10 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                             />
 
                             <button 
-                                onClick={() => onImport(importData.numericId, importData.password, importData.teacherName, importData.teacherGender)} 
-                                disabled={isImporting || !importData.numericId || !importData.password || !importData.teacherName}
-                                className="w-full mt-2 bg-primary text-white font-bold p-3 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2"
+                                onClick={handleImportSubmit} 
+                                disabled={isImporting}
+                                type="button"
+                                className="w-full mt-2 bg-primary text-white font-bold p-3 rounded-lg disabled:bg-gray-300 disabled:cursor-not-allowed transition-all shadow-lg shadow-primary/20 flex items-center justify-center gap-2 hover:bg-primary/90"
                             >
                                 {isImporting ? (
                                     <>
@@ -471,6 +548,17 @@ const Setup: React.FC<SetupProps> = ({ onSave, onImport, onFetchPreview, isNewCi
                                     </>
                                 ) : "استيراد الحلقة"}
                             </button>
+
+                            {!isNewCircle && onLogout && (
+                                <button 
+                                    type="button"
+                                    onClick={onLogout}
+                                    className="w-full mt-4 text-sm text-gray-400 hover:text-primary transition-colors flex items-center justify-center gap-2 py-2"
+                                >
+                                    <FaArrowLeft size={12} />
+                                    <span>العودة لصفحة تسجيل الدخول</span>
+                                </button>
+                            )}
                         </motion.div>
                     )}
                 </AnimatePresence>

@@ -669,34 +669,49 @@ const App: React.FC = () => {
             title: 'تسجيل الخروج',
             message: 'هل أنت متأكد من رغبتك في تسجيل الخروج؟ سيتم مسح البيانات المحلية المرتبطة بهذا الحساب من هذا الجهاز.',
             onConfirm: async () => {
-                try {
-                    localStorage.setItem('logging_out_active', 'true');
-                    const isActingAsUser = localStorage.getItem('developer_acting_as_user') === 'true';
-                    await signOut(auth);
-                    
-                    if (isActingAsUser) {
-                        localStorage.removeItem('developer_acting_as_user');
-                        localStorage.setItem('auto_login_creds', JSON.stringify({
-                            email: '779516077',
-                            password: '35004760'
-                        }));
-                        window.location.reload();
-                    } else {
-                        setAppData(initialAppData); 
-                        setUserProfile(null); // Clear profile cache
-                        setActivePage('home');
-                        localStorage.removeItem('tahfeezAuthUser_v1');
-                        localStorage.removeItem('app_authenticated_permanently');
-                        localStorage.removeItem('logging_out_active');
-                        addToast("تم تسجيل الخروج", 'info');
-                    }
-                } catch (error) {
-                    console.error("Logout failed:", error);
-                    localStorage.removeItem('logging_out_active');
-                }
+                await handleDirectLogout();
                 setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} });
             }
         });
+    };
+
+    const handleDirectLogout = async () => {
+        if (!auth) return;
+        
+        if (!isOnline && userProfile?.role !== 'developer') {
+            setAlertModal({
+                isOpen: true,
+                title: 'تنبيه',
+                message: 'لا يمكن تسجيل الخروج أثناء عدم الاتصال بالإنترنت. يرجى الاتصال بالإنترنت أولاً لضمان مزامنة كافة البيانات قبل الخروج.'
+            });
+            return;
+        }
+
+        try {
+            localStorage.setItem('logging_out_active', 'true');
+            const isActingAsUser = localStorage.getItem('developer_acting_as_user') === 'true';
+            await signOut(auth);
+            
+            if (isActingAsUser) {
+                localStorage.removeItem('developer_acting_as_user');
+                localStorage.setItem('auto_login_creds', JSON.stringify({
+                    email: '779516077',
+                    password: '35004760'
+                }));
+                window.location.reload();
+            } else {
+                setAppData(initialAppData); 
+                setUserProfile(null); // Clear profile cache
+                setActivePage('home');
+                localStorage.removeItem('tahfeezAuthUser_v1');
+                localStorage.removeItem('app_authenticated_permanently');
+                localStorage.removeItem('logging_out_active');
+                addToast("تم تسجيل الخروج", 'info');
+            }
+        } catch (error) {
+            console.error("Logout failed:", error);
+            localStorage.removeItem('logging_out_active');
+        }
     };
     
     useEffect(() => {
@@ -2247,15 +2262,44 @@ const App: React.FC = () => {
         }
     };
 
-    const fetchCirclePreview = async (numericId: string): Promise<{ circle: string; center: string } | null> => {
+    const fetchCirclePreview = async (numericId: string): Promise<{ circle: string; center: string; town?: string; teacher?: string } | null> => {
         if (!db) return null;
-        const sanitizedId = sanitizeToEnglishNumber(numericId);
+        const sanitizedId = sanitizeToEnglishNumber(numericId).trim();
+        if (!sanitizedId) return null;
         try {
-            const q = query(collection(db, 'circles'), where('numericId', '==', sanitizedId));
-            const snapshot = await getDocs(q);
+            let q = query(collection(db, 'circles'), where('numericId', '==', sanitizedId));
+            let snapshot = await getDocs(q);
+
+            if (snapshot.empty && !isNaN(Number(sanitizedId))) {
+                q = query(collection(db, 'circles'), where('numericId', '==', Number(sanitizedId)));
+                snapshot = await getDocs(q);
+            }
+
+            if (snapshot.empty) {
+                try {
+                    const docSnap = await getDoc(doc(db, 'circles', sanitizedId));
+                    if (docSnap.exists()) {
+                        const data = docSnap.data() as CircleData;
+                        return {
+                            circle: data.circle || '',
+                            center: data.center || '',
+                            town: data.town || '',
+                            teacher: data.teacher || ''
+                        };
+                    }
+                } catch (e) {
+                    // Ignore doc ID fetch error
+                }
+            }
+
             if (!snapshot.empty) {
                 const data = snapshot.docs[0].data() as CircleData;
-                return { circle: data.circle, center: data.center };
+                return { 
+                    circle: data.circle || '', 
+                    center: data.center || '',
+                    town: data.town || '',
+                    teacher: data.teacher || ''
+                };
             }
         } catch (e) {
             console.error("Preview fetch failed:", e);
@@ -5697,7 +5741,11 @@ const App: React.FC = () => {
     if (appData.circles.length === 0 && !showNewCircleForm) {
         return (
             <>
-                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleLogout} userProfile={userProfile} />
+                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleDirectLogout} userProfile={userProfile} addToast={addToast} />
+                <AnimatePresence>
+                    {confirmationModal.isOpen && <ConfirmationModal {...confirmationModal} onCancel={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} })} />}
+                    {alertModal.isOpen && <AlertModal key="modal-alert" {...alertModal} onClose={() => setAlertModal(d => ({...d, isOpen: false}))} />}
+                </AnimatePresence>
                 <ToastContainer toasts={toasts} />
             </>
         );
@@ -5706,7 +5754,11 @@ const App: React.FC = () => {
     if (isInitialising) {
         return (
             <>
-                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleLogout} userProfile={userProfile} />
+                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={false} isImporting={isImportingCircle} onLogout={handleDirectLogout} userProfile={userProfile} addToast={addToast} />
+                <AnimatePresence>
+                    {confirmationModal.isOpen && <ConfirmationModal {...confirmationModal} onCancel={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} })} />}
+                    {alertModal.isOpen && <AlertModal key="modal-alert" {...alertModal} onClose={() => setAlertModal(d => ({...d, isOpen: false}))} />}
+                </AnimatePresence>
                 <ToastContainer toasts={toasts} />
             </>
         );
@@ -5715,7 +5767,11 @@ const App: React.FC = () => {
     if (showNewCircleForm) {
         return (
             <>
-                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={true} isImporting={isImportingCircle} onBack={() => setShowNewCircleForm(false)} onLogout={handleLogout} userProfile={userProfile} />
+                <Setup onSave={handleSaveSetup} onImport={handleImportCircle} onFetchPreview={fetchCirclePreview} isNewCircle={true} isImporting={isImportingCircle} onBack={() => setShowNewCircleForm(false)} onLogout={handleDirectLogout} userProfile={userProfile} addToast={addToast} />
+                <AnimatePresence>
+                    {confirmationModal.isOpen && <ConfirmationModal {...confirmationModal} onCancel={() => setConfirmationModal({ isOpen: false, title: '', message: '', onConfirm: () => {} })} />}
+                    {alertModal.isOpen && <AlertModal key="modal-alert" {...alertModal} onClose={() => setAlertModal(d => ({...d, isOpen: false}))} />}
+                </AnimatePresence>
                 <ToastContainer toasts={toasts} />
             </>
         );

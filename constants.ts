@@ -121,7 +121,7 @@ export const surahs = [
 export const COUNTRIES = [
     { ar: 'اليمن', en: 'Yemen', code: 'YE' },
     { ar: 'السعودية', en: 'Saudi Arabia', code: 'SA' },
-    { ar: 'فلسطين ❤️', en: 'Palestine', code: 'PS' },
+    { ar: 'فلسطين', en: 'Palestine', code: 'PS' },
     { ar: 'مصر', en: 'Egypt', code: 'EG' },
     { ar: 'الأردن', en: 'Jordan', code: 'JO' },
     { ar: 'سوريا', en: 'Syria', code: 'SY' },
