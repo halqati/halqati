@@ -1156,21 +1156,25 @@ const App: React.FC = () => {
 
         let docsAuthorized: any[] = [];
         let docsOwner: any[] = [];
+        let docsTeacher: any[] = [];
         let isAuthorizedFromCache = true;
         let isOwnerFromCache = true;
+        let isTeacherFromCache = true;
         let hasAuthPendingWrites = false;
         let hasOwnerPendingWrites = false;
+        let hasTeacherPendingWrites = false;
 
         const processMergedSnapshots = () => {
             const firestoreDocsMap = new Map<string, any>();
             docsAuthorized.forEach(d => firestoreDocsMap.set(d.id, d));
             docsOwner.forEach(d => firestoreDocsMap.set(d.id, d));
+            docsTeacher.forEach(d => firestoreDocsMap.set(d.id, d));
 
             const allDocs = Array.from(firestoreDocsMap.values());
             
             // Auto-repair missing or incomplete authorizedUserIds in Firestore
             allDocs.forEach(d => {
-                const data = d.data() as CircleData;
+                const data = { ...d.data(), id: d.id } as CircleData;
                 const isOwner = data.ownerId === user.uid;
                 const isTeacher = !!data.teachers?.[user.uid];
                 const lacksAuth = !data.authorizedUserIds || !data.authorizedUserIds.includes(user.uid);
@@ -1182,22 +1186,20 @@ const App: React.FC = () => {
                 }
             });
 
-            hasPendingWritesRef.current = hasAuthPendingWrites || hasOwnerPendingWrites;
+            hasPendingWritesRef.current = hasAuthPendingWrites || hasOwnerPendingWrites || hasTeacherPendingWrites;
             
             allDocs.forEach(d => {
-                const circleData = d.data() as CircleData;
+                const circleData = { ...d.data(), id: d.id } as CircleData;
                 lastSyncedCircles.current[circleData.id] = circleData;
             });
 
-            const isBothServerSynced = !isAuthorizedFromCache && !isOwnerFromCache;
-
-            if (allDocs.length > 0 || isBothServerSynced || !isOnline) {
-                setIsInitialSyncComplete(true);
-            }
+            const isAllServerSynced = !isAuthorizedFromCache && !isOwnerFromCache && !isTeacherFromCache;
 
             setAppData(prev => {
                 const circlesMap = new Map<string, CircleData>();
-                prev.circles.forEach(c => circlesMap.set(c.id, c));
+                prev.circles.forEach(c => {
+                    if (c && c.id) circlesMap.set(c.id, c);
+                });
                 
                 const storedDraftsRaw = localStorage.getItem(`tahfeez_drafts_${user.uid}`);
                 const storedDrafts = storedDraftsRaw ? JSON.parse(storedDraftsRaw) : {};
@@ -1205,7 +1207,7 @@ const App: React.FC = () => {
                 const firestoreDocIds = new Set<string>();
 
                 allDocs.forEach(d => {
-                    const circleData = d.data() as CircleData;
+                    const circleData = { ...d.data(), id: d.id } as CircleData;
                     firestoreDocIds.add(circleData.id);
 
                     const existing = circlesMap.get(circleData.id);
@@ -1218,6 +1220,7 @@ const App: React.FC = () => {
                         const newCircle: CircleData = {
                             ...defaultsForOptionalFields,
                             ...circleData,
+                            id: d.id,
                             students: [],
                             sessions: [],
                             plans: [],
@@ -1238,10 +1241,10 @@ const App: React.FC = () => {
                     }
                 });
 
-                // If both queries have synced with server (not cache), remove circles that were deleted from server
-                if (isBothServerSynced) {
+                // If all queries have synced with server (not cache), remove circles that were deleted from server
+                if (isAllServerSynced) {
                     for (const [id, c] of circlesMap.entries()) {
-                        const isUserCircle = c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid);
+                        const isUserCircle = c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid) || !!c.teachers?.[user.uid];
                         if (!firestoreDocIds.has(id) && isUserCircle) {
                             circlesMap.delete(id);
                             delete lastLocalState.current[id];
@@ -1264,10 +1267,15 @@ const App: React.FC = () => {
 
                 return { ...prev, circles: mergedCircles, activeCircleId: newActiveId };
             });
+
+            if (allDocs.length > 0 || isAllServerSynced || !isOnline) {
+                setIsInitialSyncComplete(true);
+            }
         };
 
         const qAuthorized = query(collection(db, 'circles'), where('authorizedUserIds', 'array-contains', user.uid));
         const qOwner = query(collection(db, 'circles'), where('ownerId', '==', user.uid));
+        const qTeacher = query(collection(db, 'circles'), where(`teachers.${user.uid}.status`, 'in', ['active', 'pending', 'suspended']));
 
         const unsubAuthorized = onSnapshot(qAuthorized, { includeMetadataChanges: true }, (snapshot) => {
             docsAuthorized = snapshot.docs;
@@ -1276,7 +1284,8 @@ const App: React.FC = () => {
             processMergedSnapshots();
         }, (error) => {
             console.error("Firestore authorized circles sync error:", error);
-            setIsInitialSyncComplete(true);
+            isAuthorizedFromCache = false;
+            processMergedSnapshots();
         });
 
         const unsubOwner = onSnapshot(qOwner, { includeMetadataChanges: true }, (snapshot) => {
@@ -1286,12 +1295,25 @@ const App: React.FC = () => {
             processMergedSnapshots();
         }, (error) => {
             console.error("Firestore owner circles sync error:", error);
-            setIsInitialSyncComplete(true);
+            isOwnerFromCache = false;
+            processMergedSnapshots();
+        });
+
+        const unsubTeacher = onSnapshot(qTeacher, { includeMetadataChanges: true }, (snapshot) => {
+            docsTeacher = snapshot.docs;
+            isTeacherFromCache = snapshot.metadata.fromCache;
+            hasTeacherPendingWrites = snapshot.metadata.hasPendingWrites;
+            processMergedSnapshots();
+        }, (error) => {
+            console.warn("Firestore teacher query fallback:", error);
+            isTeacherFromCache = false;
+            processMergedSnapshots();
         });
 
         return () => {
             unsubAuthorized();
             unsubOwner();
+            unsubTeacher();
         };
     }, [user]);
 
@@ -1354,7 +1376,7 @@ const App: React.FC = () => {
         if (!user || !db) return;
 
         const activeCircleIds = appData.circles
-            .filter(c => c && c.id && c.authorizedUserIds?.includes(user.uid))
+            .filter(c => c && c.id && (c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid) || !!c.teachers?.[user.uid]))
             .map(c => c.id);
 
         const unsubscribes: (() => void)[] = [];
@@ -5289,7 +5311,7 @@ const App: React.FC = () => {
             // Target checks
             if (!notif.targetType || notif.targetType === 'all') {
                 if (notif.excludeCircleIds && notif.excludeCircleIds.length > 0) {
-                    const userCircleIds = appData.circles.filter(c => c.authorizedUserIds?.includes(user.uid)).map(c => c.id);
+                    const userCircleIds = appData.circles.filter(c => c && (c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid) || !!c.teachers?.[user.uid])).map(c => c.id);
                     if (userCircleIds.length > 0 && userCircleIds.every(id => notif.excludeCircleIds.includes(id))) {
                         return false;
                     }
@@ -5308,7 +5330,7 @@ const App: React.FC = () => {
             }
             
             if (notif.targetType === 'circles') {
-                const userCircles = appData.circles.filter(c => c.authorizedUserIds?.includes(user.uid));
+                const userCircles = appData.circles.filter(c => c && (c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid) || !!c.teachers?.[user.uid]));
                 const userCircleIds = userCircles.map(c => c.id);
                 const userNumericIds = userCircles.map(c => c.numericId).filter(Boolean);
                 

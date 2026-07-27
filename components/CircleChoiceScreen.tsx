@@ -45,7 +45,7 @@ const CircleChoiceScreen: React.FC<CircleChoiceScreenProps> = ({ userId, userPro
             }
 
             const circleDoc = querySnapshot.docs[0];
-            const data = circleDoc.data() as CircleData;
+            const data = { ...circleDoc.data(), id: circleDoc.id } as CircleData;
 
             // Check if already a member
             if (data.authorizedUserIds?.includes(userId)) {
