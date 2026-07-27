@@ -285,14 +285,7 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         <SettingButton 
                             label="بيانات الحلقة" 
                             icon={FaBookOpen} 
-                            onClick={() => {
-                                if (!hasCircleSettingsPermission) {
-                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى بيانات الحلقة.", "error");
-                                } else {
-                                    onNavigateToCircleInfo();
-                                }
-                            }} 
-                            disabled={!hasCircleSettingsPermission}
+                            onClick={onNavigateToCircleInfo} 
                         />
                         <SettingButton label="الإضافات والمظهر" icon={FaWrench} onClick={onOpenAddonsModal} />
                     </SettingCard>
@@ -333,14 +326,9 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                     )}
                                     {allCircles.length > 1 && (
                                         <button 
-                                            onClick={() => {
-                                                if (!hasCircleSettingsPermission) {
-                                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية لحذف هذه الحلقة.", "error");
-                                                } else {
-                                                    onDeleteCircle(circle.id);
-                                                }
-                                            }} 
-                                            className={`p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer ${!hasCircleSettingsPermission ? 'opacity-50' : ''}`}
+                                            onClick={() => onDeleteCircle(circle.id)} 
+                                            className="p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
+                                            title={circle.ownerId === user?.uid || circle.teachers?.[user?.uid || '']?.role === 'owner' ? "حذف الحلقة" : "الخروج من الحلقة"}
                                         >
                                             <FaTrash size={10} />
                                         </button>
@@ -350,14 +338,8 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                             ))}
                         </div>
                         <button 
-                            onClick={() => {
-                                if (!hasCircleSettingsPermission) {
-                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية لإنشاء حلقة جديدة.", "error");
-                                } else {
-                                    onCreateNewCircle();
-                                }
-                            }} 
-                            className={`w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 p-1.5 rounded-lg font-bold mt-1 text-[10px] transition-all active:scale-[0.98] cursor-pointer ${!hasCircleSettingsPermission ? 'opacity-60' : ''}`}
+                            onClick={onCreateNewCircle} 
+                            className="w-full bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 p-1.5 rounded-lg font-bold mt-1 text-[10px] transition-all active:scale-[0.98] cursor-pointer"
                         >
                             + إنشاء حلقة جديدة
                         </button>

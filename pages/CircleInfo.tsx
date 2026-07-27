@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaArrowRight, FaCopy, FaUsers, FaChalkboardTeacher, FaHashtag, FaKey, FaBuilding, FaCheckCircle, FaEdit, FaUserEdit, FaCheck, FaGlobe, FaEllipsisV, FaTrash, FaBan, FaShieldAlt, FaUserSlash, FaUserCheck, FaCog, FaUserShield, FaUserPlus, FaUserTie, FaFilePdf, FaTimes } from 'react-icons/fa';
+import { FaArrowRight, FaCopy, FaUsers, FaChalkboardTeacher, FaHashtag, FaKey, FaBuilding, FaCheckCircle, FaEdit, FaUserEdit, FaCheck, FaGlobe, FaEllipsisV, FaTrash, FaBan, FaShieldAlt, FaUserSlash, FaUserCheck, FaCog, FaUserShield, FaUserPlus, FaUserTie, FaFilePdf, FaTimes, FaSignOutAlt } from 'react-icons/fa';
 import { CircleData, TeacherPermissions, MemberPermissions } from '../types';
 import { defaultMemberPermissions } from '../constants';
 
@@ -14,6 +14,7 @@ interface CircleInfoProps {
     currentUserId: string;
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
     setConfirmationModal?: (data: any) => void;
+    onDeleteCircle?: (id: string) => void;
 }
 
 const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string, subLabel: string, color?: string, onClick?: () => void, isEditable?: boolean }> = ({ icon: Icon, label, value, subLabel, color = "text-gray-400", onClick, isEditable }) => (
@@ -39,7 +40,7 @@ const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string,
     </div>
 );
 
-const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal }) => {
+const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal, onDeleteCircle }) => {
     const [isEditingCode, setIsEditingCode] = useState(false);
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
     const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -630,6 +631,33 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                     </div>
                 )}
             </AnimatePresence>
+
+            {/* Delete or Leave Circle Section */}
+            {onDeleteCircle && (
+                <div className="bg-[#111317] border border-gray-800/40 p-4 rounded-2xl flex items-center justify-between mt-4">
+                    <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${isOwnerOrTeacher ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                            {isOwnerOrTeacher ? <FaTrash size={14} /> : <FaSignOutAlt size={14} />}
+                        </div>
+                        <div>
+                            <h3 className="text-white text-xs font-bold">{isOwnerOrTeacher ? 'حذف الحلقة' : 'الخروج من الحلقة'}</h3>
+                            <p className="text-[10px] text-gray-500">
+                                {isOwnerOrTeacher ? 'حذف الحلقة بجميع بياناتها وسجلاتها نهائياً' : 'إزالة ارتباط حسابك بهذه الحلقة فقط بدون حذف بياناتها'}
+                            </p>
+                        </div>
+                    </div>
+                    <button 
+                        onClick={() => onDeleteCircle(data.id)}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer ${
+                            isOwnerOrTeacher 
+                                ? 'bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20' 
+                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/20'
+                        }`}
+                    >
+                        {isOwnerOrTeacher ? 'حذف الحلقة' : 'الخروج'}
+                    </button>
+                </div>
+            )}
 
             {/* Minimal Code Editor */}
             <AnimatePresence>
