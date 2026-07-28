@@ -440,17 +440,62 @@ export interface MemberPermissions {
     canSendReports: boolean;
 }
 
+export interface GranularPermissions {
+    // 1. الطلاب
+    viewStudents: boolean;
+    addStudents: boolean;
+    editStudents: boolean;
+    deleteStudents: boolean;
+    manageStudentPoints: boolean;
+    viewStudentProfile: boolean;
+
+    // 2. الجلسات والتسميع
+    viewSessions: boolean;
+    createSessions: boolean;
+    editSessions: boolean;
+    editPastSessions: boolean;
+    deleteSessions: boolean;
+
+    // 3. التقارير
+    viewReports: boolean;
+    generateReports: boolean;
+    manageSavedReports: boolean;
+
+    // 4. الإحصائيات
+    viewStats: boolean;
+    exportStats: boolean;
+
+    // 5. النقاط والمكافآت
+    viewPoints: boolean;
+    adjustPoints: boolean;
+    manageRewards: boolean;
+
+    // 6. الخدمات والإضافات
+    accessServices: boolean;
+    smartRecitation: boolean;
+    sendNotifications: boolean;
+    managePlansAndTests: boolean;
+
+    // 7. الإعدادات والإدارة
+    editCircleSettings: boolean;
+    manageMembers: boolean;
+    manageDirectEntry: boolean;
+    transferOwnership: boolean;
+    deleteCircle: boolean;
+}
+
 export interface TeacherPermissions {
     name: string;
     gender: 'male' | 'female';
-    role: 'owner' | 'teacher' | 'assistant' | 'member';
-    accessLevel: 'standard' | 'full';
+    role: 'owner' | 'admin' | 'supervisor' | 'teacher' | 'assistant' | 'member';
+    accessLevel?: 'standard' | 'full';
     status: 'active' | 'suspended' | 'pending' | 'rejected';
     joinedAt: number;
     lastUpdated?: number; // For synchronization
     photo?: string;
     rejectionReason?: string;
     permissions?: MemberPermissions;
+    granularPermissions?: GranularPermissions;
 }
 
 export interface SupervisorReportSettings {

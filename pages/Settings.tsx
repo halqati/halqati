@@ -3,7 +3,7 @@ import { CircleData, ConfirmationModalData, UserProfile } from '../types';
 import { 
     FaInfoCircle, FaWhatsapp, FaTrash, FaChevronLeft, FaWrench, 
     FaUserCircle, FaClipboardList, FaSave, FaTelegram, FaUsers, 
-    FaGlobe, FaSignInAlt, FaSignOutAlt, FaUser, FaUserShield, 
+    FaGlobe, FaSignInAlt, FaSignOutAlt, FaUser, FaUserShield, FaShieldAlt,
     FaBookOpen, FaExclamationTriangle, FaAward, FaChalkboardTeacher,
     FaYoutube, FaCode, FaExternalLinkAlt, FaTimes, FaLightbulb, FaCommentDots
 } from 'react-icons/fa';
@@ -25,6 +25,7 @@ interface SettingsProps {
     onNavigateToProfile: () => void;
     onNavigateToTestsAndPlans: () => void;
     onNavigateToCircleInfo: () => void;
+    onNavigateToPermissions?: () => void;
     onNavigateToFeedback?: () => void;
     hasUnreadFeedbackReply?: boolean;
     onSwitchCircle: (id: string) => void;
@@ -81,7 +82,7 @@ const SettingButton: React.FC<{ label: string, icon: React.ElementType, onClick:
 );
 
 
-const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile, isSynced, isOnline, onLogin, onLogout, onToggleAdminMode, onOpenAddonsModal, onNavigateToAbout, onNavigateToSupport, onNavigateToProfile, onNavigateToTestsAndPlans, onNavigateToCircleInfo, onNavigateToFeedback, hasUnreadFeedbackReply, onSwitchCircle, onCreateNewCircle, onDeleteCircle, onOpenBackupRestore, onJoinCommunity, setConfirmationModal, onManualSync, onLinkCircles, onNavigateToSyncDiagnostics, hasCircleSettingsPermission = true, addToast }) => {
+const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile, isSynced, isOnline, onLogin, onLogout, onToggleAdminMode, onOpenAddonsModal, onNavigateToAbout, onNavigateToSupport, onNavigateToProfile, onNavigateToTestsAndPlans, onNavigateToCircleInfo, onNavigateToPermissions, onNavigateToFeedback, hasUnreadFeedbackReply, onSwitchCircle, onCreateNewCircle, onDeleteCircle, onOpenBackupRestore, onJoinCommunity, setConfirmationModal, onManualSync, onLinkCircles, onNavigateToSyncDiagnostics, hasCircleSettingsPermission = true, addToast }) => {
     if (!data) return null;
 
     const [showChannelsModal, setShowChannelsModal] = useState(false);
@@ -288,6 +289,20 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                             onClick={() => {
                                 if (!hasCircleSettingsPermission) {
                                     addToast?.("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى بيانات الحلقة.", "error");
+                                } else {
+                                    onNavigateToCircleInfo();
+                                }
+                            }} 
+                            disabled={!hasCircleSettingsPermission}
+                        />
+                        <SettingButton 
+                            label="الصلاحيات والأعضاء" 
+                            icon={FaShieldAlt} 
+                            onClick={() => {
+                                if (!hasCircleSettingsPermission) {
+                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى إدارة الصلاحيات.", "error");
+                                } else if (onNavigateToPermissions) {
+                                    onNavigateToPermissions();
                                 } else {
                                     onNavigateToCircleInfo();
                                 }

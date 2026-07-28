@@ -15,6 +15,7 @@ interface CircleInfoProps {
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
     setConfirmationModal?: (data: any) => void;
     onDeleteCircle?: (id: string) => void;
+    onOpenPermissions?: () => void;
 }
 
 const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string, subLabel: string, color?: string, onClick?: () => void, isEditable?: boolean }> = ({ icon: Icon, label, value, subLabel, color = "text-gray-400", onClick, isEditable }) => (
@@ -40,7 +41,7 @@ const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string,
     </div>
 );
 
-const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal, onDeleteCircle }) => {
+const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal, onDeleteCircle, onOpenPermissions }) => {
     const [isEditingCode, setIsEditingCode] = useState(false);
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
     const [showPermissionsModal, setShowPermissionsModal] = useState(false);
@@ -253,6 +254,15 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                         <FaUserEdit size={14} />
                         <h3>المدراء والمعلمون</h3>
                     </div>
+                    {onOpenPermissions && (
+                        <button 
+                            onClick={onOpenPermissions}
+                            className="bg-[#10b981]/10 hover:bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/20 px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+                        >
+                            <FaShieldAlt size={10} />
+                            <span>جدول الصلاحيات الشامل</span>
+                        </button>
+                    )}
                 </div>
 
                 <div className="space-y-2">

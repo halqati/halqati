@@ -27,7 +27,7 @@ const BottomNav: React.FC<BottomNavProps> = ({ activePage, setActivePage }) => {
                         className={`flex flex-col items-center justify-center p-2 text-sm transition-colors ${
                             activePage === item.id || 
                             (item.id === 'services' && ['services', 'records', 'parentFollowUp', 'tests', 'plans', 'activities', 'announcements', 'reports'].includes(activePage)) ||
-                            (item.id === 'settings' && ['settings', 'about', 'support', 'profile', 'circleInfo', 'syncDiagnostics'].includes(activePage))
+                            (item.id === 'settings' && ['settings', 'about', 'support', 'profile', 'circleInfo', 'permissions', 'syncDiagnostics'].includes(activePage))
                                 ? 'text-primary dark:text-accent' 
                                 : 'text-gray-500 dark:text-gray-400'
                         }`}

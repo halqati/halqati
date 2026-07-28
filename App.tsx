@@ -1,7 +1,9 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
+import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, GranularPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
+import { getResolvedGranularPermissions } from './permissions';
+import { PermissionsPage } from './pages/PermissionsPage';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount } from './utils/helpers';
@@ -3567,23 +3569,33 @@ const App: React.FC = () => {
         return { ...draft, students: updatedStudents };
     }, [activeCircleStudents]);
 
-    const checkPermission = useCallback((permission: keyof MemberPermissions, actionName: string): boolean => {
+    const checkPermission = useCallback((permission: keyof GranularPermissions | keyof MemberPermissions | string, actionName: string): boolean => {
         if (!activeCircle || !user) return false;
         if (activeCircle.ownerId === user.uid) return true;
         
         const teacher = activeCircle.teachers?.[user.uid];
         if (!teacher) return false;
-        
-        // Full access shortcut
-        if (teacher.accessLevel === 'full') return true;
-        
-        const hasPermission = teacher.permissions?.[permission];
-        
-        if (!hasPermission) {
-            addToast(`لا يمكنك تنفيذ هذا الإجراء، ليس لديك صلاحية ${actionName}. يرجى طلب الإذن من منشئ الحلقة.`, 'error');
+        if (teacher.role === 'owner') return true;
+
+        const resolved = getResolvedGranularPermissions(teacher, activeCircle.ownerId, user.uid);
+
+        let hasPermission = false;
+        if (permission in resolved) {
+            hasPermission = !!resolved[permission as keyof GranularPermissions];
+        } else {
+            // Fallback for legacy keys
+            if (permission === 'canManageStudents') hasPermission = resolved.addStudents || resolved.editStudents;
+            else if (permission === 'canCreateSessions') hasPermission = resolved.createSessions;
+            else if (permission === 'canEditCircleSettings') hasPermission = resolved.editCircleSettings || resolved.manageMembers;
+            else if (permission === 'canEditPastSessions') hasPermission = resolved.editPastSessions;
+            else if (permission === 'canSendReports') hasPermission = resolved.generateReports || resolved.sendNotifications;
         }
         
-        return !!hasPermission;
+        if (!hasPermission) {
+            addToast(`لا يمكنك تنفيذ هذا الإجراء، ليس لديك صلاحية ${actionName}. يرجى طلب الإذن من مدير الحلقة.`, 'error');
+        }
+        
+        return hasPermission;
     }, [activeCircle, user, addToast]);
 
     const handleViewStudentProfile = useCallback((id: number) => {
@@ -6490,6 +6502,17 @@ const App: React.FC = () => {
                         addToast={addToast} 
                         setConfirmationModal={setConfirmationModal}
                         onDeleteCircle={handleDeleteCircle}
+                        onOpenPermissions={() => handleNavigate('permissions')}
+                    />
+                )}
+                {activePage === 'permissions' && activeCircle && (
+                    <PermissionsPage
+                        circle={activeCircle}
+                        currentUserId={user?.uid || ''}
+                        onBack={() => handleNavigate('circleInfo')}
+                        onUpdateSupervisor={handleUpdateSupervisor}
+                        addToast={addToast}
+                        setConfirmationModal={setConfirmationModal}
                     />
                 )}
                 {activePage === 'notifications' && activeCircle && (
@@ -6861,6 +6884,9 @@ const App: React.FC = () => {
                             onNavigateToTestsAndPlans={() => navigateWithinSettings('testsAndPlans')} 
                             onNavigateToCircleInfo={() => {
                                 handleNavigate('circleInfo');
+                            }}
+                            onNavigateToPermissions={() => {
+                                handleNavigate('permissions');
                             }}
                             onSwitchCircle={switchCircle} 
                             onCreateNewCircle={() => {setShowNewCircleForm(true); pushStateSafely();}} 
