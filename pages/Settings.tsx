@@ -151,6 +151,9 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
     const isAdmin = userProfile?.role === 'admin' || userProfile?.role === 'superadmin';
     const isOwner = data.ownerId === user?.uid;
     const teacher = data.teachers?.[user?.uid || ''];
+    const currentUserRole = teacher?.role || 'member';
+    const currentPermissions = teacher?.permissions || {};
+    const hasPermissionsAccess = isOwner || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentPermissions.manageMembers || !!currentPermissions.canEditCircleSettings;
     const isFullAccess = teacher?.accessLevel === 'full';
     const hasFullManagement = isOwner || isFullAccess;
     const hasUnlinkedCircles = allCircles.some(c => !c.authorizedUserIds || c.authorizedUserIds.length === 0);
@@ -287,28 +290,22 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                             label="بيانات الحلقة" 
                             icon={FaBookOpen} 
                             onClick={() => {
-                                if (!hasCircleSettingsPermission) {
-                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى بيانات الحلقة.", "error");
-                                } else {
-                                    onNavigateToCircleInfo();
-                                }
+                                onNavigateToCircleInfo();
                             }} 
-                            disabled={!hasCircleSettingsPermission}
                         />
-                        <SettingButton 
-                            label="الصلاحيات والأعضاء" 
-                            icon={FaShieldAlt} 
-                            onClick={() => {
-                                if (!hasCircleSettingsPermission) {
-                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية للدخول إلى إدارة الصلاحيات.", "error");
-                                } else if (onNavigateToPermissions) {
-                                    onNavigateToPermissions();
-                                } else {
-                                    onNavigateToCircleInfo();
-                                }
-                            }} 
-                            disabled={!hasCircleSettingsPermission}
-                        />
+                        {hasPermissionsAccess && (
+                            <SettingButton 
+                                label="الصلاحيات والأعضاء" 
+                                icon={FaShieldAlt} 
+                                onClick={() => {
+                                    if (onNavigateToPermissions) {
+                                        onNavigateToPermissions();
+                                    } else {
+                                        onNavigateToCircleInfo();
+                                    }
+                                }} 
+                            />
+                        )}
                         <SettingButton label="الإضافات والمظهر" icon={FaWrench} onClick={onOpenAddonsModal} />
                     </SettingCard>
                 </div>

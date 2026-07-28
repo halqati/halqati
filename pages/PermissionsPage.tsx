@@ -62,6 +62,8 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     };
 
     const [searchQuery, setSearchQuery] = useState('');
+    const [permSearchQuery, setPermSearchQuery] = useState('');
+    const [savingKey, setSavingKey] = useState<string | null>(null);
     const [roleFilter, setRoleFilter] = useState<string>('all');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [openCategories, setOpenCategories] = useState<Record<string, boolean>>({
@@ -135,7 +137,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
         addToast(`تم تغيير رتبة المعلم إلى (${ROLE_LABELS[newRole].label}) وتطبيق الصلاحيات الافتراضية`, 'success');
     };
 
-    const handleTogglePermission = (key: keyof GranularPermissions) => {
+    const handleTogglePermission = async (key: keyof GranularPermissions) => {
         if (!checkOnlineConnection()) return;
         if (!selectedUid || !selectedTeacher || !canManageMembers) return;
 
@@ -149,15 +151,23 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
             return;
         }
 
+        setSavingKey(key);
+
         const currentResolved = getResolvedGranularPermissions(selectedTeacher, circle.ownerId, selectedUid);
         const newGranular = {
             ...currentResolved,
             [key]: !currentResolved[key]
         };
 
-        onUpdateSupervisor(selectedUid, {
-            granularPermissions: newGranular
-        });
+        try {
+            await onUpdateSupervisor(selectedUid, {
+                granularPermissions: newGranular
+            });
+        } finally {
+            setTimeout(() => {
+                setSavingKey(null);
+            }, 300);
+        }
     };
 
     const handleGrantAllPermissions = () => {
@@ -497,16 +507,37 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
 
                         {/* Detailed Granular Permission Toggles by Category */}
                         <div className="space-y-3 pt-2">
-                            <div className="flex items-center justify-between border-b border-gray-800 pb-2">
+                            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 border-b border-gray-800 pb-2">
                                 <h3 className="text-xs font-bold text-white flex items-center gap-2">
                                     <FaLock size={12} className="text-amber-400" />
                                     <span>جدول الصلاحيات التفصيلية بالعمليات:</span>
                                 </h3>
-                                <span className="text-[9px] text-gray-400">انقر للفتح أو التعديل</span>
+                                <div className="relative w-full sm:w-48">
+                                    <FaSearch className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-500" size={10} />
+                                    <input
+                                        type="text"
+                                        value={permSearchQuery}
+                                        onChange={e => setPermSearchQuery(e.target.value)}
+                                        placeholder="بحث في الصلاحيات..."
+                                        className="w-full bg-[#181d26] border border-gray-800 rounded-lg pr-7 pl-2 py-1 text-[10px] text-white placeholder-gray-500 outline-none focus:border-emerald-500/50"
+                                    />
+                                    {permSearchQuery && (
+                                        <button onClick={() => setPermSearchQuery('')} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                                            <FaTimes size={10} />
+                                        </button>
+                                    )}
+                                </div>
                             </div>
 
                             {PERMISSION_CATEGORIES.map(category => {
-                                const isOpen = !!openCategories[category.id];
+                                const q = permSearchQuery.trim().toLowerCase();
+                                const filteredItems = q 
+                                    ? category.items.filter(item => item.title.toLowerCase().includes(q) || item.description.toLowerCase().includes(q))
+                                    : category.items;
+
+                                if (q && filteredItems.length === 0) return null;
+
+                                const isOpen = q ? true : !!openCategories[category.id];
                                 const CategoryIcon = CATEGORY_ICONS[category.iconName] || FaCog;
                                 const categoryKeys = category.items.map(i => i.key);
                                 const activeCountInCategory = categoryKeys.filter(k => !!activeResolved[k]).length;
@@ -548,8 +579,9 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                                     exit={{ height: 0, opacity: 0 }}
                                                     className="border-t border-gray-800/60 divide-y divide-gray-800/40"
                                                 >
-                                                    {category.items.map(item => {
+                                                    {filteredItems.map(item => {
                                                         const isAllowed = !!activeResolved[item.key];
+                                                        const isSavingThis = savingKey === item.key;
 
                                                         return (
                                                             <div
@@ -565,17 +597,24 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                                                     </p>
                                                                 </div>
 
-                                                                 {/* Custom Micro Switch */}
-                                                                <button
-                                                                    disabled={!canManageMembers || isSelectedPrimaryOwner || (!isPrimaryOwner && isSelectedOwner)}
-                                                                    onClick={() => handleTogglePermission(item.key)}
-                                                                    className={`w-10 h-5 rounded-full relative transition-all flex-shrink-0 border ${isAllowed ? 'bg-emerald-500 border-emerald-400' : 'bg-gray-800 border-gray-700'}`}
-                                                                >
-                                                                    <motion.div
-                                                                        animate={{ x: isAllowed ? (document.dir === 'rtl' ? -22 : 22) : (document.dir === 'rtl' ? -2 : 2) }}
-                                                                        className="absolute top-0.5 left-0 w-4 h-4 bg-white rounded-full shadow-md"
-                                                                    />
-                                                                </button>
+                                                                {/* Custom Micro Switch with saving spinner */}
+                                                                <div className="flex items-center gap-2 flex-shrink-0">
+                                                                    {isSavingThis && (
+                                                                        <span className="text-[9px] text-emerald-400 animate-pulse font-bold">
+                                                                            جاري الحفظ...
+                                                                        </span>
+                                                                    )}
+                                                                    <button
+                                                                        disabled={isSavingThis || !canManageMembers || isSelectedPrimaryOwner || (!isPrimaryOwner && isSelectedOwner)}
+                                                                        onClick={() => handleTogglePermission(item.key)}
+                                                                        className={`w-10 h-5 rounded-full relative transition-all border ${isAllowed ? 'bg-emerald-500 border-emerald-400' : 'bg-gray-800 border-gray-700'} ${isSavingThis ? 'opacity-50 cursor-wait' : ''}`}
+                                                                    >
+                                                                        <motion.div
+                                                                            animate={{ x: isAllowed ? (document.dir === 'rtl' ? -22 : 22) : (document.dir === 'rtl' ? -2 : 2) }}
+                                                                            className="absolute top-0.5 left-0 w-4 h-4 bg-white rounded-full shadow-md"
+                                                                        />
+                                                                    </button>
+                                                                </div>
                                                             </div>
                                                         );
                                                     })}

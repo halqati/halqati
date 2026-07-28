@@ -4769,6 +4769,16 @@ const App: React.FC = () => {
     
     const handleOpenTransferStudentModal = (studentToTransfer: Student) => {
         if (!activeCircle) return;
+
+        const currentUserRole = activeCircle.teachers?.[user?.uid || '']?.role || 'member';
+        const currentResolved = getResolvedGranularPermissions(activeCircle.teachers?.[user?.uid || ''], activeCircle.ownerId, user?.uid);
+        const canTransfer = activeCircle.ownerId === user?.uid || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || currentResolved.manageMembers || currentResolved.editCircleSettings;
+
+        if (!canTransfer) {
+            addToast('عذراً، نقل الطلاب بين الحلقات متاح للمنشئ أو المدير أو المشرف فقط.', 'error');
+            return;
+        }
+
         const otherCircles = appData.circles.filter(c => c.id !== activeCircle.id);
         if (otherCircles.length === 0) {
             addToast('لا توجد حلقات أخرى لنقل الطالب إليها.', 'info');
@@ -6517,17 +6527,39 @@ const App: React.FC = () => {
                         onOpenPermissions={() => handleNavigate('permissions')}
                     />
                 )}
-                {activePage === 'permissions' && activeCircle && (
-                    <PermissionsPage
-                        circle={activeCircle}
-                        currentUserId={user?.uid || ''}
-                        onBack={() => handleNavigate('circleInfo')}
-                        onUpdateSupervisor={handleUpdateSupervisor}
-                        addToast={addToast}
-                        setConfirmationModal={setConfirmationModal}
-                        isOnline={isOnline}
-                    />
-                )}
+                {activePage === 'permissions' && activeCircle && (() => {
+                    const currentUserRole = activeCircle.teachers?.[user?.uid || '']?.role || 'member';
+                    const currentPermissions = activeCircle.teachers?.[user?.uid || '']?.permissions || {};
+                    const hasPermAccess = activeCircle.ownerId === user?.uid || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentPermissions.manageMembers || !!currentPermissions.canEditCircleSettings;
+
+                    if (!hasPermAccess) {
+                        return (
+                            <div className="min-h-screen bg-[#0a0c0f] flex items-center justify-center p-6 text-center">
+                                <div className="bg-[#11141a] border border-gray-800 p-6 rounded-2xl max-w-md space-y-4 shadow-xl">
+                                    <p className="text-red-400 font-bold text-sm">عذراً، لا تمتلك الصلاحية الكافية للدخول إلى صفحة الصلاحيات والأعضاء.</p>
+                                    <button 
+                                        onClick={() => handleNavigate('circleInfo')} 
+                                        className="px-5 py-2.5 bg-emerald-500 text-black text-xs font-bold rounded-xl hover:bg-emerald-400 transition-all shadow-md"
+                                    >
+                                        العودة لبيانات الحلقة
+                                    </button>
+                                </div>
+                            </div>
+                        );
+                    }
+
+                    return (
+                        <PermissionsPage
+                            circle={activeCircle}
+                            currentUserId={user?.uid || ''}
+                            onBack={() => handleNavigate('circleInfo')}
+                            onUpdateSupervisor={handleUpdateSupervisor}
+                            addToast={addToast}
+                            setConfirmationModal={setConfirmationModal}
+                            isOnline={isOnline}
+                        />
+                    );
+                })()}
                 {activePage === 'notifications' && activeCircle && (
                     <NotificationsPage
                         data={activeCircle}

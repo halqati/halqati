@@ -46,10 +46,13 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
 
     const currentUserRole = data.teachers?.[currentUserId]?.role || 'member';
-    const isOwnerOrAdmin = data.ownerId === currentUserId || ['owner', 'admin'].includes(currentUserRole) || !!data.teachers?.[currentUserId]?.permissions?.canEditCircleSettings;
+    const currentPermissions = data.teachers?.[currentUserId]?.permissions || {};
+    const isOwnerOrAdmin = data.ownerId === currentUserId || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentPermissions.canEditCircleSettings || !!currentPermissions.manageMembers;
 
     const handleCopyAll = () => {
         const teacherTerm = data.teacherGender === 'female' ? 'المعلمة' : 'المعلم';
+        const numericIdDisplay = isOwnerOrAdmin ? data.numericId : '****';
+        const passDisplay = isOwnerOrAdmin ? (data.transferPassword || data.transferCode) : '****';
         const message = `
 📌 *معلومات الحلقة القرآنية*
 --------------------------
@@ -59,8 +62,8 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
 👥 *عدد الطلاب:* ${data.students.length} طالب
 🏢 *المركز/المسجد:* ${data.center || 'غير محدد'}
 --------------------------
-🆔 *رقم الحلقة (ID):* ${data.numericId}
-🔑 *رمز الدخول:* ${data.transferPassword || data.transferCode}
+🆔 *رقم الحلقة (ID):* ${numericIdDisplay}
+🔑 *رمز الدخول:* ${passDisplay}
 --------------------------
 🛡️ *نظام حلقتي لإدارة الحلقات*
         `.trim();
@@ -209,9 +212,9 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                 <InfoBox 
                     icon={FaHashtag}
                     label="رقم الحلقة (ID)"
-                    value={data.numericId}
-                    subLabel="6 أرقام عشوائية"
-                    color="text-emerald-400"
+                    value={isOwnerOrAdmin ? data.numericId : '****'}
+                    subLabel={isOwnerOrAdmin ? "6 أرقام عشوائية" : "غير مسموح لك برؤية هذه البيانات"}
+                    color={isOwnerOrAdmin ? "text-emerald-400" : "text-amber-500"}
                 />
                 <InfoBox 
                     icon={FaKey}
@@ -261,7 +264,7 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                         <FaUserEdit size={14} />
                         <h3>المدراء والمعلمون</h3>
                     </div>
-                    {onOpenPermissions && (
+                    {isOwnerOrAdmin && onOpenPermissions && (
                         <button 
                             onClick={onOpenPermissions}
                             className="bg-[#10b981]/10 hover:bg-[#10b981]/20 text-[#10b981] border border-[#10b981]/20 px-2.5 py-1 rounded-xl text-[10px] font-bold flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
