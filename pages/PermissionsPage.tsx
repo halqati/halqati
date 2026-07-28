@@ -97,7 +97,9 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     }, [circle.teachers, circle.ownerId, searchQuery, roleFilter, statusFilter]);
 
     const selectedTeacher = selectedUid ? circle.teachers?.[selectedUid] : null;
-    const isSelectedOwner = selectedUid === circle.ownerId || selectedTeacher?.role === 'owner';
+    const isPrimaryOwner = circle.ownerId === currentUserId;
+    const isSelectedPrimaryOwner = selectedUid === circle.ownerId;
+    const isSelectedOwner = isSelectedPrimaryOwner || selectedTeacher?.role === 'owner';
     const activeResolved = selectedTeacher ? getResolvedGranularPermissions(selectedTeacher, circle.ownerId, selectedUid) : null;
 
     // Counts for stats summary bar
@@ -113,8 +115,13 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
         if (!checkOnlineConnection()) return;
         if (!selectedUid || !canManageMembers) return;
 
-        if (isSelectedOwner && newRole !== 'owner') {
+        if (isSelectedPrimaryOwner && newRole !== 'owner') {
             addToast('لا يمكن تغيير رتبة المنشئ الأساسي مباشرة، يمكنك استخدام خيار نقل الملكية', 'error');
+            return;
+        }
+
+        if (!isPrimaryOwner && isSelectedOwner) {
+            addToast('لا يمكنك تغيير رتبة مالك أو منشئ الحلقة', 'error');
             return;
         }
 
@@ -132,8 +139,13 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
         if (!checkOnlineConnection()) return;
         if (!selectedUid || !selectedTeacher || !canManageMembers) return;
 
-        if (isSelectedOwner) {
-            addToast('منشئ الحلقة يتمتع بالملكية الكاملة وجميع الصلاحيات ممررة تلقائياً', 'info');
+        if (isSelectedPrimaryOwner) {
+            addToast('منشئ الحلقة الأساسي يتمتع بالملكية الكاملة وجميع الصلاحيات ممررة تلقائياً', 'info');
+            return;
+        }
+
+        if (!isPrimaryOwner && isSelectedOwner) {
+            addToast('لا يمكنك تعديل صلاحيات المالك', 'error');
             return;
         }
 
@@ -151,6 +163,9 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     const handleGrantAllPermissions = () => {
         if (!checkOnlineConnection()) return;
         if (!selectedUid || !canManageMembers) return;
+        if (isSelectedPrimaryOwner) return;
+        if (!isPrimaryOwner && isSelectedOwner) return;
+
         const allTrue = { ...defaultRolePermissions.owner };
         onUpdateSupervisor(selectedUid, {
             granularPermissions: allTrue
@@ -161,6 +176,9 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     const handleResetToRoleDefaults = () => {
         if (!checkOnlineConnection()) return;
         if (!selectedUid || !selectedTeacher || !canManageMembers) return;
+        if (isSelectedPrimaryOwner) return;
+        if (!isPrimaryOwner && isSelectedOwner) return;
+
         const role = selectedTeacher.role || 'teacher';
         const defaults = defaultRolePermissions[role] || defaultRolePermissions.teacher;
         onUpdateSupervisor(selectedUid, {
@@ -379,7 +397,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                             </div>
 
                             {/* Quick Actions (Toggle Status / Approve / Reject) */}
-                            {canManageMembers && !isSelectedOwner && (
+                            {canManageMembers && (!isSelectedPrimaryOwner && (isPrimaryOwner || !isSelectedOwner)) && (
                                 <div className="flex items-center gap-2 w-full sm:w-auto justify-end pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-800">
                                     {selectedTeacher.status === 'pending' ? (
                                         <>
@@ -431,18 +449,18 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                     <FaCog className="text-emerald-400" size={12} />
                                     <span>الرتبة في الحلقة والصلاحية الافتراضية:</span>
                                 </span>
-                                {isSelectedOwner && <span className="text-[9px] text-amber-400 font-bold">صلاحيات كاملة غير قابلة للتقييد</span>}
+                                {isSelectedPrimaryOwner && <span className="text-[9px] text-amber-400 font-bold">صلاحيات كاملة غير قابلة للتقييد</span>}
                             </div>
 
                             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
                                 {(['admin', 'supervisor', 'teacher', 'assistant', 'member'] as const).map(rKey => {
                                     const rData = ROLE_LABELS[rKey];
-                                    const isCurrentRole = selectedTeacher.role === rKey && !isSelectedOwner;
+                                    const isCurrentRole = selectedTeacher.role === rKey && !isSelectedPrimaryOwner;
 
                                     return (
                                         <button
                                             key={rKey}
-                                            disabled={!canManageMembers || isSelectedOwner}
+                                            disabled={!canManageMembers || isSelectedPrimaryOwner || (!isPrimaryOwner && isSelectedOwner)}
                                             onClick={() => handleRoleChange(rKey)}
                                             className={`p-2.5 rounded-xl border text-right transition-all flex flex-col justify-between gap-1.5 ${isCurrentRole ? 'bg-emerald-500/15 border-emerald-500/50 shadow-md ring-1 ring-emerald-500/30' : 'bg-[#161a22] border-gray-800 hover:border-gray-700 disabled:opacity-50'}`}
                                         >
@@ -458,7 +476,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                         </div>
 
                         {/* Quick Batch Controls */}
-                        {canManageMembers && !isSelectedOwner && (
+                        {canManageMembers && (!isSelectedPrimaryOwner && (isPrimaryOwner || !isSelectedOwner)) && (
                             <div className="flex items-center gap-2 pt-1">
                                 <button
                                     onClick={handleGrantAllPermissions}
@@ -547,9 +565,9 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                                                     </p>
                                                                 </div>
 
-                                                                {/* Custom Micro Switch */}
+                                                                 {/* Custom Micro Switch */}
                                                                 <button
-                                                                    disabled={!canManageMembers || isSelectedOwner}
+                                                                    disabled={!canManageMembers || isSelectedPrimaryOwner || (!isPrimaryOwner && isSelectedOwner)}
                                                                     onClick={() => handleTogglePermission(item.key)}
                                                                     className={`w-10 h-5 rounded-full relative transition-all flex-shrink-0 border ${isAllowed ? 'bg-emerald-500 border-emerald-400' : 'bg-gray-800 border-gray-700'}`}
                                                                 >
@@ -570,7 +588,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                         </div>
 
                         {/* Ownership Management Section */}
-                        {isOwner && !isSelectedOwner && selectedTeacher.status === 'active' && (
+                        {isPrimaryOwner && !isSelectedPrimaryOwner && selectedTeacher.status === 'active' && (
                             <div className="bg-[#1a1410] border border-amber-900/30 p-3.5 rounded-2xl space-y-2.5">
                                 <div className="flex items-center gap-2 text-amber-400">
                                     <FaShieldAlt size={14} />
@@ -623,7 +641,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                         )}
 
                         {/* Delete / Remove Member Section */}
-                        {canManageMembers && !isSelectedOwner && (
+                        {canManageMembers && (!isSelectedPrimaryOwner && (isPrimaryOwner || !isSelectedOwner)) && (
                             <div className="pt-2">
                                 <button
                                     onClick={() => {

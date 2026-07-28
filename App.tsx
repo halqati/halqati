@@ -5858,16 +5858,28 @@ const App: React.FC = () => {
             return;
         }
 
-        // Prevent deleting the owner
-        const isTargetOwner = supervisorUid === activeCircle.ownerId || activeCircle.teachers?.[supervisorUid]?.role === 'owner';
-        if (isTargetOwner && (updates as any).isDeleteAction) {
-            addToast('لا يمكن حذف منشئ الحلقة أو المالك', 'error');
+        // Prevent deleting the primary creator (or deleting owners if actor is not primary creator)
+        const isTargetPrimaryOwner = supervisorUid === activeCircle.ownerId;
+        const isTargetOwner = isTargetPrimaryOwner || activeCircle.teachers?.[supervisorUid]?.role === 'owner';
+
+        if (isTargetPrimaryOwner && (updates as any).isDeleteAction) {
+            addToast('لا يمكن حذف منشئ الحلقة الأساسي', 'error');
             return;
         }
 
-        // Prevent suspending an owner
-        if (isTargetOwner && updates.status === 'suspended') {
-            addToast('لا يمكن إيقاف صلاحيات المنشئ أو المالك', 'error');
+        if (!isOwner && isTargetOwner && (updates as any).isDeleteAction) {
+            addToast('لا يمكن حذف المالك إلا بواسطة المنشئ الأساسي', 'error');
+            return;
+        }
+
+        // Prevent suspending the primary creator
+        if (isTargetPrimaryOwner && updates.status === 'suspended') {
+            addToast('لا يمكن إيقاف صلاحيات منشئ الحلقة الأساسي', 'error');
+            return;
+        }
+
+        if (!isOwner && isTargetOwner && updates.status === 'suspended') {
+            addToast('لا يمكن إيقاف صلاحيات المالك إلا بواسطة المنشئ الأساسي', 'error');
             return;
         }
 
