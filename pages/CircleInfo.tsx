@@ -9,7 +9,7 @@ interface CircleInfoProps {
     onBack: () => void;
     onEdit: () => void;
     onUpdateCode: (code: string) => void;
-    onUpdateSupervisor: (uid: string, updates: Partial<TeacherPermissions>) => void;
+    onUpdateSupervisor: (uid: string, updates: Partial<TeacherPermissions> & { isDeleteAction?: boolean; rejectionReason?: string }) => void;
     onUpdateDirectEntry: (enabled: boolean) => void;
     currentUserId: string;
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -44,28 +44,12 @@ const InfoBox: React.FC<{ icon: React.ElementType, label: string, value: string,
 const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateCode, onUpdateSupervisor, onUpdateDirectEntry, currentUserId, addToast, setConfirmationModal, onDeleteCircle, onOpenPermissions }) => {
     const [isEditingCode, setIsEditingCode] = useState(false);
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
-    const [showPermissionsModal, setShowPermissionsModal] = useState(false);
-    const [selectedTeacherUid, setSelectedTeacherUid] = useState<string | null>(null);
-    const [editingDetails, setEditingDetails] = useState<{name: string, gender: 'male' | 'female'} | null>(null);
-    const [rejectingUid, setRejectingUid] = useState<string | null>(null);
-    const [rejectionReason, setRejectionReason] = useState('');
 
     const currentUserRole = data.teachers?.[currentUserId]?.role || 'member';
-    const isOwnerOrTeacher = data.ownerId === currentUserId || currentUserRole === 'owner' || currentUserRole === 'teacher';
-    const isOwnerOrFullAccess = data.ownerId === currentUserId || data.teachers?.[currentUserId]?.accessLevel === 'full';
-    const currentUserGender = data.teachers?.[currentUserId]?.gender || 'male';
-
-    useEffect(() => {
-        if (selectedTeacherUid && data.teachers?.[selectedTeacherUid]) {
-            const t = data.teachers[selectedTeacherUid];
-            setEditingDetails({ name: t.name, gender: t.gender });
-        } else {
-            setEditingDetails(null);
-        }
-    }, [selectedTeacherUid, data.teachers]);
+    const isOwnerOrAdmin = data.ownerId === currentUserId || ['owner', 'admin'].includes(currentUserRole) || !!data.teachers?.[currentUserId]?.permissions?.canEditCircleSettings;
 
     const handleCopyAll = () => {
-        const teacherTerm = data.teacherGender === 'male' ? 'المعلم' : 'المعلمة';
+        const teacherTerm = data.teacherGender === 'female' ? 'المعلمة' : 'المعلم';
         const message = `
 📌 *معلومات الحلقة القرآنية*
 --------------------------
@@ -86,6 +70,10 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
     };
 
     const handleSaveCode = () => {
+        if (!isOwnerOrAdmin) {
+            addToast('عذراً، تعديل رمز الدخول متاح فقط لمديري ومنشئي الحلقة.', 'error');
+            return;
+        }
         const sanitized = tempCode.replace(/[^0-9]/g, '');
         if (sanitized.length !== 4) {
             addToast('يجب أن يتكون رمز الدخول من 4 أرقام', 'error');
@@ -94,6 +82,32 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
         onUpdateCode(sanitized);
         setIsEditingCode(false);
         addToast('تم تحديث رمز الدخول بنجاح', 'success');
+    };
+
+    const handleToggleDirectEntry = () => {
+        if (!isOwnerOrAdmin) {
+            addToast('عذراً، تعديل إعدادات الدخول المباشر متاح فقط لمديري ومنشئي الحلقة.', 'error');
+            return;
+        }
+        onUpdateDirectEntry(!data.allowDirectEntry);
+    };
+
+    const handleAcceptTeacher = (uid: string) => {
+        if (!isOwnerOrAdmin) {
+            addToast('عذراً، قبول أو رفض طلبات الانضمام متاح فقط لمديري ومنشئي الحلقة.', 'error');
+            return;
+        }
+        onUpdateSupervisor(uid, { status: 'active' });
+        addToast('تم قبول طلب الانضمام بنجاح.', 'success');
+    };
+
+    const handleRejectTeacher = (uid: string) => {
+        if (!isOwnerOrAdmin) {
+            addToast('عذراً، قبول أو رفض طلبات الانضمام متاح فقط لمديري ومنشئي الحلقة.', 'error');
+            return;
+        }
+        onUpdateSupervisor(uid, { isDeleteAction: true });
+        addToast('تم رفض طلب الانضمام.', 'info');
     };
 
     const teachers = data.teachers ? Object.entries(data.teachers)
@@ -116,13 +130,6 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
     
     const assistants = teachers.filter(t => t.uid !== data.ownerId || t.status === 'pending');
     const creator = teachers.find(t => t.uid === data.ownerId && t.status !== 'pending');
-
-    const handleAction = (uid: string, updates: Partial<TeacherPermissions> & { isDeleteAction?: boolean }) => {
-        onUpdateSupervisor(uid, updates);
-        setSelectedTeacherUid(null);
-    };
-
-    const selectedTeacher = selectedTeacherUid ? data.teachers?.[selectedTeacherUid] : null;
 
     return (
         <div className="max-w-md mx-auto space-y-5 pb-20 px-1">
@@ -185,7 +192,7 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                         <div className="w-10 h-10 bg-white/10 rounded-xl flex items-center justify-center border border-white/10 text-white">
                             <FaBuilding size={20} />
                         </div>
-                        {isOwnerOrTeacher && (
+                        {isOwnerOrAdmin && (
                             <button 
                                 onClick={onEdit}
                                 className="p-1.5 bg-white/5 hover:bg-white/10 text-white rounded-lg border border-white/10 transition-all active:scale-95 outline-none"
@@ -209,12 +216,12 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                 <InfoBox 
                     icon={FaKey}
                     label="رمز الدخول"
-                    value={isOwnerOrTeacher ? (data.transferPassword || data.transferCode || '0000') : '****'}
-                    subLabel={isOwnerOrTeacher ? "4 أرقام عشوائية" : "غير مسموح لك برؤية هذه البيانات"}
-                    color={isOwnerOrTeacher ? "text-emerald-400" : "text-amber-500"}
-                    isEditable={isOwnerOrTeacher}
+                    value={isOwnerOrAdmin ? (data.transferPassword || data.transferCode || '0000') : '****'}
+                    subLabel={isOwnerOrAdmin ? "4 أرقام عشوائية" : "غير مسموح لك برؤية هذه البيانات"}
+                    color={isOwnerOrAdmin ? "text-emerald-400" : "text-amber-500"}
+                    isEditable={isOwnerOrAdmin}
                     onClick={() => {
-                        if (isOwnerOrTeacher) {
+                        if (isOwnerOrAdmin) {
                             setIsEditingCode(true);
                         } else {
                             addToast('الرجاء طلب الصلاحيات من أحد المنشئين لرؤية أو تعديل هذه البيانات', 'info');
@@ -224,7 +231,7 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
             </div>
 
             {/* Direct Entry Toggle */}
-            {isOwnerOrTeacher && (
+            {isOwnerOrAdmin && (
                 <div className="bg-[#111317] border border-gray-800/40 p-4 rounded-2xl flex items-center justify-between">
                     <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${data.allowDirectEntry !== false ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-800 text-gray-500'}`}>
@@ -320,33 +327,27 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                                 </div>
                             </div>
                             
-                            {isOwnerOrTeacher && (
+                            {isOwnerOrAdmin && (
                                 <div className="flex items-center gap-1">
                                     {teacher.status === 'pending' && (
                                         <>
                                             <button 
-                                                onClick={() => handleAction(teacher.uid, { status: 'active' })}
-                                                className="p-2 text-emerald-500 hover:bg-emerald-500/10 rounded-lg transition-all"
+                                                onClick={() => handleAcceptTeacher(teacher.uid)}
+                                                className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
                                                 title="قبول المعلم"
                                             >
-                                                <FaCheck size={12} />
+                                                <FaCheck size={10} />
+                                                <span>قبول</span>
                                             </button>
                                             <button 
-                                                onClick={() => setRejectingUid(teacher.uid)}
-                                                className="p-2 text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
+                                                onClick={() => handleRejectTeacher(teacher.uid)}
+                                                className="px-2.5 py-1 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-all"
                                                 title="رفض المعلم"
                                             >
-                                                <FaTimes size={12} />
+                                                <FaTimes size={10} />
+                                                <span>رفض</span>
                                             </button>
                                         </>
-                                    )}
-                                    {teacher.uid !== currentUserId && (
-                                        <button 
-                                            onClick={() => setSelectedTeacherUid(teacher.uid)}
-                                            className="p-1.5 text-gray-500 hover:text-white transition-colors"
-                                        >
-                                            <FaEllipsisV size={12} />
-                                        </button>
                                     )}
                                 </div>
                             )}
@@ -369,278 +370,6 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                     </div>
                 </div>
             </div>
-
-            {/* Teacher Actions Modal */}
-            <AnimatePresence>
-                {selectedTeacherUid && selectedTeacher && (
-                    <div className="fixed inset-0 z-[110] flex items-end justify-center sm:items-center p-0 sm:p-4">
-                        <motion.div 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setSelectedTeacherUid(null)}
-                            className="absolute inset-0 bg-black/70 backdrop-blur-[2px]"
-                        />
-                        <motion.div 
-                            initial={{ y: 100, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            exit={{ y: 100, opacity: 0 }}
-                            className="bg-[#111317] border-t sm:border border-gray-800 p-6 rounded-t-[2.5rem] sm:rounded-[2.5rem] w-full max-w-[340px] relative z-20 shadow-2xl max-h-[90vh] overflow-y-auto"
-                        >
-                            <div className="text-center mb-6">
-                                <div className={`w-14 h-14 mx-auto mb-3 rounded-2xl flex items-center justify-center ${ (editingDetails?.gender || selectedTeacher.gender) === 'female' ? 'bg-pink-500/10 text-pink-500' : 'bg-blue-500/10 text-blue-500'}`}>
-                                    <FaChalkboardTeacher size={24} />
-                                </div>
-                                
-                                {isOwnerOrFullAccess && selectedTeacherUid !== data.ownerId ? (
-                                    <div className="space-y-3 px-2">
-                                        <input 
-                                            type="text"
-                                            value={editingDetails?.name || ''}
-                                            onChange={(e) => setEditingDetails(prev => prev ? {...prev, name: e.target.value} : null)}
-                                            className="w-full bg-gray-800/50 border border-gray-700/50 text-white text-center font-bold p-2 px-4 rounded-xl outline-none focus:border-primary transition-all text-sm"
-                                            placeholder="اسم المعلم..."
-                                        />
-                                        <div className="text-[11px] font-bold text-gray-400 bg-gray-800/30 py-1.5 px-3 rounded-lg inline-block border border-gray-800/50">
-                                            الجنس: {selectedTeacher.gender === 'female' ? 'أنثى' : 'ذكر'}
-                                        </div>
-                                        {editingDetails?.name !== selectedTeacher.name && (
-                                            <button 
-                                               onClick={() => onUpdateSupervisor(selectedTeacherUid, { name: editingDetails?.name })}
-                                               className="bg-[#10b981] text-white text-[10px] font-bold py-1.5 px-4 rounded-lg shadow-lg shadow-green-500/20 hover:scale-105 active:scale-95 transition-all outline-none block mx-auto"
-                                            >
-                                                حفظ التعديلات
-                                            </button>
-                                        )}
-                                    </div>
-                                ) : (
-                                    <>
-                                        <h3 className="text-base font-bold text-white">{selectedTeacher.name}</h3>
-                                        {selectedTeacher.status === 'pending' && <p className="text-xs font-bold text-amber-500 mt-1">بانتظار الموافقة وتحديد الرتبة</p>}
-                                        {selectedTeacher.status !== 'pending' && <p className="text-[10px] text-gray-500 uppercase mt-1">تعديل صلاحيات ورتبة العضو</p>}
-                                    </>
-                                )}
-                            </div>
-
-                            <div className="space-y-4">
-                                {/* Role Selection */}
-                                <div className="space-y-2">
-                                    <p className="text-[10px] text-gray-500 font-bold px-1 mb-1">الرتبة في الحلقة:</p>
-                                    <div className="grid grid-cols-3 gap-2">
-                                        {[
-                                            { id: 'teacher', label: 'معلم', icon: FaChalkboardTeacher },
-                                            { id: 'assistant', label: 'مساعد', icon: FaUserTie },
-                                            { id: 'member', label: 'عضو', icon: FaUsers }
-                                        ].map((role) => (
-                                            <button
-                                                key={role.id}
-                                                onClick={() => handleAction(selectedTeacherUid, { 
-                                                    role: role.id as any,
-                                                    permissions: defaultMemberPermissions[role.id as keyof typeof defaultMemberPermissions],
-                                                    status: 'active' // Auto-activate if pending and role selected
-                                                })}
-                                                className={`flex flex-col items-center gap-1.5 p-3 rounded-2xl border transition-all ${selectedTeacher.role === role.id && selectedTeacher.status !== 'pending' ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500' : 'bg-gray-800/50 border-gray-700/50 text-gray-400'}`}
-                                            >
-                                                <role.icon size={14} />
-                                                <span className="text-[9px] font-bold">{role.label}</span>
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Quick Toggles */}
-                                <div className="grid grid-cols-2 gap-2">
-                                    <button 
-                                        onClick={() => handleAction(selectedTeacherUid, { status: selectedTeacher.status === 'suspended' ? 'active' : 'suspended' })}
-                                        className={`flex items-center gap-2 p-3 rounded-2xl font-bold text-[10px] transition-all active:scale-95 border ${selectedTeacher.status === 'suspended' ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/10' : 'bg-red-500/10 text-red-500 border-red-500/10'}`}
-                                    >
-                                        {selectedTeacher.status === 'suspended' ? <FaUserCheck size={14} /> : <FaUserSlash size={14} />}
-                                        <span>{selectedTeacher.status === 'suspended' ? 'تفعيل' : 'إيقاف'}</span>
-                                    </button>
-
-                                    <button 
-                                        onClick={() => setShowPermissionsModal(true)}
-                                        className="flex items-center gap-2 p-3 rounded-2xl font-bold text-[10px] bg-amber-500/10 text-amber-500 border border-amber-500/10 transition-all active:scale-95"
-                                    >
-                                        <FaCog size={14} />
-                                        <span>الصلاحيات</span>
-                                    </button>
-                                </div>
-
-                                <div className="h-px bg-gray-800/50 my-2" />
-
-                                {/* Full Access Toggle (Shortcut for admins) */}
-                                {selectedTeacher.role === 'teacher' && (
-                                    <button 
-                                        onClick={() => handleAction(selectedTeacherUid, { accessLevel: selectedTeacher.accessLevel === 'full' ? 'standard' : 'full' })}
-                                        className={`w-full flex items-center justify-between p-3.5 rounded-2xl font-bold text-xs transition-all active:scale-95 border ${selectedTeacher.accessLevel === 'full' ? 'bg-blue-600 text-white border-blue-600' : 'bg-blue-500/10 text-blue-400 border-blue-500/10'}`}
-                                    >
-                                        <div className="flex items-center gap-3">
-                                            <FaShieldAlt size={14} />
-                                            <span>صلاحية كاملة (مشرف)</span>
-                                        </div>
-                                        {selectedTeacher.accessLevel === 'full' && <FaCheck size={12} />}
-                                    </button>
-                                )}
-
-                                {/* Delete / Reject Action */}
-                                {selectedTeacherUid !== data.ownerId && (
-                                    selectedTeacher.status === 'pending' ? (
-                                        <button 
-                                            onClick={() => {
-                                                setRejectingUid(selectedTeacherUid);
-                                                setSelectedTeacherUid(null);
-                                            }}
-                                            className="w-full flex items-center gap-3 p-3.5 rounded-2xl font-bold text-xs bg-red-600/10 text-red-500 border border-red-600/10 transition-all active:scale-95 outline-none"
-                                        >
-                                            <FaTimes size={14} />
-                                            <span>رفض طلب الانضمام</span>
-                                        </button>
-                                    ) : (
-                                        <button 
-                                            onClick={() => {
-                                                if (setConfirmationModal) {
-                                                    setConfirmationModal({
-                                                        isOpen: true,
-                                                        title: 'حذف معلم',
-                                                        message: `هل أنت متأكد من حذف (${selectedTeacher.name}) من الحلقة بشكل نهائي؟`,
-                                                        onConfirm: () => handleAction(selectedTeacherUid, { isDeleteAction: true } as any)
-                                                    });
-                                                } else if (window.confirm(`هل أنت متأكد من حذف (${selectedTeacher.name}) من الحلقة بشكل نهائي؟`)) {
-                                                    handleAction(selectedTeacherUid, { isDeleteAction: true } as any);
-                                                }
-                                            }}
-                                            className="w-full flex items-center gap-3 p-3.5 rounded-2xl font-bold text-xs bg-red-600/10 text-red-500 border border-red-600/10 transition-all active:scale-95"
-                                        >
-                                            <FaTrash size={14} />
-                                            <span>حذف من الحلقة نهائياً</span>
-                                        </button>
-                                    )
-                                )}
-
-                                {/* Ownership Management (Only for current owner) */}
-                                {data.ownerId === currentUserId && selectedTeacherUid !== currentUserId && selectedTeacher.status === 'active' && (
-                                    <div className="pt-4 border-t border-gray-800 space-y-2">
-                                        <p className="text-[10px] text-gray-500 font-bold px-1 mb-1 italic text-center">إدارة الملكية (صلاحيات المنشئ):</p>
-                                        <div className="grid grid-cols-2 gap-2">
-                                            <button 
-                                                onClick={() => {
-                                                   setConfirmationModal?.({
-                                                       isOpen: true,
-                                                       title: 'نقل الملكية',
-                                                       message: `هل أنت متأكد من نقل ملكية الحلقة إلى (${selectedTeacher.name})؟ سيصبح هو المسؤول الأول عنها.`,
-                                                       onConfirm: () => handleAction(selectedTeacherUid, { isTransferOwnership: true } as any)
-                                                   });
-                                                }}
-                                                className="flex items-center justify-center gap-2 p-3 rounded-2xl font-bold text-[10px] bg-amber-600 text-white border border-amber-600 transition-all active:scale-95 shadow-lg shadow-amber-600/20 outline-none"
-                                            >
-                                                <FaUserShield size={14} />
-                                                <span>نقل الملكية</span>
-                                            </button>
-                                            <button 
-                                                onClick={() => {
-                                                   setConfirmationModal?.({
-                                                       isOpen: true,
-                                                       title: 'منح ملكية مشتركة',
-                                                       message: `هل تريد منح (${selectedTeacher.name}) صلاحية المنشئ؟ سيكون له كامل الصلاحيات مثلك.`,
-                                                       onConfirm: () => handleAction(selectedTeacherUid, { isCopyOwnership: true } as any)
-                                                   });
-                                                }}
-                                                className="flex items-center justify-center gap-2 p-3 rounded-2xl font-bold text-[10px] bg-blue-600 text-white border border-blue-600 transition-all active:scale-95 shadow-lg shadow-blue-600/20 outline-none"
-                                            >
-                                                <FaUserPlus size={14} />
-                                                <span>منح ملكية</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <button 
-                                    onClick={() => setSelectedTeacherUid(null)}
-                                    className="w-full p-2 text-xs text-gray-500 font-bold"
-                                >
-                                    إغلاق
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
-            {/* Granular Permissions Modal */}
-            <AnimatePresence>
-                {showPermissionsModal && selectedTeacherUid && selectedTeacher && (
-                    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-                        <motion.div 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => setShowPermissionsModal(false)}
-                            className="absolute inset-0 bg-black/80 backdrop-blur-sm"
-                        />
-                        <motion.div 
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-[#111317] border border-gray-800 p-6 rounded-[2.5rem] w-full max-w-[320px] relative z-10 shadow-2xl"
-                        >
-                            <div className="flex items-center gap-3 mb-6">
-                                <div className="w-10 h-10 bg-amber-500/10 text-amber-500 rounded-xl flex items-center justify-center">
-                                    <FaCog size={18} />
-                                </div>
-                                <h3 className="text-base font-bold text-white">صلاحيات {selectedTeacher.name}</h3>
-                            </div>
-
-                            <div className="space-y-3 mb-6">
-                                {[
-                                    { id: 'canManageStudents', label: 'إضافة وتعديل الطلاب', icon: FaUserEdit },
-                                    { id: 'canCreateSessions', label: 'إنشاء الجلسات اليومية', icon: FaCheckCircle },
-                                    { id: 'canEditCircleSettings', label: 'هل يمكن لهذا الشخص الدخول إلى إعدادات الحلقة؟', icon: FaCog },
-                                    { id: 'canEditPastSessions', label: 'تعديل/حذف الجلسات السابقة', icon: FaEdit },
-                                    { id: 'canSendReports', label: 'إرسال تقارير لأولياء الأمور', icon: FaCopy }
-                                ].map((perm) => {
-                                    const hasPerm = selectedTeacher.permissions?.[perm.id as keyof MemberPermissions];
-                                    return (
-                                        <button
-                                            key={perm.id}
-                                            onClick={() => {
-                                                const currentPerms = selectedTeacher.permissions || defaultMemberPermissions[selectedTeacher.role as keyof typeof defaultMemberPermissions] || defaultMemberPermissions.member;
-                                                handleAction(selectedTeacherUid, {
-                                                    permissions: {
-                                                        ...currentPerms,
-                                                        [perm.id]: !hasPerm
-                                                    }
-                                                });
-                                            }}
-                                            className="w-full flex items-center justify-between p-3 bg-gray-800/40 border border-gray-800/60 rounded-2xl hover:bg-gray-800/60 transition-colors"
-                                        >
-                                            <div className="flex items-center gap-3">
-                                                <div className={`p-1.5 rounded-lg ${hasPerm ? 'bg-emerald-500/10 text-emerald-500' : 'bg-gray-700/50 text-gray-500'}`}>
-                                                    <perm.icon size={12} />
-                                                </div>
-                                                <span className={`text-[10px] font-bold ${hasPerm ? 'text-white' : 'text-gray-500'}`}>{perm.label}</span>
-                                            </div>
-                                            <div className={`w-8 h-4 rounded-full relative transition-colors ${hasPerm ? 'bg-emerald-500' : 'bg-gray-700'}`}>
-                                                <motion.div 
-                                                    animate={{ x: hasPerm ? 18 : 2 }}
-                                                    className="absolute top-1 left-0 w-2 h-2 bg-white rounded-full"
-                                                />
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            <button 
-                                onClick={() => setShowPermissionsModal(false)}
-                                className="w-full bg-[#10b981] text-white p-3.5 rounded-2xl text-xs font-bold shadow-lg shadow-green-500/20 active:scale-95 transition-all"
-                            >
-                                حفظ وإغلاق
-                            </button>
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
 
             {/* Minimal Code Editor */}
             <AnimatePresence>
@@ -688,55 +417,6 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                     </div>
                 )}
 
-                {rejectingUid && (
-                    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                        <motion.div 
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            onClick={() => { setRejectingUid(null); setRejectionReason(''); }}
-                            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-                        />
-                        <motion.div 
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-[#111317] border border-gray-800 p-6 rounded-[2rem] w-full max-w-sm relative z-10 shadow-2xl text-right"
-                            dir="rtl"
-                        >
-                            <h3 className="text-base font-bold text-white mb-1">رفض طلب الانضمام</h3>
-                            <p className="text-[11px] text-gray-500 mb-4">هل ترغب في إضافة سبب لرفض طلب انضمام المعلم؟</p>
-                            
-                            <input 
-                                type="text"
-                                value={rejectionReason}
-                                onChange={(e) => setRejectionReason(e.target.value)}
-                                placeholder="مثال: الحلقة مكتملة حالياً..."
-                                className="w-full bg-gray-850 border border-gray-700 p-3 rounded-xl text-xs text-white outline-none focus:ring-1 focus:ring-red-500/30 transition-all mb-4 font-medium"
-                                autoFocus
-                            />
-
-                            <div className="flex gap-2">
-                                <button 
-                                    onClick={() => {
-                                        handleAction(rejectingUid, { status: 'rejected', rejectionReason: rejectionReason.trim() } as any);
-                                        setRejectingUid(null);
-                                        setRejectionReason('');
-                                    }}
-                                    className="flex-1 bg-red-600 text-white p-2.5 rounded-xl text-xs font-bold shadow-lg shadow-red-500/10"
-                                >
-                                    تأكيد الرفض
-                                </button>
-                                <button 
-                                    onClick={() => { setRejectingUid(null); setRejectionReason(''); }}
-                                    className="px-4 bg-gray-800 text-gray-400 p-2.5 rounded-xl text-xs font-bold outline-none"
-                                >
-                                    إلغاء
-                                </button>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
             </AnimatePresence>
         </div>
     );

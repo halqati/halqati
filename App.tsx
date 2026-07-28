@@ -6513,6 +6513,7 @@ const App: React.FC = () => {
                         onUpdateSupervisor={handleUpdateSupervisor}
                         addToast={addToast}
                         setConfirmationModal={setConfirmationModal}
+                        isOnline={isOnline}
                     />
                 )}
                 {activePage === 'notifications' && activeCircle && (

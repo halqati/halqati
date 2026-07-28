@@ -4,7 +4,7 @@ import {
     FaShieldAlt, FaUserTie, FaChalkboardTeacher, FaUsers, FaUserCheck, FaUserSlash,
     FaCheck, FaTimes, FaSearch, FaArrowRight, FaCog, FaLock, FaTrash,
     FaUserGraduate, FaQuran, FaFileAlt, FaChartBar, FaTrophy, FaCogs,
-    FaUserShield, FaUserPlus, FaChevronDown, FaChevronUp, FaInfoCircle, FaUndo, FaCheckDouble
+    FaUserShield, FaUserPlus, FaChevronDown, FaChevronUp, FaInfoCircle, FaUndo, FaCheckDouble, FaExclamationTriangle
 } from 'react-icons/fa';
 import { CircleData, TeacherPermissions, GranularPermissions } from '../types';
 import {
@@ -25,6 +25,7 @@ interface PermissionsPageProps {
     }) => void;
     addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
     setConfirmationModal?: (data: any) => void;
+    isOnline?: boolean;
 }
 
 const CATEGORY_ICONS: Record<string, React.ElementType> = {
@@ -43,13 +44,22 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     onBack,
     onUpdateSupervisor,
     addToast,
-    setConfirmationModal
+    setConfirmationModal,
+    isOnline = true
 }) => {
     const [selectedUid, setSelectedUid] = useState<string | null>(() => {
         // Default select first teacher that is not current user if possible, or current user
         const uids = Object.keys(circle.teachers || {});
         return uids.find(id => id !== currentUserId) || uids[0] || null;
     });
+
+    const checkOnlineConnection = (): boolean => {
+        if (!isOnline) {
+            addToast('لا يسمح بتعديل الصلاحيات أو الأعضاء إلا عند وجود اتصال بالإنترنت للحفاظ على المزامنة.', 'error');
+            return false;
+        }
+        return true;
+    };
 
     const [searchQuery, setSearchQuery] = useState('');
     const [roleFilter, setRoleFilter] = useState<string>('all');
@@ -100,6 +110,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     };
 
     const handleRoleChange = (newRole: 'owner' | 'admin' | 'supervisor' | 'teacher' | 'assistant' | 'member') => {
+        if (!checkOnlineConnection()) return;
         if (!selectedUid || !canManageMembers) return;
 
         if (isSelectedOwner && newRole !== 'owner') {
@@ -118,6 +129,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     };
 
     const handleTogglePermission = (key: keyof GranularPermissions) => {
+        if (!checkOnlineConnection()) return;
         if (!selectedUid || !selectedTeacher || !canManageMembers) return;
 
         if (isSelectedOwner) {
@@ -137,6 +149,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     };
 
     const handleGrantAllPermissions = () => {
+        if (!checkOnlineConnection()) return;
         if (!selectedUid || !canManageMembers) return;
         const allTrue = { ...defaultRolePermissions.owner };
         onUpdateSupervisor(selectedUid, {
@@ -146,6 +159,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
     };
 
     const handleResetToRoleDefaults = () => {
+        if (!checkOnlineConnection()) return;
         if (!selectedUid || !selectedTeacher || !canManageMembers) return;
         const role = selectedTeacher.role || 'teacher';
         const defaults = defaultRolePermissions[role] || defaultRolePermissions.teacher;
@@ -191,6 +205,23 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
             </div>
 
             <div className="max-w-4xl mx-auto w-full px-3 pt-4 space-y-4">
+                {/* Offline Warning Banner */}
+                {!isOnline && (
+                    <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className="bg-amber-500/10 border border-amber-500/30 p-3.5 rounded-2xl flex items-start gap-3 text-amber-300"
+                    >
+                        <FaExclamationTriangle size={18} className="text-amber-400 mt-0.5 flex-shrink-0" />
+                        <div className="space-y-0.5">
+                            <h4 className="text-xs font-bold text-amber-400">وضع عدم الاتصال بالإنترنت</h4>
+                            <p className="text-[10px] text-amber-200/80 font-medium leading-relaxed">
+                                لا يمكن تعديل الصلاحيات أو تغيير رتب الأعضاء حالياً. يتطلب هذا الإجراء اتصالاً بالإنترنت لضمان مزامنة البيانات فوراً ومنع التعارض.
+                            </p>
+                        </div>
+                    </motion.div>
+                )}
+
                 {/* Stats & Quick Summary Bar */}
                 <div className="grid grid-cols-3 gap-2">
                     <div className="bg-[#11141a] border border-gray-800/60 p-2.5 rounded-2xl flex items-center gap-2.5">
@@ -354,6 +385,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                         <>
                                             <button
                                                 onClick={() => {
+                                                    if (!checkOnlineConnection()) return;
                                                     onUpdateSupervisor(selectedUid, { status: 'active', role: selectedTeacher.role || 'teacher' });
                                                     addToast(`تمت الموافقة على انضمام ${selectedTeacher.name}`, 'success');
                                                 }}
@@ -364,6 +396,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                             </button>
                                             <button
                                                 onClick={() => {
+                                                    if (!checkOnlineConnection()) return;
                                                     onUpdateSupervisor(selectedUid, { status: 'rejected' });
                                                     addToast(`تم رفض طلب انضمام ${selectedTeacher.name}`, 'info');
                                                 }}
@@ -376,6 +409,7 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                     ) : (
                                         <button
                                             onClick={() => {
+                                                if (!checkOnlineConnection()) return;
                                                 const newStatus = selectedTeacher.status === 'suspended' ? 'active' : 'suspended';
                                                 onUpdateSupervisor(selectedUid, { status: newStatus });
                                                 addToast(newStatus === 'active' ? 'تم تنشيط حساب المعلم' : 'تم إيقاف حساب المعلم', 'info');
@@ -549,11 +583,13 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                                 <div className="grid grid-cols-2 gap-2 pt-1">
                                     <button
                                         onClick={() => {
+                                            if (!checkOnlineConnection()) return;
                                             setConfirmationModal?.({
                                                 isOpen: true,
                                                 title: 'نقل ملكية الحلقة بالكامل',
                                                 message: `هل أنت متأكد من نقل ملكية الحلقة نهائياً إلى المعلم (${selectedTeacher.name})؟ سيصبح المالك الأول للحلقة.`,
                                                 onConfirm: () => {
+                                                    if (!checkOnlineConnection()) return;
                                                     onUpdateSupervisor(selectedUid, { isTransferOwnership: true });
                                                 }
                                             });
@@ -566,11 +602,13 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
 
                                     <button
                                         onClick={() => {
+                                            if (!checkOnlineConnection()) return;
                                             setConfirmationModal?.({
                                                 isOpen: true,
                                                 title: 'منح ملكية مشتركة',
                                                 message: `هل تريد منح المعلم (${selectedTeacher.name}) صلاحية المالك الثاني في الحلقة؟`,
                                                 onConfirm: () => {
+                                                    if (!checkOnlineConnection()) return;
                                                     onUpdateSupervisor(selectedUid, { isCopyOwnership: true });
                                                 }
                                             });
@@ -589,11 +627,13 @@ export const PermissionsPage: React.FC<PermissionsPageProps> = ({
                             <div className="pt-2">
                                 <button
                                     onClick={() => {
+                                        if (!checkOnlineConnection()) return;
                                         setConfirmationModal?.({
                                             isOpen: true,
                                             title: 'إزالة العضو من الحلقة',
                                             message: `هل أنت متأكد من حذف العضو (${selectedTeacher.name}) وإلغاء صلاحياته من هذه الحلقة نهائياً؟`,
                                             onConfirm: () => {
+                                                if (!checkOnlineConnection()) return;
                                                 onUpdateSupervisor(selectedUid, { isDeleteAction: true });
                                                 setSelectedUid(null);
                                             }
