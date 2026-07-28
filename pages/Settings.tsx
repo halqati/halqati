@@ -8,6 +8,7 @@ import {
     FaYoutube, FaCode, FaExternalLinkAlt, FaTimes, FaLightbulb, FaCommentDots
 } from 'react-icons/fa';
 import { User } from '../firebase';
+import { getResolvedGranularPermissions } from '../permissions';
 
 interface SettingsProps {
     data: CircleData;
@@ -152,8 +153,8 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
     const isOwner = data.ownerId === user?.uid;
     const teacher = data.teachers?.[user?.uid || ''];
     const currentUserRole = teacher?.role || 'member';
-    const currentPermissions = teacher?.permissions || {};
-    const hasPermissionsAccess = isOwner || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentPermissions.manageMembers || !!currentPermissions.canEditCircleSettings;
+    const resolved = getResolvedGranularPermissions(teacher, data.ownerId, user?.uid);
+    const hasPermissionsAccess = isOwner || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!resolved.manageMembers || !!resolved.editCircleSettings;
     const isFullAccess = teacher?.accessLevel === 'full';
     const hasFullManagement = isOwner || isFullAccess;
     const hasUnlinkedCircles = allCircles.some(c => !c.authorizedUserIds || c.authorizedUserIds.length === 0);

@@ -7,6 +7,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         addStudents: true,
         editStudents: true,
         deleteStudents: true,
+        archiveStudents: true,
         manageStudentPoints: true,
         viewStudentProfile: true,
 
@@ -16,6 +17,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         editSessions: true,
         editPastSessions: true,
         deleteSessions: true,
+        notifyParents: true,
 
         // 3. التقارير
         viewReports: true,
@@ -29,6 +31,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         // 5. النقاط والمكافآت
         viewPoints: true,
         adjustPoints: true,
+        resetPoints: true,
         manageRewards: true,
 
         // 6. الخدمات والإضافات
@@ -50,6 +53,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         addStudents: true,
         editStudents: true,
         deleteStudents: true,
+        archiveStudents: true,
         manageStudentPoints: true,
         viewStudentProfile: true,
 
@@ -59,6 +63,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         editSessions: true,
         editPastSessions: true,
         deleteSessions: true,
+        notifyParents: true,
 
         // 3. التقارير
         viewReports: true,
@@ -72,6 +77,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         // 5. النقاط والمكافآت
         viewPoints: true,
         adjustPoints: true,
+        resetPoints: true,
         manageRewards: true,
 
         // 6. الخدمات والإضافات
@@ -93,6 +99,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         addStudents: true,
         editStudents: true,
         deleteStudents: false,
+        archiveStudents: true,
         manageStudentPoints: true,
         viewStudentProfile: true,
 
@@ -102,6 +109,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         editSessions: true,
         editPastSessions: true,
         deleteSessions: false,
+        notifyParents: true,
 
         // 3. التقارير
         viewReports: true,
@@ -115,6 +123,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         // 5. النقاط والمكافآت
         viewPoints: true,
         adjustPoints: true,
+        resetPoints: true,
         manageRewards: true,
 
         // 6. الخدمات والإضافات
@@ -136,6 +145,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         addStudents: true,
         editStudents: true,
         deleteStudents: false,
+        archiveStudents: true,
         manageStudentPoints: true,
         viewStudentProfile: true,
 
@@ -145,6 +155,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         editSessions: true,
         editPastSessions: false,
         deleteSessions: false,
+        notifyParents: true,
 
         // 3. التقارير
         viewReports: true,
@@ -158,6 +169,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         // 5. النقاط والمكافآت
         viewPoints: true,
         adjustPoints: true,
+        resetPoints: false,
         manageRewards: false,
 
         // 6. الخدمات والإضافات
@@ -179,6 +191,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         addStudents: false,
         editStudents: false,
         deleteStudents: false,
+        archiveStudents: false,
         manageStudentPoints: false,
         viewStudentProfile: true,
 
@@ -188,6 +201,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         editSessions: true,
         editPastSessions: false,
         deleteSessions: false,
+        notifyParents: false,
 
         // 3. التقارير
         viewReports: true,
@@ -201,6 +215,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         // 5. النقاط والمكافآت
         viewPoints: true,
         adjustPoints: false,
+        resetPoints: false,
         manageRewards: false,
 
         // 6. الخدمات والإضافات
@@ -222,6 +237,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         addStudents: false,
         editStudents: false,
         deleteStudents: false,
+        archiveStudents: false,
         manageStudentPoints: false,
         viewStudentProfile: true,
 
@@ -231,6 +247,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         editSessions: false,
         editPastSessions: false,
         deleteSessions: false,
+        notifyParents: false,
 
         // 3. التقارير
         viewReports: true,
@@ -244,6 +261,7 @@ export const defaultRolePermissions: Record<'owner' | 'admin' | 'supervisor' | '
         // 5. النقاط والمكافآت
         viewPoints: true,
         adjustPoints: false,
+        resetPoints: false,
         manageRewards: false,
 
         // 6. الخدمات والإضافات
@@ -320,6 +338,17 @@ export function getResolvedGranularPermissions(
         };
     }
 
+    // Ensure newly introduced fields have fallbacks
+    if (resolved.archiveStudents === undefined) {
+        resolved.archiveStudents = resolved.deleteStudents ?? defaults.archiveStudents ?? true;
+    }
+    if (resolved.notifyParents === undefined) {
+        resolved.notifyParents = resolved.sendNotifications ?? defaults.notifyParents ?? true;
+    }
+    if (resolved.resetPoints === undefined) {
+        resolved.resetPoints = resolved.manageStudentPoints ?? defaults.resetPoints ?? false;
+    }
+
     return resolved;
 }
 
@@ -340,30 +369,32 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
     {
         id: 'students',
         title: 'الطلاب والملفات',
-        description: 'صلاحيات الاستعراض والإضافة والتعديل والحذف للطلاب',
+        description: 'صلاحيات الاستعراض والإضافة والتعديل والحذف والأرشفة للطلاب',
         iconName: 'FaUserGraduate',
         color: 'emerald',
         items: [
             { key: 'viewStudents', title: 'عرض الطلاب', description: 'استعراض قائمة طلاب الحلقة والبيانات العامة' },
-            { key: 'addStudents', title: 'إضافة طلاب جدد', description: 'تسجيل وإدخال طالب جديد للحلقة' },
+            { key: 'addStudents', title: 'إضافة طالب', description: 'تسجيل وإدخال طالب جديد للحلقة' },
             { key: 'editStudents', title: 'تعديل بيانات الطالب', description: 'تحديث المستويات، الهواتف، والصور والترتيب' },
-            { key: 'deleteStudents', title: 'حذف وأرشفة الطلاب', description: 'أرشفة الطالب أو حذفه وإعادة استعادته' },
-            { key: 'manageStudentPoints', title: 'تعديل وتصفير النقاط', description: 'إضافة/خصم وتصفير النقاط الفردية للطلاب' },
-            { key: 'viewStudentProfile', title: 'عرض بطاقة الملف الشامل', description: 'الاطلاع على السجل التاريخي والتفصيلي للطالب' }
+            { key: 'deleteStudents', title: 'حذف الطالب', description: 'حذف الطالب بشكل نهائي من الحلقة' },
+            { key: 'archiveStudents', title: 'أرشفة الطالب (صلاحية مستقلة)', description: 'نقل الطالب للأرشيف واستعادته' },
+            { key: 'manageStudentPoints', title: 'تعديل نقاط الطالب', description: 'إضافة/خصم النقاط الفردية للطلاب' },
+            { key: 'viewStudentProfile', title: 'عرض بطاقة الطالب الشاملة', description: 'الاطلاع على السجل التاريخي والتفصيلي للطالب' }
         ]
     },
     {
         id: 'sessions',
         title: 'الجلسات والتسميع',
-        description: 'إدارة عمليات التسميع والمراجعة والحضور والغياب',
+        description: 'إدارة عمليات التسميع والمراجعة والجلسات وإعلام أولياء الأمور',
         iconName: 'FaQuran',
         color: 'blue',
         items: [
             { key: 'viewSessions', title: 'عرض سجل الجلسات', description: 'استعراض التسميع والحضور التاريخي' },
             { key: 'createSessions', title: 'إنشاء جلسة جديدة', description: 'تسجيل الحضور والغياب والتسميع اليومي' },
-            { key: 'editSessions', title: 'تعديل الجلسة الحالية', description: 'تحديث التسميع اليومي قبل الحفظ النهائي' },
-            { key: 'editPastSessions', title: 'تعديل الجلسات السابقة', description: 'القدرة على فتح وتعديل جلسات أيام سابقة' },
-            { key: 'deleteSessions', title: 'حذف الجلسات', description: 'إلغاء وحذف جلسة معتمدة بشكل كامل' }
+            { key: 'editSessions', title: 'تعديل جلسات اليوم', description: 'تحديث التسميع اليومي للجلسة الحالية' },
+            { key: 'editPastSessions', title: 'تعديل الجلسات السابقة', description: 'فتح وتعديل جلسات أيام سابقة' },
+            { key: 'deleteSessions', title: 'حذف الجلسات', description: 'إلغاء وحذف جلسة معتمدة بشكل كامل' },
+            { key: 'notifyParents', title: 'إعلام أولياء الأمور', description: 'الوصول لقسم متابعة أولياء الأمور وإرسال التنبيهات لهم' }
         ]
     },
     {
@@ -385,46 +416,47 @@ export const PERMISSION_CATEGORIES: PermissionCategory[] = [
         iconName: 'FaChartBar',
         color: 'amber',
         items: [
-            { key: 'viewStats', title: 'عرض لوحة الإحصائيات', description: 'متابعة نسب الانجاز والغياب ومعدلات الأداء' },
-            { key: 'exportStats', title: 'تصدير البيانات', description: 'تحميل كشوفات الإحصائيات كملفات للطباعة أو المشاركة' }
+            { key: 'viewStats', title: 'الدخول إلى الإحصائيات والتحليلات', description: 'متابعة نسب الانجاز والغياب ومعدلات الأداء' },
+            { key: 'exportStats', title: 'تصدير البيانات والتحليلات', description: 'تحميل كشوفات الإحصائيات كملفات للطباعة أو المشاركة' }
         ]
     },
     {
         id: 'points',
         title: 'النقاط والمكافآت',
-        description: 'لوحة الشرف وترتيب الأوائل وإعدادات التحفيز',
+        description: 'لوحة الشرف وترتيب الأوائل وإعدادات التحفيز وتصفير النقاط',
         iconName: 'FaTrophy',
         color: 'yellow',
         items: [
             { key: 'viewPoints', title: 'عرض ترتيب ونقاط الأوائل', description: 'مشاهدة لائحة الصدارة ومجموع نقاط الطلاب' },
-            { key: 'adjustPoints', title: 'توزيع مكافآت جماعية', description: 'منح نقاط إضافية أو خصومات للطلاب' },
+            { key: 'adjustPoints', title: 'إدارة النقاط والمكافآت', description: 'توزيع منح نقاط إضافية أو خصومات للطلاب' },
+            { key: 'resetPoints', title: 'تصفير النقاط', description: 'القدرة على تصفير نقاط الطلاب (يمنع إذا لم تفعل)' },
             { key: 'manageRewards', title: 'إدارة قواعد التحفيز', description: 'ضبط قيمة نقاط الحضور والغياب والتسميع' }
         ]
     },
     {
         id: 'services',
         title: 'الخدمات والإضافات',
-        description: 'المصحف الذكي والمسح السريع والتنبيهات والخطط',
+        description: 'صفحة الخدمات، المصحف الذكي والتنبيهات والخطط',
         iconName: 'FaCogs',
         color: 'teal',
         items: [
-            { key: 'accessServices', title: 'دخول صفحة الأدوات والخدمات', description: 'فتح التبويب الخاص بالخدمات المساعدة' },
+            { key: 'accessServices', title: 'دخول صفحة الخدمات', description: 'الوصول إلى صفحة الأدوات والخدمات بالكامل' },
             { key: 'smartRecitation', title: 'المصحف والمسح الذكي', description: 'استخدام أدوات المساعدة والمصحف والتتبع' },
             { key: 'sendNotifications', title: 'إرسال الإعلانات والتنبيهات', description: 'نشر أخبار وتنبيهات عامة لأعضاء الحلقة' },
-            { key: 'managePlansAndTests', title: 'إدارة الخطط والاختبارات', description: 'إنشاء وتقييم اختبارات وسلاسل المراجعة' }
+            { key: 'managePlansAndTests', title: 'إدارة الخطط والاختبارات', description: 'إنشاء وتقييم اختبارات وسلاسل المراجعة والنشاطات' }
         ]
     },
     {
         id: 'management',
-        title: 'إعدادات الحلقة والإدارة',
-        description: 'إدارة بيانات الحلقة، رتب الأعضاء، والتشفير والملكية',
+        title: 'إعدادات الحلقة والإدارة والملكية',
+        description: 'إدارة بيانات الحلقة، رتب الأعضاء، ونقل وصلاحيات الملكية',
         iconName: 'FaShieldAlt',
         color: 'red',
         items: [
-            { key: 'editCircleSettings', title: 'تعديل بيانات وإعدادات الحلقة', description: 'تغيير الاسم، المجمع، البلد والخطط' },
+            { key: 'editCircleSettings', title: 'تعديل بيانات وإعدادات الحلقة', description: 'التحكم بجميع إعدادات الحلقة وحسب الصلاحيات' },
             { key: 'manageMembers', title: 'إدارة الأعضاء والصلاحيات', description: 'قبول/رفض المنضمين وتعديل رتبهم وصلاحياتهم' },
             { key: 'manageDirectEntry', title: 'التحكم بالدخول المباشر', description: 'تغيير رموز الدخول وتفعيل/تعطيل الموافقة التلقائية' },
-            { key: 'transferOwnership', title: 'نقل/منح صلاحيات الملكية', description: 'تنازل أو منح سلطات المالك لمنشئ أو مدير آخر' },
+            { key: 'transferOwnership', title: 'نقل ومنح صلاحيات الملكية', description: 'تنازل أو منح سلطات المالك لمنشئ أو مدير آخر' },
             { key: 'deleteCircle', title: 'حذف الحلقة نهائياً', description: 'القدرة على إزالة كافة بيانات الحلقة بصفة نهائية' }
         ]
     }

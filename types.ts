@@ -446,6 +446,7 @@ export interface GranularPermissions {
     addStudents: boolean;
     editStudents: boolean;
     deleteStudents: boolean;
+    archiveStudents?: boolean;
     manageStudentPoints: boolean;
     viewStudentProfile: boolean;
 
@@ -455,6 +456,7 @@ export interface GranularPermissions {
     editSessions: boolean;
     editPastSessions: boolean;
     deleteSessions: boolean;
+    notifyParents?: boolean;
 
     // 3. التقارير
     viewReports: boolean;
@@ -468,6 +470,7 @@ export interface GranularPermissions {
     // 5. النقاط والمكافآت
     viewPoints: boolean;
     adjustPoints: boolean;
+    resetPoints?: boolean;
     manageRewards: boolean;
 
     // 6. الخدمات والإضافات

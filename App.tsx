@@ -6528,9 +6528,9 @@ const App: React.FC = () => {
                     />
                 )}
                 {activePage === 'permissions' && activeCircle && (() => {
+                    const currentUserResolved = getResolvedGranularPermissions(activeCircle.teachers?.[user?.uid || ''], activeCircle.ownerId, user?.uid);
                     const currentUserRole = activeCircle.teachers?.[user?.uid || '']?.role || 'member';
-                    const currentPermissions = activeCircle.teachers?.[user?.uid || '']?.permissions || {};
-                    const hasPermAccess = activeCircle.ownerId === user?.uid || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentPermissions.manageMembers || !!currentPermissions.canEditCircleSettings;
+                    const hasPermAccess = activeCircle.ownerId === user?.uid || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentUserResolved.manageMembers || !!currentUserResolved.editCircleSettings;
 
                     if (!hasPermAccess) {
                         return (

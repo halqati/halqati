@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FaArrowRight, FaCopy, FaUsers, FaChalkboardTeacher, FaHashtag, FaKey, FaBuilding, FaCheckCircle, FaEdit, FaUserEdit, FaCheck, FaGlobe, FaEllipsisV, FaTrash, FaBan, FaShieldAlt, FaUserSlash, FaUserCheck, FaCog, FaUserShield, FaUserPlus, FaUserTie, FaFilePdf, FaTimes } from 'react-icons/fa';
 import { CircleData, TeacherPermissions, MemberPermissions } from '../types';
 import { defaultMemberPermissions } from '../constants';
+import { getResolvedGranularPermissions } from '../permissions';
 
 interface CircleInfoProps {
     data: CircleData;
@@ -46,8 +47,8 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
     const [tempCode, setTempCode] = useState(data.transferPassword || data.transferCode || '');
 
     const currentUserRole = data.teachers?.[currentUserId]?.role || 'member';
-    const currentPermissions = data.teachers?.[currentUserId]?.permissions || {};
-    const isOwnerOrAdmin = data.ownerId === currentUserId || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!currentPermissions.canEditCircleSettings || !!currentPermissions.manageMembers;
+    const userResolved = getResolvedGranularPermissions(data.teachers?.[currentUserId], data.ownerId, currentUserId);
+    const isOwnerOrAdmin = data.ownerId === currentUserId || ['owner', 'admin', 'supervisor'].includes(currentUserRole) || !!userResolved.editCircleSettings || !!userResolved.manageMembers;
 
     const handleCopyAll = () => {
         const teacherTerm = data.teacherGender === 'female' ? 'المعلمة' : 'المعلم';
