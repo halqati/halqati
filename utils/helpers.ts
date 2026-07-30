@@ -1524,7 +1524,8 @@ export const mergeCircleData = (local: CircleData, remote: CircleData): CircleDa
             }
         });
         
-        return Array.from(map.values());
+        const mergedSessionsList = Array.from(map.values());
+        return processAllSessionsPagesCount(mergedSessionsList).updatedSessions;
     };
 
     const mergeStudents = (localStudents: Student[] = [], remoteStudents: Student[] = [], deletedIds: number[] = []): Student[] => {
@@ -1792,6 +1793,146 @@ export const formatPagesCountArabic = (count: number): string => {
     } else {
         return `${formattedCount} صفحة`;
     }
+};
+
+export const processSessionPagesCount = (session: any): { updatedSession: any; isChanged: boolean } => {
+    if (!session || !Array.isArray(session.students)) {
+        return { updatedSession: session, isChanged: false };
+    }
+
+    let isChanged = false;
+    const updatedStudents = session.students.map((s: any) => {
+        let studentChanged = false;
+
+        // 1. Memorization
+        let newMemo = s.memorization;
+        if (s.memorization) {
+            const hasMemo = s.memorization.hasMemorization !== false && !!s.memorization.fromSurah;
+            const expectedPages = hasMemo ? calculatePagesCount(
+                s.memorization.fromSurah || '',
+                s.memorization.fromAyah || '',
+                s.memorization.toSurah || s.memorization.fromSurah || '',
+                s.memorization.toAyah || ''
+            ) : 0;
+
+            if (s.memorization.pages_count !== expectedPages) {
+                newMemo = { ...s.memorization, pages_count: expectedPages };
+                studentChanged = true;
+            }
+        }
+
+        // 2. Review
+        let newReview = s.review;
+        if (s.review) {
+            const hasRev = s.review.hasReview !== false && !!s.review.fromSurah;
+            const expectedPages = hasRev ? calculatePagesCount(
+                s.review.fromSurah || '',
+                s.review.fromAyah || '',
+                s.review.toSurah || s.review.fromSurah || '',
+                s.review.toAyah || ''
+            ) : 0;
+
+            if (s.review.pages_count !== expectedPages) {
+                newReview = { ...s.review, pages_count: expectedPages };
+                studentChanged = true;
+            }
+        }
+
+        // 3. Extra Memorizations
+        let newExtraMemo = s.extraMemorizations;
+        if (Array.isArray(s.extraMemorizations)) {
+            let extraMemoChanged = false;
+            const updatedExtraMemo = s.extraMemorizations.map((em: any) => {
+                if (!em) return em;
+                const hasEm = em.hasMemorization !== false && !!em.fromSurah;
+                const expectedPages = hasEm ? calculatePagesCount(
+                    em.fromSurah || '',
+                    em.fromAyah || '',
+                    em.toSurah || em.fromSurah || '',
+                    em.toAyah || ''
+                ) : 0;
+
+                if (em.pages_count !== expectedPages) {
+                    extraMemoChanged = true;
+                    return { ...em, pages_count: expectedPages };
+                }
+                return em;
+            });
+            if (extraMemoChanged) {
+                newExtraMemo = updatedExtraMemo;
+                studentChanged = true;
+            }
+        }
+
+        // 4. Extra Reviews
+        let newExtraReview = s.extraReviews;
+        if (Array.isArray(s.extraReviews)) {
+            let extraReviewChanged = false;
+            const updatedExtraReview = s.extraReviews.map((er: any) => {
+                if (!er) return er;
+                const hasEr = er.hasReview !== false && !!er.fromSurah;
+                const expectedPages = hasEr ? calculatePagesCount(
+                    er.fromSurah || '',
+                    er.fromAyah || '',
+                    er.toSurah || er.fromSurah || '',
+                    er.toAyah || ''
+                ) : 0;
+
+                if (er.pages_count !== expectedPages) {
+                    extraReviewChanged = true;
+                    return { ...er, pages_count: expectedPages };
+                }
+                return er;
+            });
+            if (extraReviewChanged) {
+                newExtraReview = updatedExtraReview;
+                studentChanged = true;
+            }
+        }
+
+        if (studentChanged) {
+            isChanged = true;
+            return {
+                ...s,
+                memorization: newMemo,
+                review: newReview,
+                extraMemorizations: newExtraMemo,
+                extraReviews: newExtraReview
+            };
+        }
+
+        return s;
+    });
+
+    if (isChanged) {
+        return {
+            updatedSession: {
+                ...session,
+                students: updatedStudents
+            },
+            isChanged: true
+        };
+    }
+
+    return { updatedSession: session, isChanged: false };
+};
+
+export const processAllSessionsPagesCount = (sessions: any[]): { updatedSessions: any[]; hasAnyChanged: boolean } => {
+    if (!Array.isArray(sessions) || sessions.length === 0) {
+        return { updatedSessions: sessions, hasAnyChanged: false };
+    }
+
+    let hasAnyChanged = false;
+    const updatedSessions = sessions.map(session => {
+        const { updatedSession, isChanged } = processSessionPagesCount(session);
+        if (isChanged) {
+            hasAnyChanged = true;
+            return updatedSession;
+        }
+        return session;
+    });
+
+    return { updatedSessions, hasAnyChanged };
 };
 
 export interface SurahPeriodStatItem {

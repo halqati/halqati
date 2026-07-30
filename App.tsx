@@ -6,7 +6,7 @@ import { getResolvedGranularPermissions } from './permissions';
 import { PermissionsPage } from './pages/PermissionsPage';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
-import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount } from './utils/helpers';
+import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount, processSessionPagesCount, processAllSessionsPagesCount } from './utils/helpers';
 import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField } from './firebase';
 import { SEASONAL_MESSAGES, defaultMemberPermissions } from './constants';
 
@@ -2397,26 +2397,30 @@ const App: React.FC = () => {
         });
     }, [setAppData]);
 
-    // MIGRATION EFFECT: Freeze legacy sessions
+    // MIGRATION EFFECT: Freeze legacy sessions & recalculate/backfill pages_count
     useEffect(() => {
         if (!activeCircle) return;
         
-        // Check if there are any sessions that don't have a snapshot
-        const hasLegacySessions = activeCircle.sessions.some(s => !s.pointsSettingsSnapshot);
+        const sessions = activeCircle.sessions || [];
+        const hasLegacySessions = sessions.some(s => !s.pointsSettingsSnapshot);
+        const { updatedSessions, hasAnyChanged } = processAllSessionsPagesCount(sessions);
 
-        if (hasLegacySessions) {
+        if (hasLegacySessions || hasAnyChanged) {
             const currentSettings = activeCircle.settings.pointsSettings || defaultPointsSettings;
             
-            setActiveCircleData(draft => ({
-                ...draft,
-                sessions: draft.sessions.map(s => {
-                    // If snapshot exists, keep it. If not, bake in the current settings to freeze history.
-                    if (s.pointsSettingsSnapshot) return s;
-                    return { ...s, pointsSettingsSnapshot: currentSettings };
-                })
-            }));
+            setActiveCircleData(draft => {
+                const draftSessions = draft.sessions || [];
+                const { updatedSessions: processedDraftSessions } = processAllSessionsPagesCount(draftSessions);
+                return {
+                    ...draft,
+                    sessions: processedDraftSessions.map(s => {
+                        if (s.pointsSettingsSnapshot) return s;
+                        return { ...s, pointsSettingsSnapshot: currentSettings };
+                    })
+                };
+            });
         }
-    }, [activeCircle?.id, activeCircle?.sessions?.length, setActiveCircleData]); // Depend on length to catch new additions, but primarily runs on load
+    }, [activeCircle?.id, activeCircle?.sessions, setActiveCircleData]);
 
 
     const editingTest = activeCircle?.draftTest || null;
@@ -3374,63 +3378,11 @@ const App: React.FC = () => {
         });
     }, [activeCircle]);
 
-    const handleSaveSession = (session: Session) => {
+    const handleSaveSession = (sessionInput: Session) => {
         if (!activeCircle) return;
         
         // Auto-calculate and update pages_count for all student records in the session
-        session.students.forEach(s => {
-            if (s.memorization && s.memorization.hasMemorization) {
-                s.memorization.pages_count = calculatePagesCount(
-                    s.memorization.fromSurah || '',
-                    s.memorization.fromAyah || '',
-                    s.memorization.toSurah || '',
-                    s.memorization.toAyah || ''
-                );
-            } else if (s.memorization) {
-                s.memorization.pages_count = 0;
-            }
-
-            if (s.review && s.review.hasReview) {
-                s.review.pages_count = calculatePagesCount(
-                    s.review.fromSurah || '',
-                    s.review.fromAyah || '',
-                    s.review.toSurah || '',
-                    s.review.toAyah || ''
-                );
-            } else if (s.review) {
-                s.review.pages_count = 0;
-            }
-
-            if (s.extraMemorizations) {
-                s.extraMemorizations.forEach(em => {
-                    if (em.hasMemorization) {
-                        em.pages_count = calculatePagesCount(
-                            em.fromSurah || '',
-                            em.fromAyah || '',
-                            em.toSurah || '',
-                            em.toAyah || ''
-                        );
-                    } else {
-                        em.pages_count = 0;
-                    }
-                });
-            }
-
-            if (s.extraReviews) {
-                s.extraReviews.forEach(er => {
-                    if (er.hasReview) {
-                        er.pages_count = calculatePagesCount(
-                            er.fromSurah || '',
-                            er.fromAyah || '',
-                            er.toSurah || '',
-                            er.toAyah || ''
-                        );
-                    } else {
-                        er.pages_count = 0;
-                    }
-                });
-            }
-        });
+        const { updatedSession: session } = processSessionPagesCount(sessionInput);
         
         const isExisting = activeCircle.sessions.some(s => s.id === session.id);
         if (isExisting) {

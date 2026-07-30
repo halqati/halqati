@@ -277,7 +277,7 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                 // Sum up Pages (Main + Extra Recitations)
                 const getItemPages = (rec: any): number => {
                     if (!rec) return 0;
-                    if (typeof rec.pages_count === 'number' && rec.pages_count > 0) {
+                    if (typeof rec.pages_count === 'number') {
                         return rec.pages_count;
                     }
                     if (rec.fromSurah) {
