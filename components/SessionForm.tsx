@@ -709,8 +709,10 @@ const StudentSelectorModal: React.FC<StudentSelectorModalProps> = ({ isOpen, onC
     const [searchTerm, setSearchTerm] = useState('');
 
     useEffect(() => {
-        setLocalSelectedIds(new Set(selectedStudentIds));
-    }, [selectedStudentIds, isOpen]);
+        if (isOpen) {
+            setLocalSelectedIds(new Set(selectedStudentIds));
+        }
+    }, [isOpen]);
 
     const handleToggle = (id: number) => {
         setLocalSelectedIds(prev => {

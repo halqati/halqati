@@ -87,6 +87,26 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
     if (!data) return null;
 
     const [showChannelsModal, setShowChannelsModal] = useState(false);
+    const [pendingChannelUrl, setPendingChannelUrl] = useState<string | null>(null);
+
+    const channelRules = [
+        "الالتزام بالأدب والاحترام.",
+        "عدم إرسال رسائل مزعجة.",
+        "عدم نشر إعلانات.",
+        "عدم إرسال روابط مخالفة.",
+        "الالتزام بموضوع المجموعة.",
+        "احترام جميع الأعضاء.",
+        "يمنع الإساءة أو التجريح.",
+        "يمنع نشر أي محتوى مخالف."
+    ];
+
+    const handleChannelClick = (url: string, requiresDisclaimer: boolean) => {
+        if (requiresDisclaimer) {
+            setPendingChannelUrl(url);
+        } else {
+            window.open(url, '_blank', 'noopener,noreferrer');
+        }
+    };
     const syncTimerRef = useRef<number | null>(null);
     const syncLongPressFired = useRef(false);
     const touchStartPos = useRef<{ x: number, y: number } | null>(null);
@@ -376,15 +396,6 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         </button>
                     </SettingCard>
 
-                    <SettingCard title="التواصل والتطوير" icon={FaLightbulb}>
-                        <SettingButton 
-                            label="اقتراحات وملاحظات" 
-                            icon={FaCommentDots} 
-                            onClick={() => onNavigateToFeedback?.()} 
-                            hasNotification={hasUnreadFeedbackReply}
-                        />
-                    </SettingCard>
-
                     <SettingCard title="البيانات" icon={FaSave}>
                         <SettingButton 
                             label="النسخة الاحتياطية والاستعادة" 
@@ -400,34 +411,10 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         />
                     </SettingCard>
 
-                    {/* ثالثًا: موقع نظام حلقتي */}
-                    <a 
-                        href="https://hlqt.vercel.app/" 
-                        target="_blank" 
-                        rel="noopener noreferrer" 
-                        className="flex items-center justify-between p-3 bg-white dark:bg-gray-800 rounded-xl shadow-xs border border-primary/20 dark:border-accent/20 text-primary dark:text-accent hover:bg-primary/5 dark:hover:bg-accent/5 transition-all text-xs font-bold group cursor-pointer"
-                    >
-                        <div className="flex items-center gap-2.5">
-                            <div className="p-1.5 bg-primary/10 dark:bg-accent/10 rounded-lg">
-                                <FaGlobe size={14} />
-                            </div>
-                            <span>موقع نظام حلقتي</span>
-                        </div>
-                        <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
-                    </a>
-
                     {/* أولًا: الدعم والمجتمع */}
                     <SettingCard title="الدعم والمجتمع" icon={FaUsers}>
                         <SettingButton label="الانتساب والدعم" icon={FaAward} onClick={onNavigateToSupport} />
                         <SettingButton label="حول التطبيق" icon={FaInfoCircle} onClick={onNavigateToAbout} />
-                        <div className="grid grid-cols-2 gap-2">
-                            <a href="https://wa.me/779516077" target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 p-2 bg-green-50 dark:bg-green-900/10 text-green-600 dark:text-green-400 rounded-lg border border-green-100 dark:border-green-900/20 text-[10px] font-bold hover:bg-green-100 dark:hover:bg-green-900/20 transition-all">
-                                <FaWhatsapp size={12} /> الإبلاغ عن مشكلة
-                            </a>
-                            <a href={websiteLink} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 p-2 bg-blue-50 dark:bg-blue-900/10 text-blue-600 dark:text-blue-400 rounded-lg border border-blue-100 dark:border-blue-900/20 text-[10px] font-bold hover:bg-blue-100 dark:hover:bg-blue-900/20 transition-all">
-                                <FaGlobe size={12} /> الموقع الإلكتروني
-                            </a>
-                        </div>
                         
                         {/* زر متابعة القنوات */}
                         <button 
@@ -473,16 +460,14 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         </div>
 
                         <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-                            اختر القناة المفضل لديك لمتابعة أحدث الإعلانات والتحديثات:
+                            اختر القناة المفضلة لديك لمتابعة أحدث الإعلانات والتحديثات:
                         </p>
 
                         <div className="space-y-2.5 pt-1">
-                            {/* 1 - قناة اليوتيوب */}
-                            <a 
-                                href="https://youtube.com/@athar.q1?si=r1QRtk7A3BniBxRx" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="w-full flex items-center justify-between p-3 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-xl border border-red-100 dark:border-red-900/30 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all group"
+                            {/* 1 - قناة اليوتيوب (تفتح مباشرة) */}
+                            <button 
+                                onClick={() => handleChannelClick('https://youtube.com/@athar.q1?si=r1QRtk7A3BniBxRx', false)}
+                                className="w-full flex items-center justify-between p-3 bg-red-50 dark:bg-red-950/20 text-red-600 dark:text-red-400 rounded-xl border border-red-100 dark:border-red-900/30 text-xs font-bold hover:bg-red-100 dark:hover:bg-red-900/30 transition-all group cursor-pointer text-right"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 bg-red-600 text-white rounded-lg shadow-xs">
@@ -491,14 +476,12 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                     <span>قناة اليوتيوب</span>
                                 </div>
                                 <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
-                            </a>
+                            </button>
 
-                            {/* 2 - قناة الواتساب */}
-                            <a 
-                                href="https://whatsapp.com/channel/0029VbDEhFYJENy6EwuRY440" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="w-full flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 rounded-xl border border-green-100 dark:border-green-900/30 text-xs font-bold hover:bg-green-100 dark:hover:bg-green-900/30 transition-all group"
+                            {/* 2 - قناة الواتساب (تفتح نافذة الشروط والتنبيه أولاً) */}
+                            <button 
+                                onClick={() => handleChannelClick('https://whatsapp.com/channel/0029VbDEhFYJENy6EwuRY440', true)}
+                                className="w-full flex items-center justify-between p-3 bg-green-50 dark:bg-green-950/20 text-green-600 dark:text-green-400 rounded-xl border border-green-100 dark:border-green-900/30 text-xs font-bold hover:bg-green-100 dark:hover:bg-green-900/30 transition-all group cursor-pointer text-right"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 bg-green-600 text-white rounded-lg shadow-xs">
@@ -507,14 +490,12 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                     <span>قناة الواتساب</span>
                                 </div>
                                 <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
-                            </a>
+                            </button>
 
-                            {/* 3 - قناة التليجرام */}
-                            <a 
-                                href="https://t.me/nur_alquran_q" 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="w-full flex items-center justify-between p-3 bg-sky-50 dark:bg-sky-950/20 text-sky-600 dark:text-sky-400 rounded-xl border border-sky-100 dark:border-sky-900/30 text-xs font-bold hover:bg-sky-100 dark:hover:bg-sky-900/30 transition-all group"
+                            {/* 3 - قناة التليجرام (تفتح نافذة الشروط والتنبيه أولاً) */}
+                            <button 
+                                onClick={() => handleChannelClick('https://t.me/nur_alquran_q', true)}
+                                className="w-full flex items-center justify-between p-3 bg-sky-50 dark:bg-sky-950/20 text-sky-600 dark:text-sky-400 rounded-xl border border-sky-100 dark:border-sky-900/30 text-xs font-bold hover:bg-sky-100 dark:hover:bg-sky-900/30 transition-all group cursor-pointer text-right"
                             >
                                 <div className="flex items-center gap-3">
                                     <div className="p-2 bg-sky-500 text-white rounded-lg shadow-xs">
@@ -523,7 +504,7 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                     <span>قناة التليجرام</span>
                                 </div>
                                 <FaExternalLinkAlt size={11} className="opacity-60 group-hover:translate-x-[-2px] transition-transform" />
-                            </a>
+                            </button>
                         </div>
 
                         <button 
@@ -532,6 +513,66 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                         >
                             إغلاق
                         </button>
+                    </div>
+                </div>
+            )}
+
+            {/* نافذة منبثقة للتعليمات الشروط قبل الانتقال إلى الواتساب / التليجرام */}
+            {pendingChannelUrl && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" dir="rtl">
+                    <div className="bg-white dark:bg-gray-800 rounded-3xl p-5 sm:p-6 w-full max-w-md shadow-2xl border border-gray-100 dark:border-gray-700 space-y-4 text-right overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-gray-100 dark:border-gray-700 pb-3">
+                            <h3 className="text-base font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+                                <span className="w-2.5 h-2.5 bg-amber-500 rounded-full animate-pulse" />
+                                تنبيه قبل الانتقال للقناة
+                            </h3>
+                            <button 
+                                onClick={() => setPendingChannelUrl(null)}
+                                className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
+                            >
+                                <FaTimes size={14} />
+                            </button>
+                        </div>
+
+                        <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/40 rounded-2xl text-xs font-medium text-amber-900 dark:text-amber-200 leading-relaxed">
+                            هذه القنوات مخصصة لمناقشة تحديثات النظام، والميزات الجديدة، والاقتراحات، والإبلاغ عن المشاكل، ومتابعة الأخبار الرسمية الخاصة بالنظام.
+                        </div>
+
+                        <div className="space-y-2">
+                            <p className="text-xs font-bold text-gray-700 dark:text-gray-300">
+                                شروط وقوانين الانضمام للقناة:
+                            </p>
+                            <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1 pl-1 text-[11px] text-gray-600 dark:text-gray-300">
+                                {channelRules.map((rule, idx) => (
+                                    <div key={idx} className="flex items-start gap-2 bg-gray-50 dark:bg-gray-700/40 p-2 rounded-xl">
+                                        <span className="w-4 h-4 rounded-full bg-primary/10 dark:bg-accent/10 text-primary dark:text-accent font-bold flex items-center justify-center text-[10px] flex-shrink-0 mt-0.5">
+                                            {idx + 1}
+                                        </span>
+                                        <span>{rule}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-3 pt-2">
+                            <button
+                                onClick={() => {
+                                    const url = pendingChannelUrl;
+                                    setPendingChannelUrl(null);
+                                    setShowChannelsModal(false);
+                                    window.open(url, '_blank', 'noopener,noreferrer');
+                                }}
+                                className="flex-1 py-3 bg-primary text-white rounded-2xl text-xs font-bold hover:bg-primary/90 transition-all shadow-md shadow-primary/20 cursor-pointer active:scale-95"
+                            >
+                                موافقة والانتقال
+                            </button>
+                            <button
+                                onClick={() => setPendingChannelUrl(null)}
+                                className="px-5 py-3 bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-2xl text-xs font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors cursor-pointer"
+                            >
+                                إلغاء
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

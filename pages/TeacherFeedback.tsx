@@ -51,6 +51,13 @@ const TeacherFeedback: React.FC<TeacherFeedbackProps> = ({ user, userProfile, al
 
     const userId = user?.uid || userProfile?.uid || 'anonymous';
 
+    // Scroll to top on page open
+    useEffect(() => {
+        window.scrollTo({ top: 0, behavior: 'instant' as any });
+        const mainEl = document.querySelector('main');
+        if (mainEl) mainEl.scrollTop = 0;
+    }, []);
+
     // Fetch user's feedback items from Firestore
     useEffect(() => {
         if (!db || userId === 'anonymous') return;

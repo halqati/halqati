@@ -134,7 +134,7 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
     // Auto-select logic on mount or group change
     useEffect(() => {
         if (autoSelectEnabled && activeGroupId) {
-            const group = groups.find(g => g.id === activeGroupId);
+            const group = groups.find(g => String(g.id) === String(activeGroupId));
             if (group) {
                 const availableIds = new Set(students.map(s => s.id));
                 const validIds = group.studentIds.filter(id => availableIds.has(id));
@@ -146,8 +146,25 @@ const StudentGroupSelector: React.FC<StudentGroupSelectorProps> = ({
         }
     }, [groups, activeGroupId, autoSelectEnabled]);
 
+    // Keep activeGroupId highlight in sync with current selectedIds
+    useEffect(() => {
+        if (activeGroupId && groups.length > 0) {
+            const group = groups.find(g => String(g.id) === String(activeGroupId));
+            if (group) {
+                const groupSet = new Set(group.studentIds);
+                const selectedSet = new Set(selectedIds);
+                const isMatch = groupSet.size === selectedSet.size && [...groupSet].every(id => selectedSet.has(id));
+                if (!isMatch) {
+                    setActiveGroupId(null);
+                }
+            } else {
+                setActiveGroupId(null);
+            }
+        }
+    }, [selectedIds, groups]);
+
     const handleGroupClick = (group: StudentGroup) => {
-        if (activeGroupId === group.id) {
+        if (String(activeGroupId) === String(group.id)) {
             // Deselect group
             setActiveGroupId(null);
             if (autoSelectEnabled) {

@@ -1,10 +1,11 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { FaBook, FaBookOpen, FaChartLine, FaClipboardCheck, FaTasks, FaCalendarCheck, FaBullhorn, FaFileAlt, FaGift, FaArchive } from 'react-icons/fa';
+import { FaBook, FaBookOpen, FaChartLine, FaClipboardCheck, FaTasks, FaCalendarCheck, FaBullhorn, FaFileAlt, FaGift, FaArchive, FaCommentDots } from 'react-icons/fa';
 
 interface ServicesProps {
     onNavigate: (page: string) => void;
     hasFullManagement: boolean;
+    hasUnreadFeedbackReply?: boolean;
 }
 
 const pageVariants = {
@@ -18,9 +19,10 @@ interface ServiceItem {
     title: string;
     icon: React.ElementType;
     requiresManagement: boolean;
+    hasBadge?: boolean;
 }
 
-const Services: React.FC<ServicesProps> = ({ onNavigate, hasFullManagement }) => {
+const Services: React.FC<ServicesProps> = ({ onNavigate, hasFullManagement, hasUnreadFeedbackReply }) => {
     const servicesList: ServiceItem[] = [
         {
             id: 'quran',
@@ -77,6 +79,13 @@ const Services: React.FC<ServicesProps> = ({ onNavigate, hasFullManagement }) =>
             requiresManagement: true
         },
         {
+            id: 'teacherFeedback',
+            title: 'اقتراحات وملاحظات',
+            icon: FaCommentDots,
+            requiresManagement: false,
+            hasBadge: hasUnreadFeedbackReply
+        },
+        {
             id: 'archive',
             title: 'الأرشيف',
             icon: FaArchive,
@@ -115,12 +124,15 @@ const Services: React.FC<ServicesProps> = ({ onNavigate, hasFullManagement }) =>
                             whileTap={isDisabled ? {} : { scale: 0.96 }}
                             onClick={() => !isDisabled && handleServiceClick(service.id)}
                             disabled={isDisabled}
-                            className={`w-full aspect-square p-3 rounded-2xl bg-white dark:bg-gray-800 transition-all duration-200 flex flex-col items-center justify-center text-center ${
+                            className={`w-full aspect-square p-3 rounded-2xl bg-white dark:bg-gray-800 transition-all duration-200 flex flex-col items-center justify-center text-center relative ${
                                 isDisabled 
                                     ? 'opacity-30 cursor-not-allowed border border-dashed border-gray-200 dark:border-gray-700' 
                                     : 'border border-gray-100/70 dark:border-gray-700/50 shadow-[0_2px_8px_rgba(0,0,0,0.03)] hover:shadow-[0_4px_12px_rgba(0,0,0,0.06)]'
                             }`}
                         >
+                            {service.hasBadge && (
+                                <span className="absolute top-2 left-2 w-3 h-3 bg-red-500 rounded-full border-2 border-white dark:border-gray-800 animate-pulse" />
+                            )}
                             {/* Circular Icon Container */}
                             <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors flex-shrink-0 ${
                                 isDisabled

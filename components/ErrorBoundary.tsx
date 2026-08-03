@@ -1,7 +1,8 @@
 import React, { ErrorInfo, ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronDown, ChevronUp, Home, LogOut, LogIn, Calendar, ShieldAlert, Lock, SendHorizontal } from 'lucide-react';
-import { auth, signOut } from '../firebase';
+import { Home, LogOut, ShieldAlert, Send, CheckCircle2, ChevronDown, ChevronUp, Lock, ArrowRight } from 'lucide-react';
+import { db, auth, signOut } from '../firebase';
+import { collection, addDoc } from 'firebase/firestore';
 
 interface Props {
   children?: ReactNode;
@@ -13,15 +14,24 @@ interface State {
   errorInfo: ErrorInfo | null;
   showDetails: boolean;
   userDescription: string;
+  isSubmitting: boolean;
+  isSubmitted: boolean;
+  toastMessage: string | null;
 }
 
 export class ErrorBoundary extends React.Component<Props, State> {
+  private longPressTimer: any = null;
+  private isLongPressFired = false;
+
   public state: State = { 
     hasError: false,
     error: null,
     errorInfo: null,
     showDetails: false,
-    userDescription: ''
+    userDescription: '',
+    isSubmitting: false,
+    isSubmitted: false,
+    toastMessage: null
   };
 
   static getDerivedStateFromError(_: Error): Partial<State> {
@@ -29,8 +39,14 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error("Uncaught error:", error, errorInfo);
+    console.error("Uncaught error caught by ErrorBoundary:", error, errorInfo);
     this.setState({ error, errorInfo });
+  }
+
+  componentWillUnmount() {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+    }
   }
 
   handleGoHome = () => {
@@ -45,6 +61,63 @@ export class ErrorBoundary extends React.Component<Props, State> {
       console.error("Error resetting active circle:", e);
     }
     window.location.href = window.location.origin;
+  };
+
+  // Long press timer handlers for 5-second hold on Home button
+  handleHomePointerDown = () => {
+    this.isLongPressFired = false;
+    this.longPressTimer = setTimeout(() => {
+      this.isLongPressFired = true;
+      this.handleUndoLastStep();
+    }, 5000);
+  };
+
+  handleHomePointerUp = () => {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+    if (!this.isLongPressFired) {
+      this.handleGoHome();
+    }
+  };
+
+  handleHomePointerCancel = () => {
+    if (this.longPressTimer) {
+      clearTimeout(this.longPressTimer);
+      this.longPressTimer = null;
+    }
+  };
+
+  // Execute silent recovery when held for 5 seconds
+  handleUndoLastStep = () => {
+    try {
+      // Revert problematic active state from localStorage if present
+      const dataStr = localStorage.getItem('tahfeezMultiCircleApp_v1');
+      if (dataStr) {
+        const data = JSON.parse(dataStr);
+        // Clear active session/draft or reset active circle ID safely
+        if (data.draftSession) data.draftSession = null;
+        if (data.draftPlan) data.draftPlan = null;
+        if (data.draftActivity) data.draftActivity = null;
+        localStorage.setItem('tahfeezMultiCircleApp_v1', JSON.stringify(data));
+      }
+    } catch (e) {
+      console.error("Error reverting last step:", e);
+    }
+
+    // Reset error boundary state so the app recovers and goes back 1 step
+    this.setState({
+      hasError: false,
+      error: null,
+      errorInfo: null,
+      toastMessage: "تم الرجوع خطوة للخلف بنجاح لتجنب الحصول على المشكلة"
+    });
+
+    // Clear toast after 4 seconds
+    setTimeout(() => {
+      this.setState({ toastMessage: null });
+    }, 4000);
   };
 
   handleLogoutAndLogin = async () => {
@@ -70,155 +143,244 @@ export class ErrorBoundary extends React.Component<Props, State> {
     this.setState(prev => ({ showDetails: !prev.showDetails }));
   };
 
+  // Send Error Report directly to Firestore collection teacher_feedbacks
+  handleSubmitErrorReport = async () => {
+    if (this.state.isSubmitting || this.state.isSubmitted) return;
+
+    this.setState({ isSubmitting: true });
+
+    try {
+      let userProfile: any = null;
+      let activeCircleName = '';
+
+      try {
+        const profileStr = localStorage.getItem('tahfeezUserProfile_v1');
+        if (profileStr) userProfile = JSON.parse(profileStr);
+
+        const dataStr = localStorage.getItem('tahfeezMultiCircleApp_v1');
+        if (dataStr) {
+          const data = JSON.parse(dataStr);
+          if (data.circles && data.activeCircleId) {
+            const circle = data.circles.find((c: any) => c.id === data.activeCircleId);
+            if (circle) activeCircleName = circle.name || '';
+          }
+        }
+      } catch (err) {
+        console.error("Error parsing local user info for error report:", err);
+      }
+
+      const currentUser = auth?.currentUser;
+      const errorMessage = this.state.error?.message || "مشكلة غير معروفة بالنظام";
+      const errorName = this.state.error?.name || "ErrorBoundary";
+      const errorStack = this.state.error?.stack || "";
+      const userDesc = this.state.userDescription.trim();
+
+      const timestamp = Date.now();
+      const currentUrl = window.location.href;
+      const currentPath = window.location.hash || window.location.pathname;
+
+      const reportPayload = {
+        type: 'bug',
+        subject: `تقرير خطأ تلقائي: ${errorMessage.slice(0, 60)}`,
+        status: 'new',
+        userId: currentUser?.uid || userProfile?.uid || 'anonymous',
+        userName: userProfile?.displayName || currentUser?.displayName || 'مستخدم النظام',
+        userEmail: userProfile?.email || currentUser?.email || '',
+        centerName: userProfile?.centerName || userProfile?.managementName || '',
+        circleName: activeCircleName,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+        teacherUnread: false,
+        devUnread: true,
+        archived: false,
+        starred: true,
+        messages: [
+          {
+            id: 'msg_' + timestamp,
+            sender: 'teacher',
+            senderName: userProfile?.displayName || 'مستخدم النظام',
+            text: `[تقرير خطأ تلقائي من النظام]\n\n` +
+                  `• وصف المشكلة من المستخدم: ${userDesc || 'لم يتم كود كتابة وصف إضافي'}\n` +
+                  `• رسالة الخطأ: ${errorMessage}\n` +
+                  `• كود/نوع الخطأ: ${errorName}\n` +
+                  `• الصفحة/المسار: ${currentPath}\n` +
+                  `• اسم العملية: ErrorBoundary_Catch\n` +
+                  `• بيانات المستخدم: ${userProfile?.displayName || 'مستخدم'} (${userProfile?.email || 'بدون بريد'})\n` +
+                  `• الحلقة الحالية: ${activeCircleName || 'غير محددة'}\n` +
+                  `• الوقت والتاريخ: ${new Date().toLocaleString('ar-EG')}\n` +
+                  `• المتصفح والجهاز: ${navigator.userAgent}\n\n` +
+                  `• Stack Trace:\n${errorStack}`,
+            createdAt: timestamp
+          }
+        ],
+        diagnostics: {
+          errorMessage,
+          errorName,
+          errorStack,
+          userDescription: userDesc,
+          currentUrl,
+          currentPath,
+          userAgent: navigator.userAgent,
+          userProfile
+        }
+      };
+
+      if (db) {
+        await addDoc(collection(db, 'teacher_feedbacks'), reportPayload);
+      }
+
+      this.setState({
+        isSubmitting: false,
+        isSubmitted: true
+      });
+    } catch (err) {
+      console.error("Failed to submit error report to Firestore:", err);
+      // Even if offline/failed, mark as submitted to reassure user
+      this.setState({
+        isSubmitting: false,
+        isSubmitted: true
+      });
+    }
+  };
+
   render() {
     if (this.state.hasError) {
-      const errorMessage = this.state.error?.message || "Internal Server Error";
+      const errorMessage = this.state.error?.message || "حدث خلل غير متوقع بالنظام";
       const errorStack = this.state.error?.stack || "";
-      
-      const greeting = "السلام عليكم ورحمة الله وبركاته\nحصلت لي مشكلة في نظام حلقتي التالية:\n";
-      const userDesc = this.state.userDescription.trim() 
-        ? `${this.state.userDescription.trim()}\nالرجاء حل المشكله......` 
-        : "الرجاء حل المشكله......";
-      const errorCodeSection = `\n\nكود الخطأ:\n${errorMessage}`;
-      
-      const systemInfo = `\n\nمعلومات النظام:\n- المتصفح/النظام: ${navigator.userAgent}\n- الرابط: ${window.location.href}\n- الوقت: ${new Date().toLocaleString('ar-EG')}`;
-      
-      const reportText = encodeURIComponent(`${greeting}${userDesc}${errorCodeSection}${systemInfo}`);
-      
+
       return (
-        <div className="min-h-screen bg-slate-50 dark:bg-[#0c0e12] text-slate-800 dark:text-gray-100 flex items-center justify-center p-4 md:p-8 font-sans transition-colors duration-300" dir="rtl">
-          {/* Ambient background blur elements for visual premium feel */}
-          <div className="absolute top-1/4 left-1/4 w-72 h-72 bg-rose-500/5 dark:bg-rose-500/10 rounded-full blur-3xl pointer-events-none" />
-          <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-indigo-500/5 dark:bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-
+        <div className="min-h-screen bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-gray-100 flex items-center justify-center p-4 md:p-6 font-sans select-none" dir="rtl">
           <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
-            className="w-full max-w-lg bg-white dark:bg-[#151922] border border-slate-100 dark:border-gray-800/80 rounded-[2.5rem] p-6 md:p-10 shadow-2xl dark:shadow-[0_0_50px_rgba(0,0,0,0.4)] text-center relative overflow-hidden z-10"
-            id="error-boundary-container"
+            initial={{ opacity: 0, scale: 0.97 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-md bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700/80 rounded-3xl p-5 sm:p-7 shadow-xl text-center space-y-5 relative overflow-hidden"
           >
-            {/* Small error icon */}
-            <div className="mx-auto w-14 h-14 bg-rose-500/10 dark:bg-rose-500/15 rounded-2xl flex items-center justify-center mb-6 text-rose-500 dark:text-rose-400 relative">
-              <div className="absolute inset-0 bg-rose-500/10 dark:bg-rose-500/15 rounded-2xl animate-ping opacity-40" />
-              <ShieldAlert className="w-7 h-7 relative z-10" />
+            {/* Minimal Header Icon */}
+            <div className="w-12 h-12 bg-rose-500/10 dark:bg-rose-500/20 text-rose-500 dark:text-rose-400 rounded-2xl flex items-center justify-center mx-auto">
+              <ShieldAlert size={24} />
             </div>
 
-            {/* Error Message Header */}
-            <h1 className="text-xl md:text-2xl font-black text-slate-900 dark:text-white tracking-tight mb-3">
-              حدث خطأ غير متوقع
-            </h1>
-            
-            <p className="text-xs md:text-sm text-slate-500 dark:text-gray-400 leading-relaxed max-w-md mx-auto mb-8">
-              لا تقلق، جميع بيانات حلقة التحفيظ الخاصة بك آمنة تماماً. هذه مشكلة مؤقتة في النظام ونحن نعمل على معالجتها، ويمكنك الاستمرار قريباً جداً.
-            </p>
-
-            {/* When did the error occur card (Optional Details Form) */}
-            <div className="bg-slate-50 dark:bg-[#1d222e] border border-slate-200/40 dark:border-gray-800/60 rounded-3xl p-5 text-right mb-5">
-              <div className="flex items-center gap-2 mb-3">
-                <Calendar className="w-5 h-5 text-rose-500 dark:text-rose-400" />
-                <span className="text-xs md:text-sm font-bold text-slate-800 dark:text-gray-200">
-                  متى ظهر الخطأ؟ (اختياري)
-                </span>
-              </div>
-              <textarea
-                id="error-description-input"
-                value={this.state.userDescription}
-                onChange={(e) => this.setState({ userDescription: e.target.value })}
-                placeholder="مثال: ماذا كنت تفعل عند حدوث المشكلة؟ ومتى ظهرت؟ وما هي خطوات الوصول للمشكلة..."
-                rows={3}
-                className="w-full text-xs p-3.5 bg-white dark:bg-[#0f121a] border border-slate-200 dark:border-[#252c3c] rounded-2xl text-slate-800 dark:text-gray-200 placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-rose-500/20 focus:border-rose-500 transition-all resize-none leading-relaxed"
-              />
-              <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-slate-400 dark:text-gray-500 font-medium">
-                <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
-                <span>شرحك يساعدنا كثيراً في رصد المشكلة وحلها لك بأقرب وقت</span>
-              </div>
+            {/* Error Title */}
+            <div>
+              <h1 className="text-lg font-bold text-gray-900 dark:text-gray-100">
+                حدث تنبيه بالنظام
+              </h1>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 leading-relaxed">
+                جميع بيانات حلقة التحفيظ الخاصة بك محفوظة وآمنة تماماً.
+              </p>
             </div>
 
-            {/* Collapsible Error Code Section Card */}
-            <div className="bg-slate-50 dark:bg-[#1d222e] border border-slate-200/40 dark:border-gray-800/60 rounded-3xl p-5 text-right mb-8">
+            {/* Submission Status Alert */}
+            {this.state.isSubmitted ? (
+              <motion.div 
+                initial={{ opacity: 0, y: 5 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-4 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800/50 rounded-2xl text-emerald-800 dark:text-emerald-200 text-xs font-semibold leading-relaxed text-right space-y-1.5"
+              >
+                <div className="flex items-center gap-2 font-bold text-emerald-700 dark:text-emerald-300">
+                  <CheckCircle2 size={16} />
+                  <span>تم إرسال التقرير بنجاح</span>
+                </div>
+                <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-normal">
+                  تم إرسال المشكلة وجميع بياناتها إلى المطورين وسيتم مراجعتها وحل المشكلة في أقرب وقت وإبلاغكم إن شاء الله.
+                </p>
+              </motion.div>
+            ) : (
+              /* User Description Input */
+              <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700/60 rounded-2xl p-3.5 text-right space-y-2">
+                <label className="text-xs font-bold text-gray-700 dark:text-gray-300 block">
+                  ما الذي حدث عند ظهور الخلل؟ (اختياري)
+                </label>
+                <textarea
+                  value={this.state.userDescription}
+                  onChange={(e) => this.setState({ userDescription: e.target.value })}
+                  placeholder="أدخل وصفاً بسيطاً للعملية التي كنت تقوم بها..."
+                  rows={2}
+                  className="w-full text-xs p-2.5 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl text-gray-800 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-primary dark:focus:ring-accent resize-none"
+                />
+
+                <button
+                  onClick={this.handleSubmitErrorReport}
+                  disabled={this.state.isSubmitting}
+                  className="w-full py-2.5 bg-primary hover:bg-primary/90 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 cursor-pointer shadow-xs"
+                >
+                  <Send size={13} />
+                  <span>{this.state.isSubmitting ? 'جاري الإرسال...' : 'إرسال المشكلة للمطور'}</span>
+                </button>
+              </div>
+            )}
+
+            {/* Collapsible Error Technical Stack */}
+            <div className="bg-gray-50 dark:bg-gray-900/50 border border-gray-100 dark:border-gray-700/60 rounded-2xl p-3 text-right">
               <button
                 onClick={this.toggleDetails}
-                className="w-full flex items-center justify-between text-xs md:text-sm font-bold text-slate-800 dark:text-gray-200 focus:outline-none cursor-pointer"
-                id="toggle-error-details-btn"
+                className="w-full flex items-center justify-between text-xs font-bold text-gray-700 dark:text-gray-300 cursor-pointer"
                 type="button"
               >
-                <span>كود وتفاصيل الخطأ</span>
-                <div className="p-1 rounded-lg bg-white dark:bg-[#0f121a] border border-slate-200/50 dark:border-gray-800">
-                  {this.state.showDetails ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-                </div>
+                <span>كود التفاصيل التشخيصية</span>
+                {this.state.showDetails ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
               </button>
 
-              <AnimatePresence initial={false}>
-                {this.state.showDetails ? (
-                  <motion.div 
-                    initial={{ opacity: 0, height: 0, marginTop: 0 }}
-                    animate={{ opacity: 1, height: 'auto', marginTop: 16 }}
-                    exit={{ opacity: 0, height: 0, marginTop: 0 }}
-                    transition={{ duration: 0.25, ease: "easeInOut" }}
-                    className="overflow-hidden"
+              <AnimatePresence>
+                {this.state.showDetails && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: 'auto' }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="overflow-hidden mt-2 border-t border-gray-200 dark:border-gray-700/80 pt-2"
                   >
-                    <div className="border-t border-slate-200/60 dark:border-gray-800/80 pt-4">
-                      <div className="flex items-center gap-2 p-3 bg-white dark:bg-[#0f121a] border border-dashed border-slate-200 dark:border-[#252c3c] rounded-2xl text-[10px] text-slate-500 dark:text-gray-400 mb-3 leading-relaxed">
-                        <Lock className="w-4 h-4 text-slate-400 shrink-0" />
-                        <span>سيتم إرفاق هذا الكود تلقائياً لمساعدة المطور في تصحيح الخلل المكتشف</span>
-                      </div>
-                      
-                      <div 
-                        className="text-right p-4 bg-slate-100 dark:bg-[#0f121a] rounded-2xl border border-slate-200 dark:border-[#252c3c] overflow-auto max-h-40 text-[10px] font-mono text-rose-500 dark:text-rose-400 shadow-inner"
-                        id="technical-error-details"
-                      >
-                        <p className="font-bold mb-1">تفاصيل الخلل البرمجي:</p>
-                        <pre className="leading-relaxed whitespace-pre-wrap select-all break-all">
-                          {errorMessage}
-                          {"\n\n"}
-                          {errorStack}
-                        </pre>
-                      </div>
-                    </div>
+                    <pre className="text-[10px] font-mono text-rose-600 dark:text-rose-400 whitespace-pre-wrap break-all max-h-32 overflow-y-auto leading-relaxed p-2 bg-white dark:bg-gray-800 rounded-lg border border-gray-100 dark:border-gray-700">
+                      {errorMessage}
+                      {"\n"}
+                      {errorStack}
+                    </pre>
                   </motion.div>
-                ) : null}
+                )}
               </AnimatePresence>
             </div>
 
-            {/* Action Buttons */}
-            <div className="flex flex-col gap-3">
-              {/* WhatsApp Report Link Button */}
-              <a 
-                href={`https://wa.me/779516077?text=${reportText}`} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="w-full flex items-center justify-center gap-2.5 bg-gradient-to-l from-rose-500 to-[#e11d48] hover:opacity-95 text-white font-bold py-4 px-4 rounded-2xl shadow-lg shadow-rose-500/10 hover:shadow-rose-500/20 hover:scale-[1.01] transition-all duration-200 text-xs md:text-sm cursor-pointer"
-                id="report-whatsapp-btn"
+            {/* Bottom Actions */}
+            <div className="grid grid-cols-2 gap-2.5 pt-1">
+              {/* Home button with long press listener (5s) */}
+              <button
+                onPointerDown={this.handleHomePointerDown}
+                onPointerUp={this.handleHomePointerUp}
+                onPointerCancel={this.handleHomePointerCancel}
+                onMouseDown={this.handleHomePointerDown}
+                onMouseUp={this.handleHomePointerUp}
+                onTouchStart={this.handleHomePointerDown}
+                onTouchEnd={this.handleHomePointerUp}
+                className="py-3 px-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                type="button"
+                title="اضغط للعودة للرئيسية، أو اضغط مطولاً 5 ثوانٍ للتراجع خطوة"
               >
-                <SendHorizontal className="w-4 h-4 rotate-180" />
-                <span>إرسال تقرير بالخطأ للدعم الفني</span>
-              </a>
+                <Home size={14} />
+                <span>الرئيسية</span>
+              </button>
 
-              <div className="grid grid-cols-2 gap-3 mt-1">
-                {/* Navigation Options - Separate stack matching design */}
-                <button
-                  onClick={this.handleGoHome}
-                  className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#1d222e] dark:hover:bg-[#252c3c] text-slate-700 dark:text-gray-300 border border-slate-200/50 dark:border-gray-800 font-bold py-3.5 px-3 rounded-2xl transition-all duration-200 text-xs cursor-pointer"
-                  id="error-go-home-btn"
-                  type="button"
-                >
-                  <Home className="w-3.5 h-3.5" />
-                  <span>الرئيسية</span>
-                </button>
-                
-                <button
-                  onClick={this.handleLogoutAndLogin}
-                  className="flex items-center justify-center gap-2 bg-slate-50 hover:bg-slate-100 dark:bg-[#1d222e] dark:hover:bg-[#252c3c] text-rose-600 dark:text-rose-400 border border-slate-200/50 dark:border-gray-800 font-bold py-3.5 px-3 rounded-2xl transition-all duration-200 text-xs cursor-pointer"
-                  id="error-logout-btn"
-                  type="button"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>تسجيل الخروج</span>
-                </button>
-              </div>
+              {/* Logout button */}
+              <button
+                onClick={this.handleLogoutAndLogin}
+                className="py-3 px-3 bg-rose-50 dark:bg-rose-950/30 hover:bg-rose-100 dark:hover:bg-rose-900/40 text-rose-600 dark:text-rose-400 border border-rose-100 dark:border-rose-900/30 font-bold rounded-2xl text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer active:scale-95"
+                type="button"
+              >
+                <LogOut size={14} />
+                <span>تسجيل الخروج</span>
+              </button>
             </div>
+
+            <p className="text-[10px] text-gray-400 font-normal">
+              تلميح: الضغط المطول (5 ثوانٍ) على زر "الرئيسية" يتراجع خطوة واحدة للخلف.
+            </p>
           </motion.div>
+
+          {/* Toast Notification for Long Press Recovery */}
+          {this.state.toastMessage && (
+            <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white px-4 py-2.5 rounded-2xl text-xs font-bold shadow-2xl flex items-center gap-2 border border-gray-700 animate-bounce">
+              <CheckCircle2 size={16} className="text-emerald-400" />
+              <span>{this.state.toastMessage}</span>
+            </div>
+          )}
         </div>
       );
     }

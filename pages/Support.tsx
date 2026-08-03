@@ -1,7 +1,7 @@
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { FaHeart, FaCrown, FaHandHoldingHeart, FaCopy, FaWhatsapp, FaUniversity, FaEnvelopeOpenText, FaAward, FaChevronRight } from 'react-icons/fa';
+import { FaHeart, FaCrown, FaCopy, FaUniversity, FaAward, FaChevronRight } from 'react-icons/fa';
 import { IoDiamond } from 'react-icons/io5';
 
 interface SupportProps {
@@ -10,6 +10,12 @@ interface SupportProps {
 }
 
 const Support: React.FC<SupportProps> = ({ onBack, addToast }) => {
+    useEffect(() => {
+        window.scrollTo({ top: 0, behavior: 'instant' as any });
+        const mainEl = document.querySelector('main');
+        if (mainEl) mainEl.scrollTop = 0;
+    }, []);
+
     const copyToClipboard = (text: string, label: string) => {
         navigator.clipboard.writeText(text);
         addToast(`تم نسخ ${label} بنجاح`, 'success');
@@ -31,14 +37,6 @@ const Support: React.FC<SupportProps> = ({ onBack, addToast }) => {
             color: 'text-green-600',
             bgColor: 'bg-green-50 dark:bg-green-900/10',
             borderColor: 'border-green-100 dark:border-green-900/20'
-        },
-        {
-            title: 'محفظة جيب (Jeep)',
-            number: '779516077',
-            icon: FaHandHoldingHeart,
-            color: 'text-blue-600',
-            bgColor: 'bg-blue-50 dark:bg-blue-900/10',
-            borderColor: 'border-blue-100 dark:border-blue-900/20'
         }
     ];
 
@@ -149,27 +147,6 @@ const Support: React.FC<SupportProps> = ({ onBack, addToast }) => {
                             </button>
                         </div>
                     ))}
-                </div>
-            </div>
-
-            {/* Contact Section */}
-            <div className="bg-gradient-to-br from-primary/10 to-accent/10 dark:from-primary/5 dark:to-accent/5 p-6 rounded-3xl border border-primary/20 dark:border-accent/20 text-center shadow-lg shadow-primary/5">
-                <FaEnvelopeOpenText className="text-primary dark:text-accent mx-auto mb-3" size={30} />
-                <h2 className="font-bold text-gray-800 dark:text-gray-100 mb-2">هل لديك استفسار؟</h2>
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-6 px-4">
-                    يمكنك التواصل مباشرة معنا لمناقشة ميزات خاصة أو طرق دعم أخرى.
-                </p>
-                <div className="flex flex-col gap-3">
-                    <a 
-                        href="https://wa.me/779516077" 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="bg-green-500 text-white py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-green-600 transition-all active:scale-95 shadow-lg shadow-green-500/20"
-                    >
-                        <FaWhatsapp size={18} />
-                        تواصل عبر الواتساب
-                    </a>
-                    <p className="text-[10px] text-gray-400 font-medium">نحن هنا دائماً لسماع مقترحاتكم</p>
                 </div>
             </div>
 

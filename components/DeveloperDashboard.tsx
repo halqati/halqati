@@ -51,7 +51,13 @@ import {
     ToggleRight,
     ArrowLeft,
     ChevronRight,
-    CheckCircle2
+    CheckCircle2,
+    Trash2,
+    Archive,
+    RotateCcw,
+    ShieldCheck,
+    Check,
+    Sliders
 } from 'lucide-react';
 import { auth, signInWithEmailAndPassword, updatePassword, deleteUser, db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion, deleteField } from '../firebase';
 import { Management, AuditLog, UserProfile, CircleData, Student, SystemSettings, AppUpdateNotification, TeacherFeedbackItem, FeedbackType, FeedbackStatus, FeedbackMessage } from '../types';
@@ -263,8 +269,13 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         return users.find(u => u.uid === selectedUser.uid) || selectedUser;
     }, [selectedUser, users]);
 
-    // Circle Details Sub-view
+    // Circle Details & Archive Sub-view
     const [selectedCircle, setSelectedCircle] = useState<CircleData | null>(null);
+    const [archivedCircles, setArchivedCircles] = useState<any[]>([]);
+    const [circleViewMode, setCircleViewMode] = useState<'active' | 'archived'>('active');
+    const [selectedArchivedCircle, setSelectedArchivedCircle] = useState<any | null>(null);
+    const [editingPermissionsTeacherUid, setEditingPermissionsTeacherUid] = useState<string | null>(null);
+    const [tempGranularPermissions, setTempGranularPermissions] = useState<any | null>(null);
 
     const activeCircle = useMemo(() => {
         if (!selectedCircle) return null;
@@ -408,6 +419,10 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
 
         const unsubscribeCircles = onSnapshot(collection(db, 'circles'), (snapshot) => {
             setCircles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CircleData)));
+        });
+
+        const unsubscribeArchivedCircles = onSnapshot(collection(db, 'archived_circles'), (snapshot) => {
+            setArchivedCircles(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
 
         const unsubscribeManagements = onSnapshot(collection(db, 'managements'), (snapshot) => {
@@ -911,9 +926,16 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     }, [users, searchQuery, genderFilter, roleFilter, statusFilter, sortOption, circles]);
 
     const processedCircles = useMemo(() => {
-        if (!searchQuery.trim()) return circles;
+        let list = [...circles];
+        list.sort((a, b) => {
+            const timeA = a.lastUpdated || a.createdAt || (a.numericId ? Number(a.numericId) : 0) || 0;
+            const timeB = b.lastUpdated || b.createdAt || (b.numericId ? Number(b.numericId) : 0) || 0;
+            return timeB - timeA;
+        });
+
+        if (!searchQuery.trim()) return list;
         const queryLower = searchQuery.toLowerCase().trim();
-        return circles.filter(c => 
+        return list.filter(c => 
             c.circle?.toLowerCase().includes(queryLower) ||
             c.teacher?.toLowerCase().includes(queryLower) ||
             c.town?.toLowerCase().includes(queryLower) ||
@@ -921,6 +943,71 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
             c.id?.toLowerCase().includes(queryLower)
         );
     }, [circles, searchQuery]);
+
+    const processedArchivedCircles = useMemo(() => {
+        let list = [...archivedCircles];
+        list.sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+
+        if (!searchQuery.trim()) return list;
+        const queryLower = searchQuery.toLowerCase().trim();
+        return list.filter(item => {
+            const c = item.circleData || item;
+            return (
+                c.circle?.toLowerCase().includes(queryLower) ||
+                c.teacher?.toLowerCase().includes(queryLower) ||
+                c.town?.toLowerCase().includes(queryLower) ||
+                c.numericId?.toLowerCase().includes(queryLower) ||
+                item.archivedByName?.toLowerCase().includes(queryLower) ||
+                item.id?.toLowerCase().includes(queryLower)
+            );
+        });
+    }, [archivedCircles, searchQuery]);
+
+    const handleRestoreArchivedCircle = async (archivedItem: any) => {
+        if (!db) return;
+        try {
+            const circleId = archivedItem.circleId || archivedItem.id;
+            const rawData = archivedItem.circleData || archivedItem;
+            
+            const { archivedAt, archivedByUid, archivedByName, circleId: cId, circleData, ...restData } = rawData;
+            
+            const restoredCircle: CircleData = {
+                ...restData,
+                id: circleId,
+                status: 'active',
+                lastUpdated: Date.now()
+            };
+
+            await setDoc(doc(db, 'circles', circleId), restoredCircle);
+            await deleteDoc(doc(db, 'archived_circles', archivedItem.id));
+
+            addToast(`✅ تم استعادة حلقة (${restoredCircle.circle}) بنجاح وإعادتها لجميع الأعضاء`, 'success');
+            setSelectedArchivedCircle(null);
+        } catch (e: any) {
+            console.error("Restore circle error:", e);
+            addToast('❌ فشلت استعادة الحلقة: ' + (e.message || e), 'error');
+        }
+    };
+
+    const handleEmergencyDeleteCircle = async (circleId: string, circleName: string, isArchived: boolean = false) => {
+        if (!db) return;
+        try {
+            if (isArchived) {
+                await deleteDoc(doc(db, 'archived_circles', circleId));
+            } else {
+                await deleteDoc(doc(db, 'circles', circleId));
+                try {
+                    await deleteDoc(doc(db, 'archived_circles', circleId));
+                } catch (e) { /* ignore */ }
+            }
+            addToast(`💥 تم الحذف الجذري والنهائي لحلقة (${circleName})`, 'success');
+            setSelectedCircle(null);
+            setSelectedArchivedCircle(null);
+        } catch (e: any) {
+            console.error("Emergency delete error:", e);
+            addToast('❌ فشل الحذف الجذري للحلقة: ' + (e.message || e), 'error');
+        }
+    };
 
     // Save or Edit advanced developer notification
     const handleSaveNotification = async () => {
@@ -1894,15 +1981,41 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                 </div>
                             )}
 
-                            {activeTab === 'circles' && !selectedCircle && (
+                            {activeTab === 'circles' && !selectedCircle && !selectedArchivedCircle && (
                                 <div className="space-y-4">
-                                    {/* Circle search and filter */}
+                                    {/* Circle View Mode Selector */}
+                                    <div className="flex items-center justify-between gap-2 bg-[#0a0f0d] border border-[#105541]/10 p-2 rounded-2xl">
+                                        <button
+                                            onClick={() => setCircleViewMode('active')}
+                                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                                circleViewMode === 'active'
+                                                    ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 shadow-sm'
+                                                    : 'text-gray-400 hover:text-white hover:bg-gray-800/40'
+                                            }`}
+                                        >
+                                            <span>🟢 الحلقات النشطة والمباشرة</span>
+                                            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-mono">{circles.length}</span>
+                                        </button>
+                                        <button
+                                            onClick={() => setCircleViewMode('archived')}
+                                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                                circleViewMode === 'archived'
+                                                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm'
+                                                    : 'text-gray-400 hover:text-white hover:bg-gray-800/40'
+                                            }`}
+                                        >
+                                            <span>📦 أرشيف الحلقات المحذوفة</span>
+                                            <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md font-mono">{archivedCircles.length}</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Search and filter */}
                                     <div className="bg-[#0a0f0d] border border-[#105541]/10 p-4 rounded-2xl space-y-3">
                                         <div className="relative">
                                             <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
                                             <input 
                                                 type="text" 
-                                                placeholder="بحث باسم الحلقة، المعلم، المركز، أو المعرّف (ID)..." 
+                                                placeholder={circleViewMode === 'active' ? "بحث باسم الحلقة، المعلم، المركز، أو المعرّف (ID)..." : "بحث في أرشيف الحلقات المحذوفة..."}
                                                 value={searchQuery}
                                                 onChange={(e) => setSearchQuery(e.target.value)}
                                                 className="w-full bg-[#050807] border border-[#105541]/20 rounded-xl py-2.5 pr-9 pl-3 text-xs outline-none focus:ring-1 focus:ring-[#105541] text-white font-medium font-sans"
@@ -1910,152 +2023,265 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                         </div>
                                     </div>
 
-                                    <div className="grid grid-cols-1 gap-3">
-                                        {processedCircles.map(circle => (
-                                            <div key={circle.id} className="bg-[#050807] border border-[#105541]/10 p-3 rounded-xl relative">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div 
-                                                        className="flex items-center gap-2 cursor-pointer transition-all hover:translate-x-1"
-                                                        onClick={() => setSelectedCircle(circle)}
-                                                    >
-                                                        <div className="w-8 h-8 bg-blue-500/10 rounded-lg flex items-center justify-center text-blue-500">
-                                                            <Box size={16} />
-                                                        </div>
-                                                        <div>
-                                                            <h4 className="text-[11px] font-bold text-white flex items-center gap-1.5 hover:text-blue-400 transition-colors">
-                                                                {circle.circle}
-                                                                <span className="text-[8px] bg-blue-500/10 text-blue-400 px-1 py-0.2 rounded font-mono font-bold">#{circle.numericId}</span>
-                                                            </h4>
-                                                            <div className="flex items-center gap-1.5 flex-wrap">
-                                                                <p className="text-[9px] text-gray-400">المعلم: {circle.teacher}</p>
-                                                                {circle.town && (
-                                                                    <div className="flex items-center gap-0.5 text-[8px] text-gray-500 bg-gray-800/50 px-1 rounded-sm">
-                                                                        <MapPin size={8} /> {circle.town}
-                                                                    </div>
-                                                                )}
+                                    {/* Active Circles View */}
+                                    {circleViewMode === 'active' && (
+                                        <div className="grid grid-cols-1 gap-3">
+                                            {processedCircles.map(circle => (
+                                                <div key={circle.id} className="bg-[#050807] border border-[#105541]/10 p-3.5 rounded-xl relative hover:border-[#105541]/30 transition-all">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div 
+                                                            className="flex items-center gap-2.5 cursor-pointer transition-all hover:translate-x-1"
+                                                            onClick={() => setSelectedCircle(circle)}
+                                                        >
+                                                            <div className="w-9 h-9 bg-emerald-500/10 rounded-xl flex items-center justify-center text-emerald-400 border border-emerald-500/20">
+                                                                <Box size={18} />
+                                                            </div>
+                                                            <div>
+                                                                <h4 className="text-xs font-bold text-white flex items-center gap-1.5 hover:text-emerald-400 transition-colors">
+                                                                    {circle.circle}
+                                                                    <span className="text-[9px] bg-blue-500/10 text-blue-400 px-1.5 py-0.5 rounded font-mono font-bold">#{circle.numericId}</span>
+                                                                </h4>
+                                                                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                                                                    <p className="text-[10px] text-gray-400">المعلم: {circle.teacher}</p>
+                                                                    {circle.town && (
+                                                                        <div className="flex items-center gap-0.5 text-[8.5px] text-gray-400 bg-gray-800/60 px-1.5 py-0.5 rounded">
+                                                                            <MapPin size={8} /> {circle.town}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 flex-wrap">
-                                                        {/* Activity status (تعطيل/تفعيل) */}
-                                                        <button 
-                                                            disabled={loadingCircleActions[`${circle.id}-status`]}
-                                                            onClick={() => toggleCircleStatus(circle.id, circle.status || 'active')}
-                                                            className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 ${
-                                                                circle.status === 'inactive' ? 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20'
-                                                            } disabled:opacity-50`}
-                                                        >
-                                                            {loadingCircleActions[`${circle.id}-status`] && <RefreshCw size={8} className="animate-spin" />}
-                                                            {circle.status === 'inactive' ? 'تفعيل' : 'تعطيل'}
-                                                        </button>
+                                                        <div className="flex items-center gap-1 flex-wrap">
+                                                            <button 
+                                                                disabled={loadingCircleActions[`${circle.id}-status`]}
+                                                                onClick={() => toggleCircleStatus(circle.id, circle.status || 'active')}
+                                                                className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 ${
+                                                                    circle.status === 'inactive' ? 'bg-red-500/10 text-red-500 border-red-500/20 hover:bg-red-500/20' : 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20 hover:bg-emerald-500/20'
+                                                                } disabled:opacity-50`}
+                                                            >
+                                                                {loadingCircleActions[`${circle.id}-status`] && <RefreshCw size={8} className="animate-spin" />}
+                                                                {circle.status === 'inactive' ? 'تفعيل' : 'تعطيل'}
+                                                            </button>
 
-                                                        {/* Stop/Resume (إيقاف/استئناف) */}
-                                                        <button 
-                                                            disabled={loadingCircleActions[`${circle.id}-stop`]}
-                                                            onClick={() => toggleCircleStop(circle.id, circle.isStopped || false)}
-                                                            className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 ${
-                                                                circle.isStopped ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 font-black' : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-white'
-                                                            } disabled:opacity-50`}
-                                                        >
-                                                            {loadingCircleActions[`${circle.id}-stop`] && <RefreshCw size={8} className="animate-spin" />}
-                                                            {circle.isStopped ? 'موقوفة ⚠️' : 'إيقاف'}
-                                                        </button>
+                                                            <button 
+                                                                disabled={loadingCircleActions[`${circle.id}-stop`]}
+                                                                onClick={() => toggleCircleStop(circle.id, circle.isStopped || false)}
+                                                                className={`text-[9px] font-bold px-2 py-1 rounded-lg border transition-all flex items-center gap-1 ${
+                                                                    circle.isStopped ? 'bg-rose-500/20 text-rose-400 border-rose-500/30 font-black' : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-white'
+                                                                } disabled:opacity-50`}
+                                                            >
+                                                                {loadingCircleActions[`${circle.id}-stop`] && <RefreshCw size={8} className="animate-spin" />}
+                                                                {circle.isStopped ? 'موقوفة ⚠️' : 'إيقاف'}
+                                                            </button>
 
-                                                        {/* Maintenance (صيانة) */}
-                                                        <button 
-                                                            disabled={loadingCircleActions[`${circle.id}-maintenance`]}
-                                                            onClick={() => toggleMaintenanceMode(circle.id, circle.isMaintenance || false)}
-                                                            className={`text-[9px] font-bold px-2 py-1 rounded-lg border flex items-center gap-1 transition-all ${
-                                                                circle.isMaintenance ? 'bg-amber-500/20 text-amber-500 border-amber-500/20' : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-white'
-                                                             } disabled:opacity-50`}
-                                                        >
-                                                            {loadingCircleActions[`${circle.id}-maintenance`] ? <RefreshCw size={8} className="animate-spin" /> : <Zap size={10} className={circle.isMaintenance ? "" : "opacity-30"} />}
-                                                            صيانة
-                                                        </button>
+                                                            <button 
+                                                                disabled={loadingCircleActions[`${circle.id}-maintenance`]}
+                                                                onClick={() => toggleMaintenanceMode(circle.id, circle.isMaintenance || false)}
+                                                                className={`text-[9px] font-bold px-2 py-1 rounded-lg border flex items-center gap-1 transition-all ${
+                                                                    circle.isMaintenance ? 'bg-amber-500/20 text-amber-500 border-amber-500/20' : 'bg-gray-800 text-gray-500 border-gray-700 hover:text-white'
+                                                                 } disabled:opacity-50`}
+                                                            >
+                                                                {loadingCircleActions[`${circle.id}-maintenance`] ? <RefreshCw size={8} className="animate-spin" /> : <Zap size={10} className={circle.isMaintenance ? "" : "opacity-30"} />}
+                                                                صيانة
+                                                            </button>
 
-                                                        {/* Send direct notification */}
-                                                        <button 
-                                                            onClick={() => {
-                                                                openActionDialog({
-                                                                    type: 'dual-input',
-                                                                    title: `إرسال إشعار عاجل لحلقة: ${circle.circle || 'الحلقة'}`,
-                                                                    description: `أدخل العنوان وتفاصيل التنبيه العاجل الذي تود توجيهه لجميع معلمي وطلبة حلقة "${circle.circle || 'الحلقة'}":`,
-                                                                    label1: 'عنوان الإشعار للحلقة:',
-                                                                    placeholder1: 'تنبيه إداري من المطور',
-                                                                    defaultValue1: 'تنبيه إداري من المطور',
-                                                                    label2: 'نص الإشعار:',
-                                                                    placeholder2: 'اكتب تفاصيل التنبيه هنا...',
-                                                                    onConfirm: async (title, msg) => {
-                                                                        if (!title.trim() || !msg.trim()) {
-                                                                            addToast('يرجى كتابة العنوان والرسالة', 'error');
-                                                                            throw new Error('حقول فارغة');
+                                                            <button 
+                                                                onClick={() => {
+                                                                    openActionDialog({
+                                                                        type: 'dual-input',
+                                                                        title: `إرسال إشعار عاجل لحلقة: ${circle.circle || 'الحلقة'}`,
+                                                                        description: `أدخل العنوان وتفاصيل التنبيه العاجل الذي تود توجيهه لجميع معلمي وطلبة حلقة "${circle.circle || 'الحلقة'}":`,
+                                                                        label1: 'عنوان الإشعار للحلقة:',
+                                                                        placeholder1: 'تنبيه إداري من المطور',
+                                                                        defaultValue1: 'تنبيه إداري من المطور',
+                                                                        label2: 'نص الإشعار:',
+                                                                        placeholder2: 'اكتب تفاصيل التنبيه هنا...',
+                                                                        onConfirm: async (title, msg) => {
+                                                                            if (!title.trim() || !msg.trim()) {
+                                                                                addToast('يرجى كتابة العنوان والرسالة', 'error');
+                                                                                throw new Error('حقول فارغة');
+                                                                            }
+                                                                            await sendCircleDeveloperNotification(circle.id, circle.circle || 'الحلقة', title, msg);
                                                                         }
-                                                                        await sendCircleDeveloperNotification(circle.id, circle.circle || 'الحلقة', title, msg);
-                                                                    }
-                                                                });
-                                                            }}
-                                                            className="text-[9px] font-bold px-2 py-1 rounded-lg border bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20 flex items-center gap-1 transition-all"
-                                                        >
-                                                            <Megaphone size={10} />
-                                                            إشعار
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                {/* Credentials Diagnostics Block (ALWAYS DISPLAYED clearly and directly) */}
-                                                <div className="mt-2.5 p-2 bg-gray-900/40 rounded-xl border border-[#105541]/15 space-y-1 text-[10px]">
-                                                    <div className="flex justify-between gap-4">
-                                                        <span className="text-gray-500 font-bold">معرّف الحلقة (ID):</span>
-                                                        <span className="font-mono text-gray-300 select-all">{circle.id}</span>
-                                                    </div>
-                                                    <div className="flex justify-between gap-4">
-                                                        <span className="text-gray-500 font-bold">اسم المستخدم (المعرف الرقمي):</span>
-                                                        <span className="font-mono text-gray-300 select-all">{circle.numericId || 'لا يوجد'}</span>
-                                                    </div>
-                                                    <div className="flex justify-between gap-4">
-                                                        <span className="text-gray-500 font-bold">البريد الإلكتروني للربط:</span>
-                                                        <span className="font-mono text-gray-300 select-all">{circle.numericId ? `${circle.numericId}@quran.app` : 'لا يوجد'}</span>
-                                                    </div>
-                                                    <div className="flex justify-between gap-4">
-                                                        <span className="text-gray-500 font-bold text-emerald-500">كلمة المرور الحالية:</span>
-                                                        <span className="font-mono text-blue-400 font-black select-all bg-[#105541]/5 px-1.5 py-0.2 rounded border border-[#105541]/10">
-                                                            {circle.transferPassword || circle.transferCode || '1234'}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                
-                                                <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-[#105541]/5">
-                                                    <div className="text-center">
-                                                        <p className="text-[8px] text-gray-500 uppercase font-bold">طلاب</p>
-                                                        <p className="text-xs font-bold text-white">{circle.students?.length || 0}</p>
-                                                    </div>
-                                                    <div className="text-center">
-                                                        <p className="text-[8px] text-gray-600 uppercase font-bold">الحصص</p>
-                                                        <p className="text-xs font-bold text-white">{circle.sessions?.length || 0}</p>
-                                                    </div>
-                                                    <div className="text-center">
-                                                        <button 
-                                                            onClick={() => setSelectedCircle(circle)}
-                                                            className="text-[8.5px] font-black text-blue-400 hover:text-blue-300 bg-blue-500/5 hover:bg-blue-500/10 px-2 py-1 rounded border border-blue-500/10 transition-all active:scale-95"
-                                                        >
-                                                            عرض لوحة التحكم بالتفصيل ⚙️
-                                                        </button>
-                                                    </div>
-                                                </div>
-
-                                                <div className="mt-2 flex items-center justify-between border-t border-[#105541]/5 pt-2">
-                                                    <div className="flex items-center gap-1">
-                                                        <div className="w-5 h-5 bg-gray-800 rounded-full flex items-center justify-center text-[8px] font-bold text-gray-500 font-sans">
-                                                            {Object.keys(circle.teachers || {}).length}
+                                                                    });
+                                                                }}
+                                                                className="text-[9px] font-bold px-2 py-1 rounded-lg border bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20 flex items-center gap-1 transition-all"
+                                                            >
+                                                                <Megaphone size={10} />
+                                                                إشعار
+                                                            </button>
                                                         </div>
-                                                        <span className="text-[8px] text-gray-600 uppercase font-bold">معلمين</span>
                                                     </div>
-                                                    <span className="text-[9px] font-mono font-bold text-[#105541] bg-[#105541]/5 px-2 py-0.5 rounded border border-[#105541]/10">
-                                                        #{circle.transferCode}
-                                                    </span>
+
+                                                    {/* Credentials Diagnostics Block */}
+                                                    <div className="mt-2.5 p-2 bg-gray-900/40 rounded-xl border border-[#105541]/15 space-y-1 text-[10px]">
+                                                        <div className="flex justify-between gap-4">
+                                                            <span className="text-gray-500 font-bold">معرّف الحلقة (ID):</span>
+                                                            <span className="font-mono text-gray-300 select-all">{circle.id}</span>
+                                                        </div>
+                                                        <div className="flex justify-between gap-4">
+                                                            <span className="text-gray-500 font-bold">كلمة المرور الحالية:</span>
+                                                            <span className="font-mono text-blue-400 font-black select-all bg-[#105541]/5 px-1.5 py-0.2 rounded border border-[#105541]/10">
+                                                                {circle.transferPassword || circle.transferCode || '1234'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-[#105541]/5">
+                                                        <div className="text-center">
+                                                            <p className="text-[8px] text-gray-500 uppercase font-bold">طلاب</p>
+                                                            <p className="text-xs font-bold text-white">{circle.students?.length || 0}</p>
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <p className="text-[8px] text-gray-600 uppercase font-bold">الحصص</p>
+                                                            <p className="text-xs font-bold text-white">{circle.sessions?.length || 0}</p>
+                                                        </div>
+                                                        <div className="text-center">
+                                                            <button 
+                                                                onClick={() => setSelectedCircle(circle)}
+                                                                className="text-[8.5px] font-black text-blue-400 hover:text-blue-300 bg-blue-500/5 hover:bg-blue-500/10 px-2 py-1 rounded border border-blue-500/10 transition-all active:scale-95"
+                                                            >
+                                                                عرض لوحة التحكم بالتفصيل ⚙️
+                                                            </button>
+                                                        </div>
+                                                    </div>
                                                 </div>
+                                            ))}
+                                            {processedCircles.length === 0 && (
+                                                <div className="text-center py-10 text-gray-500 text-xs">
+                                                    لا توجد حلقات نشطة مطابقة للبحث حالياً.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Archived Circles View */}
+                                    {circleViewMode === 'archived' && (
+                                        <div className="grid grid-cols-1 gap-3">
+                                            {processedArchivedCircles.map(item => {
+                                                const c = item.circleData || item;
+                                                return (
+                                                    <div key={item.id} className="bg-[#080d0a] border border-amber-500/20 p-4 rounded-xl relative space-y-3">
+                                                        <div className="flex justify-between items-start gap-2">
+                                                            <div>
+                                                                <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                                                                    <Archive size={14} className="text-amber-400" />
+                                                                    <span>{c.circle || 'حلقة بدون اسم'}</span>
+                                                                    <span className="text-[9px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded font-mono font-bold">#{c.numericId || 'بدون ID'}</span>
+                                                                </h4>
+                                                                <p className="text-[10px] text-gray-400 mt-1">
+                                                                    المعلم الرئيسي: <span className="text-white font-bold">{c.teacher || 'غير محدد'}</span>
+                                                                </p>
+                                                            </div>
+                                                            <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-1 rounded-lg font-bold">
+                                                                📦 حلقة مؤرشفة
+                                                            </span>
+                                                        </div>
+
+                                                        {/* Archive metadata */}
+                                                        <div className="p-2.5 bg-black/40 rounded-xl border border-amber-500/10 text-[10px] space-y-1 text-gray-400">
+                                                            <div className="flex justify-between">
+                                                                <span>تاريخ الأرشفة والحذف:</span>
+                                                                <span className="text-gray-200 font-mono">{item.archivedAt ? new Date(item.archivedAt).toLocaleString('ar-EG') : 'غير محدد'}</span>
+                                                            </div>
+                                                            <div className="flex justify-between">
+                                                                <span>بواسطة:</span>
+                                                                <span className="text-amber-300 font-bold">{item.archivedByName || 'مستخدم النظام'}</span>
+                                                            </div>
+                                                            <div className="flex justify-between">
+                                                                <span>عدد الطلاب عند الأرشفة:</span>
+                                                                <span className="text-white font-bold">{c.students?.length || 0} طالب</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/10">
+                                                            <button
+                                                                onClick={() => handleRestoreArchivedCircle(item)}
+                                                                className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/20 active:scale-95"
+                                                            >
+                                                                <RotateCcw size={13} />
+                                                                <span>استعادة الحلقة وتفعيلها</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setSelectedArchivedCircle(item)}
+                                                                className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                                                            >
+                                                                <Eye size={13} />
+                                                                <span>استعراض</span>
+                                                            </button>
+                                                            <button
+                                                                onClick={() => {
+                                                                    openActionDialog({
+                                                                        type: 'confirm',
+                                                                        title: `💥 حذف نهائي ومسح من الأرشيف: ${c.circle}`,
+                                                                        description: `هل أنت متأكد من مسح هذه النسخة الأرشيفية لحلقة "${c.circle}" نهائياً من قاعدة البيانات السحابية؟ لن يمكنك استعادتها إطلاقاً.`,
+                                                                        isDanger: true,
+                                                                        onConfirm: async () => {
+                                                                            await handleEmergencyDeleteCircle(item.id, c.circle || 'الحلقة', true);
+                                                                        }
+                                                                    });
+                                                                }}
+                                                                className="py-2 px-3 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                                                            >
+                                                                <Trash2 size={13} />
+                                                                <span>مسح نهائي</span>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                            {processedArchivedCircles.length === 0 && (
+                                                <div className="text-center py-12 bg-[#0a0f0d] border border-dashed border-[#105541]/10 rounded-2xl text-gray-500 text-xs">
+                                                    📦 لا توجد أي حلقات مؤرشفة حالياً في النظام.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            {/* View Selected Archived Circle Snapshot */}
+                            {activeTab === 'circles' && selectedArchivedCircle && (
+                                <div className="space-y-4 font-sans animate-fade-in">
+                                    <div className="flex items-center justify-between gap-3 bg-amber-500/10 border border-amber-500/30 p-4 rounded-2xl">
+                                        <div className="flex items-center gap-3">
+                                            <button 
+                                                onClick={() => setSelectedArchivedCircle(null)}
+                                                className="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-xl transition-all border border-white/5 active:scale-95 flex items-center justify-center gap-1"
+                                            >
+                                                <ChevronRight size={16} />
+                                                <span className="text-xs font-bold">العودة للأرشيف</span>
+                                            </button>
+                                            <div>
+                                                <h3 className="text-sm font-black text-amber-300 flex items-center gap-2">
+                                                    <Archive size={16} />
+                                                    <span>نسخة مؤرشفة: {selectedArchivedCircle.circleData?.circle || selectedArchivedCircle.circle}</span>
+                                                </h3>
+                                                <p className="text-[10px] text-amber-200/70 mt-0.5">
+                                                    تم الأرشفة بتاريخ: {selectedArchivedCircle.archivedAt ? new Date(selectedArchivedCircle.archivedAt).toLocaleString('ar-EG') : 'غير محدد'} بواسطة ({selectedArchivedCircle.archivedByName || 'المستخدم'})
+                                                </p>
                                             </div>
-                                        ))}
+                                        </div>
+                                        <button
+                                            onClick={() => handleRestoreArchivedCircle(selectedArchivedCircle)}
+                                            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-lg shadow-emerald-600/20 active:scale-95 flex items-center gap-1.5"
+                                        >
+                                            <RotateCcw size={14} />
+                                            <span>استعادة هذه الحلقة الآن</span>
+                                        </button>
+                                    </div>
+
+                                    {/* Snapshot data */}
+                                    <div className="bg-[#0a0f0d] p-4 rounded-2xl border border-[#105541]/10 space-y-3">
+                                        <h4 className="text-xs font-bold text-white">تفاصيل طلاب الحلقة المؤرشفة ({selectedArchivedCircle.circleData?.students?.length || selectedArchivedCircle.students?.length || 0} طالب)</h4>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-60 overflow-y-auto custom-scrollbar">
+                                            {(selectedArchivedCircle.circleData?.students || selectedArchivedCircle.students || []).map((std: any, sIdx: number) => (
+                                                <div key={std.id || sIdx} className="bg-black/40 p-2.5 rounded-xl border border-white/5 text-xs text-gray-300">
+                                                    <p className="font-bold text-white">{std.name}</p>
+                                                    <p className="text-[9px] text-gray-500 mt-0.5">الحفظ: {std.currentPart || 'غير محدد'} • المجموعة: {std.group || 'بدون'}</p>
+                                                </div>
+                                            ))}
+                                        </div>
                                     </div>
                                 </div>
                             )}
@@ -2263,42 +2489,109 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                             <Users size={12} />
                                             <span>كادر معلمين ومشرفي الحلقة برتبهم وصلاحياتهم</span>
                                         </h4>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto custom-scrollbar">
-                                            {Object.entries(activeCircle.teachers || {}).length > 0 ? (
-                                                Object.entries(activeCircle.teachers || {}).map(([uid, teacher]) => {
-                                                    const teacherSessionsCount = activeCircle.sessions?.filter(s => s.creatorUid === uid).length || 0;
-                                                    return (
-                                                        <div key={uid} className="bg-[#050807]/55 p-3 rounded-xl border border-[#105541]/5 flex items-center justify-between gap-3 text-xs">
-                                                            <div className="flex items-center gap-2.5">
-                                                                {teacher.photo ? (
-                                                                    <img src={teacher.photo} alt="" className="w-9 h-9 rounded-full border border-[#105541]/20 object-cover" />
-                                                                ) : (
-                                                                    <div className="w-9 h-9 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center font-bold font-sans">
-                                                                        {(teacher.name || 'م')[0]}
-                                                                    </div>
-                                                                )}
-                                                                <div>
-                                                                    <p className="font-bold text-white">{teacher.name}</p>
-                                                                    <p className="text-[9px] text-gray-500 font-semibold mt-0.5">
-                                                                        رتبة: <strong className="text-emerald-500">{teacher.role === 'owner' ? 'المالك / المالك الأساسي' : teacher.role === 'teacher' ? 'معلم' : teacher.role === 'assistant' ? 'مساعد' : 'عضو'}</strong> • صلاحية: <strong className="text-gray-400">{teacher.accessLevel === 'full' ? 'كاملة' : 'محدودة'}</strong>
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                            <div className="text-left">
-                                                                <span className={`text-[8px] px-2 py-0.5 rounded-full font-bold uppercase ${
-                                                                    teacher.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-red-500/10 text-red-400'
-                                                                }`}>
-                                                                    {teacher.status === 'active' ? 'نشط' : 'موقوف'}
-                                                                </span>
-                                                                <p className="text-[8px] text-gray-500 mt-1 font-bold">{teacherSessionsCount} حصة مرصودة</p>
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })
-                                            ) : (
-                                                <p className="text-[10px] text-gray-500 italic text-center py-6 w-full md:col-span-2">لا يوجد معلمون مضافون للحلقة حالياً.</p>
-                                            )}
-                                        </div>
+                                         <div className="space-y-2.5 max-h-80 overflow-y-auto custom-scrollbar">
+                                             {Object.entries(activeCircle.teachers || {}).length > 0 ? (
+                                                 Object.entries(activeCircle.teachers || {}).map(([uid, teacher]) => {
+                                                     const teacherSessionsCount = activeCircle.sessions?.filter(s => s.creatorUid === uid).length || 0;
+                                                     return (
+                                                         <div key={uid} className="bg-[#050807] p-3 rounded-xl border border-[#105541]/10 space-y-2.5 text-xs">
+                                                             <div className="flex items-center justify-between gap-3 flex-wrap">
+                                                                 <div className="flex items-center gap-2.5">
+                                                                     {teacher.photo ? (
+                                                                         <img src={teacher.photo} alt="" className="w-9 h-9 rounded-full border border-[#105541]/20 object-cover" />
+                                                                     ) : (
+                                                                         <div className="w-9 h-9 bg-emerald-500/10 text-emerald-400 rounded-full flex items-center justify-center font-bold font-sans">
+                                                                             {(teacher.name || 'م')[0]}
+                                                                         </div>
+                                                                     )}
+                                                                     <div>
+                                                                         <p className="font-bold text-white flex items-center gap-1.5">
+                                                                             <span>{teacher.name}</span>
+                                                                             {activeCircle.ownerId === uid && (
+                                                                                 <span className="text-[8px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-1.5 py-0.2 rounded font-bold">المالك الأساسي</span>
+                                                                             )}
+                                                                         </p>
+                                                                         <p className="text-[9px] text-gray-500 font-semibold mt-0.5">
+                                                                             {teacherSessionsCount} حصة مرصودة • المعرّف: <span className="font-mono text-gray-400">{uid.slice(0, 8)}...</span>
+                                                                         </p>
+                                                                     </div>
+                                                                 </div>
+
+                                                                 {/* Role and Access Selectors */}
+                                                                 <div className="flex items-center gap-2 flex-wrap">
+                                                                     {/* Role selector */}
+                                                                     <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-[#105541]/10">
+                                                                         <span className="text-[9px] text-gray-400 px-1 font-bold">الرتبة:</span>
+                                                                         <select
+                                                                             value={teacher.role || 'teacher'}
+                                                                             onChange={async (e) => {
+                                                                                 const newRole = e.target.value as any;
+                                                                                 await updateDoc(doc(db, 'circles', activeCircle.id), {
+                                                                                     [`teachers.${uid}.role`]: newRole,
+                                                                                     lastUpdated: Date.now()
+                                                                                 });
+                                                                                 addToast('✅ تم تغيير الرتبة بنجاح', 'success');
+                                                                             }}
+                                                                             className="bg-[#0a0f0d] text-emerald-400 border border-[#105541]/20 rounded px-1.5 py-0.5 text-[10px] font-bold outline-none cursor-pointer"
+                                                                         >
+                                                                             <option value="owner">مالك (Owner)</option>
+                                                                             <option value="supervisor">مشرف (Supervisor)</option>
+                                                                             <option value="teacher">معلم (Teacher)</option>
+                                                                             <option value="assistant">مساعد (Assistant)</option>
+                                                                             <option value="member">عضو (Member)</option>
+                                                                         </select>
+                                                                     </div>
+
+                                                                     {/* Access Level Selector */}
+                                                                     <button
+                                                                         onClick={async () => {
+                                                                             const newLevel = teacher.accessLevel === 'full' ? 'standard' : 'full';
+                                                                             await updateDoc(doc(db, 'circles', activeCircle.id), {
+                                                                                 [`teachers.${uid}.accessLevel`]: newLevel,
+                                                                                 lastUpdated: Date.now()
+                                                                             });
+                                                                             addToast(`✅ تم تغيير المستوى إلى (${newLevel === 'full' ? 'صلاحيات كاملة' : 'صلاحيات محدودة'})`, 'success');
+                                                                         }}
+                                                                         className={`px-2 py-1 rounded-lg text-[9px] font-bold border transition-all ${
+                                                                             teacher.accessLevel === 'full'
+                                                                                 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+                                                                                 : 'bg-gray-800 text-gray-400 border-gray-700 hover:text-white'
+                                                                         }`}
+                                                                     >
+                                                                         {teacher.accessLevel === 'full' ? '🛡️ كاملة' : '🔒 محدودة'}
+                                                                     </button>
+
+                                                                     {/* Delete Teacher */}
+                                                                     <button
+                                                                         onClick={() => {
+                                                                             openActionDialog({
+                                                                                 type: 'confirm',
+                                                                                 title: `إزالة المعلم ${teacher.name}`,
+                                                                                 description: `هل أنت متأكد من إزالة المعلم "${teacher.name}" من إشراف وحلقة "${activeCircle.circle}"؟`,
+                                                                                 isDanger: true,
+                                                                                 onConfirm: async () => {
+                                                                                     await updateDoc(doc(db, 'circles', activeCircle.id), {
+                                                                                         [`teachers.${uid}`]: deleteField(),
+                                                                                         lastUpdated: Date.now()
+                                                                                     });
+                                                                                     addToast('✅ تم إزالة المعلم من الحلقة', 'success');
+                                                                                 }
+                                                                             });
+                                                                         }}
+                                                                         className="p-1.5 text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-lg transition-all"
+                                                                         title="إزالة المعلم من الحلقة"
+                                                                     >
+                                                                         <Trash2 size={13} />
+                                                                     </button>
+                                                                 </div>
+                                                             </div>
+                                                         </div>
+                                                     );
+                                                 })
+                                             ) : (
+                                                 <p className="text-[10px] text-gray-500 italic text-center py-6 w-full">لا يوجد معلمون مضافون للحلقة حالياً.</p>
+                                             )}
+                                         </div>
                                     </div>
 
                                     {/* Recent Sessions */}
