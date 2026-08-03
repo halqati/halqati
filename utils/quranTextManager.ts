@@ -16,7 +16,7 @@ export interface QuranSurahRange {
 let quranDataCache: any = null;
 let fetchPromise: Promise<any> | null = null;
 
-async function getQuranData(): Promise<any> {
+export async function getQuranData(): Promise<any> {
     if (quranDataCache && (quranDataCache.data?.surahs?.length > 0 || quranDataCache.surahs?.length > 0)) {
         return quranDataCache;
     }
