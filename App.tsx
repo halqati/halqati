@@ -7,7 +7,7 @@ import { PermissionsPage } from './pages/PermissionsPage';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount, processSessionPagesCount, processAllSessionsPagesCount } from './utils/helpers';
-import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField } from './firebase';
+import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField, handleFirestoreError, OperationType } from './firebase';
 import { SEASONAL_MESSAGES, defaultMemberPermissions } from './constants';
 
 import Setup from './pages/Setup';
@@ -31,6 +31,7 @@ import SyncDiagnostics from './pages/SyncDiagnostics';
 import Services from './pages/Services';
 import Reports from './pages/Reports';
 import Archive from './pages/Archive';
+import QuranPage from './pages/Quran';
 import AdminApp from './src/admin/AdminApp';
 
 
@@ -1305,6 +1306,9 @@ const App: React.FC = () => {
             processMergedSnapshots();
         }, (error) => {
             console.error("Firestore authorized circles sync error:", error);
+            if (error?.message?.includes('permission') || error?.code === 'permission-denied') {
+                try { handleFirestoreError(error, OperationType.LIST, 'circles'); } catch (e) { /* logged error */ }
+            }
             isAuthorizedFromCache = false;
             processMergedSnapshots();
         });
@@ -1316,6 +1320,9 @@ const App: React.FC = () => {
             processMergedSnapshots();
         }, (error) => {
             console.error("Firestore owner circles sync error:", error);
+            if (error?.message?.includes('permission') || error?.code === 'permission-denied') {
+                try { handleFirestoreError(error, OperationType.LIST, 'circles'); } catch (e) { /* logged error */ }
+            }
             isOwnerFromCache = false;
             processMergedSnapshots();
         });
@@ -1327,6 +1334,9 @@ const App: React.FC = () => {
             processMergedSnapshots();
         }, (error) => {
             console.warn("Firestore teacher query fallback:", error);
+            if (error?.message?.includes('permission') || error?.code === 'permission-denied') {
+                try { handleFirestoreError(error, OperationType.LIST, 'circles'); } catch (e) { /* logged error */ }
+            }
             isTeacherFromCache = false;
             processMergedSnapshots();
         });
@@ -6542,6 +6552,14 @@ const App: React.FC = () => {
                                     }
                                 }} 
                                 hasFullManagement={hasFullManagement} 
+                            />
+                        )}
+                        {activeServicesPage === 'quran' && (
+                            <QuranPage 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1] || 'main'); 
+                                }} 
                             />
                         )}
                         {activeServicesPage === 'records' && (

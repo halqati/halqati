@@ -120,8 +120,12 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     const [quranData, setQuranData] = useState<QuranSurahRange[]>([]);
     
     // Preferences loaded from localStorage
-    const [fontFamily, setFontFamily] = useState<string>("kfgqpc");
-    const [fontSize, setFontSize] = useState<number>(18);
+    const [fontFamily, setFontFamily] = useState<string>(() => {
+        return localStorage.getItem('quran_font_family') || "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif";
+    });
+    const [fontSize, setFontSize] = useState<number>(() => {
+        return parseInt(localStorage.getItem('quran_font_size') || '22');
+    });
 
     const [isFontDropdownOpen, setIsFontDropdownOpen] = useState(false);
 
@@ -430,12 +434,98 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
         return null;
     };
 
-    // Fallback UI while V2 page data loads
+    // Fallback UI rendering local Uthmani text if V2 page data is loading or unavailable
     const renderFallbackPage = (pageNumber: number) => {
+        const pageData = pagesList.find(p => p.pageNumber === pageNumber) || pagesList[activePageIndex];
+        if (!pageData || !pageData.ayahs || pageData.ayahs.length === 0) {
+            return (
+                <div className="w-full text-center py-16">
+                    <div className="w-8 h-8 border-3 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto mb-3 animate-duration-1000"></div>
+                    <p className="text-xs text-amber-800/60 dark:text-amber-400/60 font-semibold animate-pulse">جاري تحضير النص القرآني...</p>
+                </div>
+            );
+        }
+
+        let currentSurahNumber: number | null = null;
         return (
-            <div className="w-full text-center py-16">
-                <div className="w-8 h-8 border-3 border-amber-600 border-t-transparent rounded-full animate-spin mx-auto mb-3 animate-duration-1000"></div>
-                <p className="text-xs text-amber-800/60 dark:text-amber-400/60 font-semibold animate-pulse">جاري جلب صفحات المصحف الشريف...</p>
+            <div className="flex flex-col items-center w-full select-text py-2">
+                {pageData.ayahs.map((item) => {
+                    const isNewSurah = currentSurahNumber !== item.surahNumber;
+                    currentSurahNumber = item.surahNumber;
+                    const showSurahHeader = isNewSurah && item.ayah.numberInSurah === 1;
+                    const showBasmalah = showSurahHeader && item.surahNumber !== 9;
+
+                    let text = item.ayah.text;
+                    const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
+                    const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+                    if (item.ayah.numberInSurah === 1) {
+                        if (text.startsWith(basmalahPrefix1)) {
+                            text = text.slice(basmalahPrefix1.length).trim();
+                        } else if (text.startsWith(basmalahPrefix2)) {
+                            text = text.slice(basmalahPrefix2.length).trim();
+                        }
+                    }
+
+                    const words = text.split(/\s+/);
+
+                    return (
+                        <div key={`${item.surahNumber}_${item.ayah.numberInSurah}`} className="w-full">
+                            {showSurahHeader && (
+                                <div className="my-3 text-center select-none">
+                                    <div className="relative py-1 flex items-center justify-center">
+                                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                            <div className="w-full border-t border-dashed border-amber-300/80 dark:border-amber-700/40"></div>
+                                        </div>
+                                        <div className="relative px-5 py-0.5 bg-amber-50/95 dark:bg-gray-900 border border-amber-500/60 text-amber-900 dark:text-amber-300 font-extrabold text-xs rounded-full shadow-xs">
+                                            سُورَة {item.surahName}
+                                        </div>
+                                    </div>
+                                    {showBasmalah && (
+                                        <div className="text-center text-amber-900/90 dark:text-amber-300/90 py-1.5 font-serif text-sm">
+                                            بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+
+                            <span className="inline leading-loose text-justify font-serif text-gray-900 dark:text-gray-100">
+                                {words.map((word, wIdx) => {
+                                    const wordKey = `${item.surahNumber}_${item.ayah.numberInSurah}_${wIdx}`;
+                                    const isHighlighted = showHighlights && highlights[wordKey];
+                                    const highlightInfo = isHighlighted ? highlights[wordKey] : null;
+
+                                    let wordStyle: React.CSSProperties = {};
+                                    if (highlightInfo) {
+                                        const { color } = highlightInfo;
+                                        const size = isVisualAlertActive ? 3 : highlightInfo.size;
+                                        if (size <= 2) {
+                                            wordStyle = { borderBottom: `${size * 2}px solid ${color}`, paddingBottom: '2px' };
+                                        } else {
+                                            const paddingVal = size === 3 ? '1px' : size === 4 ? '3px' : '5px';
+                                            wordStyle = { backgroundColor: color, paddingTop: paddingVal, paddingBottom: paddingVal, paddingLeft: '4px', paddingRight: '4px', borderRadius: '4px' };
+                                        }
+                                    }
+
+                                    return (
+                                        <span
+                                            key={wIdx}
+                                            onClick={() => handleWordClick(wordKey)}
+                                            className={`inline-block ml-1 transition-all duration-200 ${
+                                                isHighlighterActive ? 'cursor-pointer hover:bg-amber-100 dark:hover:bg-amber-900/30 px-0.5 rounded' : ''
+                                            }`}
+                                            style={wordStyle}
+                                        >
+                                            {word}
+                                        </span>
+                                    );
+                                })}
+                                <span className="text-amber-700 dark:text-amber-400 font-sans mx-1 font-bold text-xs inline-block align-middle select-none">
+                                    ﴿{item.ayah.numberInSurah}﴾
+                                </span>
+                            </span>
+                        </div>
+                    );
+                })}
             </div>
         );
     };
@@ -638,17 +728,40 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
             setLoading(true);
             setError(null);
             try {
-                const startSurahNum = surahs.findIndex(s => normalizeText(s.name) === normalizeText(fromSurahName)) + 1;
-                const endSurahNum = toSurahName 
-                    ? (surahs.findIndex(s => normalizeText(s.name) === normalizeText(toSurahName)) + 1)
-                    : startSurahNum;
+                const cleanSurahName = (name: string) => {
+                    if (!name) return '';
+                    let cleaned = normalizeText(name);
+                    return cleaned.replace(/^(سورة|سوره)\s*/, '').trim();
+                };
 
-                if (startSurahNum === 0) {
-                    throw new Error(`لم نتمكن من تحديد السورة: ${fromSurahName}`);
+                let startSurahNum = 1;
+                if (fromSurahName && fromSurahName.trim()) {
+                    const idx = surahs.findIndex(s => cleanSurahName(s.name) === cleanSurahName(fromSurahName));
+                    if (idx !== -1) {
+                        startSurahNum = idx + 1;
+                    } else {
+                        const fuzzyIdx = surahs.findIndex(s => cleanSurahName(s.name).includes(cleanSurahName(fromSurahName)) || cleanSurahName(fromSurahName).includes(cleanSurahName(s.name)));
+                        if (fuzzyIdx !== -1) {
+                            startSurahNum = fuzzyIdx + 1;
+                        }
+                    }
                 }
 
-                const startSurahObj = surahs[startSurahNum - 1];
-                const endSurahObj = surahs[endSurahNum - 1];
+                let endSurahNum = startSurahNum;
+                if (toSurahName && toSurahName.trim()) {
+                    const idx = surahs.findIndex(s => cleanSurahName(s.name) === cleanSurahName(toSurahName));
+                    if (idx !== -1) {
+                        endSurahNum = idx + 1;
+                    } else {
+                        const fuzzyIdx = surahs.findIndex(s => cleanSurahName(s.name).includes(cleanSurahName(toSurahName)) || cleanSurahName(toSurahName).includes(cleanSurahName(s.name)));
+                        if (fuzzyIdx !== -1) {
+                            endSurahNum = fuzzyIdx + 1;
+                        }
+                    }
+                }
+
+                const startSurahObj = surahs[startSurahNum - 1] || surahs[0];
+                const endSurahObj = surahs[endSurahNum - 1] || startSurahObj;
 
                 let sAyah = 1;
                 let eAyah = 1;
@@ -665,7 +778,7 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                         eAyah = parseInt(toAyah.toString()) || 1;
                     } else if (hasFromAyah && !hasToAyah) {
                         sAyah = parseInt(fromAyah.toString()) || 1;
-                        eAyah = sAyah;
+                        eAyah = startSurahObj.verses;
                     } else {
                         sAyah = parseInt(fromAyah.toString()) || 1;
                         eAyah = parseInt(toAyah.toString()) || sAyah;

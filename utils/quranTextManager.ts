@@ -14,33 +14,50 @@ export interface QuranSurahRange {
 }
 
 let quranDataCache: any = null;
+let fetchPromise: Promise<any> | null = null;
 
 async function getQuranData(): Promise<any> {
-    if (quranDataCache) {
+    if (quranDataCache && (quranDataCache.data?.surahs?.length > 0 || quranDataCache.surahs?.length > 0)) {
         return quranDataCache;
     }
 
-    try {
-        const res = await fetch('/quranTextUthmani.json');
-        if (res.ok) {
-            quranDataCache = await res.json();
-            return quranDataCache;
-        }
-    } catch (e) {
-        // Ignore
+    if (fetchPromise) {
+        return fetchPromise;
     }
 
-    try {
-        const res2 = await fetch('/utils/quranTextUthmani.json');
-        if (res2.ok) {
-            quranDataCache = await res2.json();
-            return quranDataCache;
+    fetchPromise = (async () => {
+        try {
+            const res = await fetch('/quranTextUthmani.json');
+            if (res.ok) {
+                const data = await res.json();
+                if (data && (data.data?.surahs?.length > 0 || data.surahs?.length > 0)) {
+                    quranDataCache = data;
+                    return quranDataCache;
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to fetch /quranTextUthmani.json:', e);
         }
-    } catch (e) {
-        // Ignore
-    }
 
-    return { data: { surahs: [] } };
+        try {
+            const res2 = await fetch('https://api.alquran.cloud/v1/quran/quran-uthmani');
+            if (res2.ok) {
+                const data2 = await res2.json();
+                if (data2 && (data2.data?.surahs?.length > 0 || data2.surahs?.length > 0)) {
+                    quranDataCache = data2;
+                    return quranDataCache;
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch remote Quran text:', e);
+        }
+
+        return { data: { surahs: [] } };
+    })();
+
+    const result = await fetchPromise;
+    fetchPromise = null;
+    return result;
 }
 
 export async function isFullQuranCached(): Promise<boolean> {
@@ -68,7 +85,80 @@ export async function fetchQuranTextRange(
 ): Promise<QuranSurahRange[]> {
     const quranData = await getQuranData();
     const allSurahs = quranData.data ? quranData.data.surahs : (quranData.surahs || []);
-    return extractRangeFromFullQuran(allSurahs, startSurahNum, startAyah, endSurahNum, endAyah);
+    
+    // Bounds check
+    const validStartSurah = Math.max(1, Math.min(114, startSurahNum || 1));
+    const validEndSurah = Math.max(1, Math.min(114, endSurahNum || validStartSurah));
+    
+    return extractRangeFromFullQuran(allSurahs, validStartSurah, startAyah || 1, validEndSurah, endAyah || 1);
+}
+
+export async function fetchQuranPage(pageNumber: number): Promise<QuranSurahRange[]> {
+    const quranData = await getQuranData();
+    const allSurahs = quranData.data ? quranData.data.surahs : (quranData.surahs || []);
+    const validPage = Math.max(1, Math.min(604, pageNumber));
+
+    const result: QuranSurahRange[] = [];
+    for (const surah of allSurahs) {
+        const pageAyahs = (surah.ayahs || []).filter((a: any) => a.page === validPage);
+        if (pageAyahs.length > 0) {
+            result.push({
+                number: surah.number,
+                name: surah.name,
+                ayahs: pageAyahs.map((a: any) => ({
+                    numberInSurah: a.numberInSurah,
+                    text: a.text,
+                    page: a.page,
+                    juz: a.juz
+                }))
+            });
+        }
+    }
+    return result;
+}
+
+export async function fetchQuranJuz(juzNumber: number): Promise<QuranSurahRange[]> {
+    const quranData = await getQuranData();
+    const allSurahs = quranData.data ? quranData.data.surahs : (quranData.surahs || []);
+    const validJuz = Math.max(1, Math.min(30, juzNumber));
+
+    const result: QuranSurahRange[] = [];
+    for (const surah of allSurahs) {
+        const juzAyahs = (surah.ayahs || []).filter((a: any) => a.juz === validJuz);
+        if (juzAyahs.length > 0) {
+            result.push({
+                number: surah.number,
+                name: surah.name,
+                ayahs: juzAyahs.map((a: any) => ({
+                    numberInSurah: a.numberInSurah,
+                    text: a.text,
+                    page: a.page,
+                    juz: a.juz
+                }))
+            });
+        }
+    }
+    return result;
+}
+
+export async function fetchQuranSurah(surahNumber: number): Promise<QuranSurahRange[]> {
+    const quranData = await getQuranData();
+    const allSurahs = quranData.data ? quranData.data.surahs : (quranData.surahs || []);
+    const validSurahNum = Math.max(1, Math.min(114, surahNumber));
+    const surahData = allSurahs[validSurahNum - 1];
+
+    if (!surahData) return [];
+
+    return [{
+        number: surahData.number,
+        name: surahData.name,
+        ayahs: (surahData.ayahs || []).map((a: any) => ({
+            numberInSurah: a.numberInSurah,
+            text: a.text,
+            page: a.page,
+            juz: a.juz
+        }))
+    }];
 }
 
 function extractRangeFromFullQuran(

@@ -31,7 +31,7 @@ const SurahSelectorModal: React.FC<SurahSelectorModalProps> = ({ isOpen, onClose
     const sortedSurahs = useMemo(() => {
         const surahList = [...surahs];
         if (surahOrder === 'reverse') {
-            return surahList.reverse();
+            return [...surahList].reverse();
         }
         return surahList;
     }, [surahOrder]);

@@ -10,7 +10,9 @@ import {
     Share2, FileText, Image as ImageIcon, RotateCcw, ZoomIn, ZoomOut, Printer,
     Loader2, ChevronDown as ChevronDownLucide, Check as CheckLucide, Info as InfoLucide, 
     Calendar as CalendarLucide, Trophy as TrophyLucide, Book as BookLucide, 
-    Award as AwardLucide, Star as StarLucide, RefreshCw, X as XLucide
+    Award as AwardLucide, Star as StarLucide, RefreshCw, X as XLucide,
+    Users, Upload, Trash2, Filter, CheckSquare, Square, Eye, EyeOff, Layout,
+    ArrowUpDown, SlidersHorizontal, Layers, Search, FileCheck
 } from 'lucide-react';
 import { CircleData, Student, Session, Test } from '../types';
 import { formatDate, formatPagesCount, calculatePagesCount, getPeriodSurahStats, getStudentSurahSummaryForPeriod } from '../utils/helpers';
@@ -51,7 +53,7 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
     const [showSmartFormModal, setShowSmartFormModal] = useState(false);
 
     // Setup configuration state
-    const [period, setPeriod] = useState<'last7' | 'last30' | 'currentMonth' | 'lastMonth' | 'allTime' | 'custom'>('last30');
+    const [period, setPeriod] = useState<'today' | 'last7' | 'last30' | 'currentMonth' | 'lastMonth' | 'allTime' | 'custom'>('last30');
     
     // Default custom date ranges (last 30 days)
     const todayStr = new Date().toISOString().split('T')[0];
@@ -59,7 +61,52 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
     const [customStartDate, setCustomStartDate] = useState(thirtyDaysAgoStr);
     const [customEndDate, setCustomEndDate] = useState(todayStr);
 
-    // Toggle options (locked and auto-activated by default)
+    // Show/Hide stats in report
+    const [showStatsInReport, setShowStatsInReport] = useState<boolean>(true);
+
+    // Student selection state
+    const [studentSelectionType, setStudentSelectionType] = useState<'all' | 'level' | 'manual'>('all');
+    const [selectedLevel, setSelectedLevel] = useState<string>('all');
+    const [selectedStudentIds, setSelectedStudentIds] = useState<number[]>([]);
+    const [studentSearchQuery, setStudentSearchQuery] = useState<string>('');
+
+    // Student sorting state
+    const [sortBy, setSortBy] = useState<'default' | 'performance' | 'name' | 'attendance' | 'memorization'>('default');
+
+    // Custom report logo state
+    const [customReportLogo, setCustomReportLogo] = useState<string>('');
+    const logoFileInputRef = useRef<HTMLInputElement>(null);
+
+    // Custom teacher name in report header (saved to localStorage)
+    const [customTeacherName, setCustomTeacherName] = useState<string>(() => {
+        try {
+            return localStorage.getItem('tahfeez_custom_report_teacher_text') || '';
+        } catch {
+            return '';
+        }
+    });
+
+    useEffect(() => {
+        try {
+            if (customTeacherName !== undefined) {
+                localStorage.setItem('tahfeez_custom_report_teacher_text', customTeacherName);
+            }
+        } catch (e) {
+            console.error("Error saving custom teacher text to localStorage", e);
+        }
+    }, [customTeacherName]);
+
+    // Format 12-hour time with Arabic AM/PM
+    const formatTime12 = (date: Date = new Date()) => {
+        let hours = date.getHours();
+        const minutes = date.getMinutes().toString().padStart(2, '0');
+        const ampm = hours >= 12 ? 'م' : 'ص';
+        hours = hours % 12;
+        hours = hours ? hours : 12;
+        return `${hours}:${minutes} ${ampm}`;
+    };
+
+    // Toggle options
     const [includeLessons, setIncludeLessons] = useState(true);
     const [includeHomework, setIncludeHomework] = useState(true);
     const [includeSignatures, setIncludeSignatures] = useState(true);
@@ -69,6 +116,9 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
     
     // Editable title
     const [customTitle, setCustomTitle] = useState('');
+
+    // Collapsible section for additional settings in setup view
+    const [showAdditionalSettings, setShowAdditionalSettings] = useState(false);
 
     // Zoom, Pan and Export states
     const [zoom, setZoom] = useState(0.8);
@@ -123,6 +173,21 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         setTimeout(() => setToast(null), 3500);
     };
 
+    const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                const result = event.target?.result as string;
+                if (result) {
+                    setCustomReportLogo(result);
+                    showToast('تم تحديث شعار التقرير بنجاح 🖼️', 'success');
+                }
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
     // Active students in the circle (ignoring archived)
     const activeStudents = useMemo(() => {
         return (activeCircle.students || []).filter(s => !s.isArchived);
@@ -135,6 +200,11 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         let end = todayStr;
 
         switch (period) {
+            case 'today': {
+                start = todayStr;
+                end = todayStr;
+                break;
+            }
             case 'last7': {
                 const d = new Date();
                 d.setDate(today.getDate() - 7);
@@ -178,6 +248,32 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         return { start, end };
     }, [period, customStartDate, customEndDate, todayStr]);
 
+    // Format date string to Arabic with day name
+    const formatDateWithDay = (dateStr: string) => {
+        if (!dateStr) return '';
+        if (dateStr === '1970-01-01') return 'بداية التأسيس';
+        try {
+            const parts = dateStr.split('-');
+            if (parts.length === 3) {
+                const year = parseInt(parts[0], 10);
+                const month = parseInt(parts[1], 10) - 1;
+                const day = parseInt(parts[2], 10);
+                const d = new Date(year, month, day);
+                
+                const dayNames = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+                const monthNames = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+                
+                const dayName = dayNames[d.getDay()];
+                const monthName = monthNames[d.getMonth()];
+                
+                return `${dayName} ${day} ${monthName} ${year}`;
+            }
+            return dateStr;
+        } catch {
+            return dateStr;
+        }
+    };
+
     // Filtered Sessions
     const filteredSessions = useMemo(() => {
         const list = activeCircle.sessions || [];
@@ -188,15 +284,55 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         });
     }, [activeCircle.sessions, dateRange, includeLessons]);
 
+    // Calculate unique study days (number of days with at least 1 session)
+    const studyDaysCount = useMemo(() => {
+        const datesSet = new Set<string>();
+        filteredSessions.forEach(s => {
+            if (s.date) datesSet.add(s.date);
+        });
+        return datesSet.size;
+    }, [filteredSessions]);
+
+    // Auto select all active students by default
+    useEffect(() => {
+        if (activeStudents.length > 0 && selectedStudentIds.length === 0) {
+            setSelectedStudentIds(activeStudents.map(s => s.id));
+        }
+    }, [activeStudents]);
+
+    // Get available levels/groups from active students
+    const availableLevels = useMemo(() => {
+        const set = new Set<string>();
+        activeStudents.forEach(s => {
+            if (s.level) set.add(s.level);
+        });
+        return Array.from(set);
+    }, [activeStudents]);
+
+    // Filter students based on selection mode
+    const filteredStudentsBySelection = useMemo(() => {
+        if (studentSelectionType === 'level') {
+            if (selectedLevel === 'all') return activeStudents;
+            if (selectedLevel === 'khatim') return activeStudents.filter(s => s.isKhatim);
+            if (selectedLevel === 'non-khatim') return activeStudents.filter(s => !s.isKhatim);
+            return activeStudents.filter(s => s.level === selectedLevel);
+        }
+        if (studentSelectionType === 'manual') {
+            return activeStudents.filter(s => selectedStudentIds.includes(s.id));
+        }
+        return activeStudents; // 'all'
+    }, [activeStudents, studentSelectionType, selectedLevel, selectedStudentIds]);
+
     // Handle Title Autofill
     const periodLabel = useMemo(() => {
         switch (period) {
+            case 'today': return 'اليوم';
             case 'last7': return 'لآخر 7 أيام';
             case 'last30': return 'لآخر 30 يوماً';
             case 'currentMonth': return 'للشهر الحالي';
             case 'lastMonth': return 'للشهر السابق';
             case 'allTime': return 'لكامل الفترة';
-            case 'custom': return `للفترة من ${dateRange.start} إلى ${dateRange.end}`;
+            case 'custom': return `للفترة من ${formatDateWithDay(dateRange.start)} إلى ${formatDateWithDay(dateRange.end)}`;
             default: return '';
         }
     }, [period, dateRange]);
@@ -207,8 +343,34 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         if (reportType === 'points') name = 'تقرير نقاط وتحفيز الطلاب';
         if (reportType === 'memorization') name = 'تقرير مستويات الحفظ والمراجعة';
         if (reportType === 'tests') name = 'تقرير نتائج الاختبارات والخطط';
+        
+        // If period is custom, do not display duration in parentheses in the default title
+        if (period === 'custom') {
+            return `${name} - حلقة ${activeCircle.circle}`;
+        }
         return `${name} - حلقة ${activeCircle.circle} (${periodLabel})`;
-    }, [reportType, activeCircle.circle, periodLabel]);
+    }, [reportType, activeCircle.circle, periodLabel, period]);
+
+    // Title formatter helper to keep title on a single line and render parenthesized period in smaller font
+    const renderTitle = (title: string) => {
+        if (period === 'custom') {
+            const cleanedTitle = title.replace(/\s*\([^)]*\)\s*$/, '');
+            return <span className="whitespace-nowrap">{cleanedTitle}</span>;
+        }
+
+        const match = title.match(/^(.*?)\s*(\([^)]+\))\s*$/);
+        if (match) {
+            return (
+                <span className="whitespace-nowrap inline-block">
+                    {match[1]}{' '}
+                    <span className="text-[11px] sm:text-[13px] font-bold opacity-90 inline-block">
+                        {match[2]}
+                    </span>
+                </span>
+            );
+        }
+        return <span className="whitespace-nowrap">{title}</span>;
+    };
 
     // Reset Title when ReportType or Period changes
     React.useEffect(() => {
@@ -508,6 +670,106 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         return getPeriodSurahStats(filteredSessions);
     }, [filteredSessions]);
 
+    // Helper for teacher name formatting (single vs multiple teachers)
+    const teachersInfo = useMemo(() => {
+        const list: string[] = [];
+        if (activeCircle.teachers && Object.keys(activeCircle.teachers).length > 0) {
+            Object.values(activeCircle.teachers).forEach((t: any) => {
+                if (t.status === 'active' && t.role !== 'assistant' && t.role !== 'member') {
+                    if (t.name && !list.includes(t.name)) {
+                        list.push(t.name);
+                    }
+                }
+            });
+        }
+        if (list.length === 0 && activeCircle.teacher) {
+            list.push(activeCircle.teacher);
+        }
+        
+        const isMultiple = list.length > 1;
+        const label = isMultiple ? 'المعلمين' : 'اسم المعلم';
+        const names = list.map(n => n.startsWith('أ/') ? n : `أ/ ${n}`).join(' - ');
+        
+        return { label, names: names || activeCircle.teacher };
+    }, [activeCircle]);
+
+    // Companion Curriculum / Lesson sessions display
+    const accompanimentCurriculumText = useMemo(() => {
+        const lessonSessions = filteredSessions.filter(s => s.isLesson);
+        
+        if (availableLevels.length > 1) {
+            const groupParts: string[] = [];
+            availableLevels.forEach(lvl => {
+                const countForLevel = lessonSessions.filter(sess => {
+                    return sess.students.some(st => {
+                        const studentData = activeStudents.find(s => s.id === st.id);
+                        return studentData?.level === lvl && (st.attendance === 'present' || st.attendance === 'late');
+                    });
+                }).length;
+
+                groupParts.push(`${lvl} (${countForLevel} جلسة دروس)`);
+            });
+            return groupParts.join('، ');
+        } else if (availableLevels.length === 1) {
+            const lvl = availableLevels[0];
+            return `${lvl} (${lessonSessions.length} جلسة دروس)`;
+        }
+        
+        return `${lessonSessions.length} جلسة دروس`;
+    }, [filteredSessions, availableLevels, activeStudents]);
+
+    // Average recitation (tasmie) grade across all memorization and review records
+    const avgTasmieScoreText = useMemo(() => {
+        let totalScore = 0;
+        let count = 0;
+
+        filteredSessions.forEach(session => {
+            session.students.forEach(ss => {
+                if (ss.attendance === 'present' || ss.attendance === 'late') {
+                    if (ss.memorization && ss.memorization.hasMemorization && typeof ss.memorization.rating === 'number' && ss.memorization.rating > 0) {
+                        totalScore += ss.memorization.rating;
+                        count += 1;
+                    }
+                    if (ss.review && ss.review.hasReview && typeof ss.review.rating === 'number' && ss.review.rating > 0) {
+                        totalScore += ss.review.rating;
+                        count += 1;
+                    }
+                    if (Array.isArray(ss.extraMemorizations)) {
+                        ss.extraMemorizations.forEach((em: any) => {
+                            if (em && em.hasMemorization && typeof em.rating === 'number' && em.rating > 0) {
+                                totalScore += em.rating;
+                                count += 1;
+                            }
+                        });
+                    }
+                    if (Array.isArray(ss.extraReviews)) {
+                        ss.extraReviews.forEach((er: any) => {
+                            if (er && er.hasReview && typeof er.rating === 'number' && er.rating > 0) {
+                                totalScore += er.rating;
+                                count += 1;
+                            }
+                        });
+                    }
+                    if (Array.isArray(ss.otherRecitations)) {
+                        ss.otherRecitations.forEach((or: any) => {
+                            if (or && typeof or.rating === 'number' && or.rating > 0) {
+                                totalScore += or.rating;
+                                count += 1;
+                            }
+                        });
+                    }
+                }
+            });
+        });
+
+        if (count > 0) {
+            const avg = (totalScore / count).toFixed(1);
+            return `${avg} / 10`;
+        }
+        
+        return '10 / 10';
+    }, [filteredSessions]);
+
     // Overall Evaluation Helper (Calculated strictly based on real metrics, no stars)
     const getOverallEvaluation = (stat: any) => {
         const attendanceScore = stat.attendanceRate || 0;
@@ -525,50 +787,88 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         return { text: 'يحتاج متابعة', color: 'text-red-700 bg-[#FEF2F2] font-black' };
     };
 
-    // Sort Students by name or order
+    // Sort Students by selected criteria and filters
     const sortedStudentsForReport = useMemo(() => {
-        return [...activeStudents].sort((a, b) => a.order - b.order);
-    }, [activeStudents]);
+        const list = [...filteredStudentsBySelection];
+        switch (sortBy) {
+            case 'name':
+                return list.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+            case 'performance':
+                return list.sort((a, b) => {
+                    const statA = studentsStats[a.id]?.pointsGained || 0;
+                    const statB = studentsStats[b.id]?.pointsGained || 0;
+                    return statB - statA;
+                });
+            case 'attendance':
+                return list.sort((a, b) => {
+                    const statA = studentsStats[a.id]?.attendanceRate || 0;
+                    const statB = studentsStats[b.id]?.attendanceRate || 0;
+                    return statB - statA;
+                });
+            case 'memorization':
+                return list.sort((a, b) => {
+                    const statA = studentsStats[a.id]?.memorizedPages || 0;
+                    const statB = studentsStats[b.id]?.memorizedPages || 0;
+                    return statB - statA;
+                });
+            case 'default':
+            default:
+                return list.sort((a, b) => a.order - b.order);
+        }
+    }, [filteredStudentsBySelection, sortBy, studentsStats]);
 
-    // Split students into pages (chunks) to fit perfectly on A4 pages without overflow
+    // Split students into pages (chunks) dynamically to fit perfectly on A4 pages without leaving large empty spaces
     const studentChunks = useMemo(() => {
+        const isLandscape = orientation === 'landscape';
+        let firstPageSize = 14;
+        let otherPageSize = 25;
+
+        if (isLandscape) {
+            firstPageSize = showStatsInReport ? 10 : 14;
+            otherPageSize = 18;
+        } else {
+            firstPageSize = showStatsInReport ? 14 : 18;
+            otherPageSize = 25;
+        }
+
         const chunks: Student[][] = [];
-        const firstPageSize = orientation === 'landscape' ? 8 : 10;
-        const otherPageSize = orientation === 'landscape' ? 14 : 20;
-        
         let remaining = [...sortedStudentsForReport];
         if (remaining.length === 0) {
             return [[]]; // At least one empty page to prevent rendering crashes
         }
         
-        // Take first page chunk (smaller capacity due to large header and KPIs)
+        // Take first page chunk (smaller capacity due to header and summary stats)
         const firstPage = remaining.splice(0, firstPageSize);
         chunks.push(firstPage);
         
-        // Take subsequent pages chunks (larger capacity as there are no header banners)
+        // Take subsequent pages chunks (larger capacity as there are no header summary banners)
         while (remaining.length > 0) {
             chunks.push(remaining.splice(0, otherPageSize));
         }
         
         return chunks;
-    }, [sortedStudentsForReport, orientation]);
+    }, [sortedStudentsForReport, orientation, showStatsInReport]);
 
-    // Fit to Screen (automatic zoom based on viewport)
+    // Fit to Screen (automatic zoom based on viewport, perfectly fitted for mobile & desktop)
     const fitToScreen = () => {
-        if (!containerRef.current) return;
-        const containerWidth = containerRef.current.clientWidth - 48; // padding
+        const screenWidth = typeof window !== 'undefined' ? window.innerWidth : 800;
+        const containerWidth = containerRef.current ? containerRef.current.clientWidth : screenWidth;
+        const availableWidth = Math.max(260, Math.min(screenWidth - 20, containerWidth - 20));
         const pageTargetWidth = orientation === 'landscape' ? 1122 : 794; // approx px
-        const scale = containerWidth / pageTargetWidth;
-        setZoom(Math.max(0.3, Math.min(scale, 1.25)));
+        const scale = availableWidth / pageTargetWidth;
+        // Allow zoom scale down to 0.18 for narrow mobile screens to guarantee complete document visibility
+        setZoom(Math.max(0.18, Math.min(scale, 1.25)));
         setPan({ x: 0, y: 0 });
     };
 
-    // Auto fit on view preview or orientation change
+    // Auto scroll to top and fit to screen when entering preview or changing orientation
     useEffect(() => {
         if (view === 'preview') {
+            window.scrollTo({ top: 0, behavior: 'auto' });
             const timer = setTimeout(() => {
                 fitToScreen();
-            }, 150);
+                window.scrollTo({ top: 0, behavior: 'auto' });
+            }, 80);
             return () => clearTimeout(timer);
         }
     }, [view, orientation]);
@@ -635,318 +935,368 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
     // Main Page Content Renderer (Reusable between preview and offscreen export canvas)
     const renderReportPage = (chunk: Student[], pageIndex: number) => {
         const isLandscape = orientation === 'landscape';
-        const firstPageSize = isLandscape ? 8 : 10;
-        const otherPageSize = isLandscape ? 14 : 20;
+
+        const totalMemoAjzaa = (overallStats.totalMemoPages / 20).toFixed(1);
+        const totalReviewAjzaa = (overallStats.totalReviewPages / 20).toFixed(1);
 
         return (
             <>
-                {/* Decorative Islamic Frame */}
-                <div className="absolute inset-3.5 border border-emerald-800/15 rounded-2xl print:border-emerald-800/20 pointer-events-none"></div>
-                <div className="absolute inset-4.5 border-2 border-double border-emerald-800/25 rounded-2xl print:border-emerald-800/30 pointer-events-none"></div>
+                {/* Decorative Frame */}
+                <div className="absolute top-1 bottom-1 left-1.5 right-1.5 border-2 border-[#105541]/30 rounded-xl print:border-[#105541]/40 pointer-events-none"></div>
 
-                {/* Inner corner arabesques */}
-                <div className="absolute top-6 right-6 w-6 h-6 border-t-[1.5px] border-r-[1.5px] border-emerald-800/35 rounded-tr-md pointer-events-none"></div>
-                <div className="absolute top-6 left-6 w-6 h-6 border-t-[1.5px] border-l-[1.5px] border-emerald-800/35 rounded-tl-md pointer-events-none"></div>
-                <div className="absolute bottom-6 right-6 w-6 h-6 border-b-[1.5px] border-r-[1.5px] border-emerald-800/35 rounded-br-md pointer-events-none"></div>
-                <div className="absolute bottom-6 left-6 w-6 h-6 border-b-[1.5px] border-l-[1.5px] border-emerald-800/35 rounded-tl-md pointer-events-none"></div>
+                <style>{`
+                    .report-page-element th, 
+                    .report-page-element td {
+                        vertical-align: middle !important;
+                        padding-top: 0px !important;
+                        padding-bottom: 6px !important;
+                        line-height: 1.1 !important;
+                    }
+                `}</style>
 
-                <div className="relative z-10 flex flex-col h-full text-black">
+                <div className="relative z-10 flex flex-col h-full text-black font-sans mt-0 pt-0">
                     
-                    {/* PAGE 1 ONLY: FULL HERITAGE HEADER & BANNER */}
+                    {/* PAGE 1 ONLY: OFFICIAL EXECUTIVE HEADER & SUMMARY */}
                     {pageIndex === 0 ? (
                         <>
-                            {/* Elegant Header Block */}
-                            <div className="flex items-center justify-between pb-3 border-b border-emerald-800/15 gap-4">
-                                {/* Right Side: Center Info */}
-                                <div className="text-right space-y-0.5 text-[10px] text-gray-600 min-w-[70mm]">
-                                    <div className="font-black text-[#105541] text-[13px] leading-tight">{activeCircle.center || 'المركز الرئيسي لتحفيظ القرآن'}</div>
-                                    <div className="font-bold text-[9.5px]">مُعدّ التقرير: <span className="text-gray-950 font-black">{getLoggedInUserName() || activeCircle.teacher}</span></div>
-                                </div>
-
-                                {/* Center: System Emblem / Circle Logo */}
-                                <div className="flex flex-col items-center justify-center">
-                                    {activeCircle.logo ? (
-                                        <div className="relative flex flex-col items-center">
-                                            <img 
-                                                src={activeCircle.logo} 
-                                                alt="Logo" 
-                                                className="w-12 h-12 object-contain rounded-xl border border-emerald-800/20 p-0.5 bg-white shadow-2xs"
-                                                referrerPolicy="no-referrer"
-                                            />
-                                            <span className="text-[9.5px] font-black tracking-widest text-emerald-800 mt-1">{activeCircle.circle}</span>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center py-0.5">
-                                            <div className="text-base font-black text-[#105541] border-b-2 border-emerald-800/25 px-4 py-1 bg-emerald-50/70 rounded-xl shadow-2xs text-center tracking-wide">
-                                                {activeCircle.circle}
+                            {/* Top Title & Logo Header */}
+                            <table className="w-full table-fixed border-b-2 border-[#105541]/20 mb-1 pb-0.5 text-right mt-0 pt-0" dir="rtl">
+                                <tbody>
+                                    <tr>
+                                        {/* Right Side: Logo / Center info */}
+                                        <td className="w-1/3 text-right align-top pt-0">
+                                            <div className="flex items-center justify-start gap-2.5 overflow-visible pt-0">
+                                                {(customReportLogo || activeCircle.logo) ? (
+                                                    <>
+                                                        <img 
+                                                            src={customReportLogo || activeCircle.logo} 
+                                                            alt="شعار التقرير" 
+                                                            className="w-12 h-12 object-contain flex-shrink-0"
+                                                            referrerPolicy="no-referrer"
+                                                        />
+                                                        <div className="text-right overflow-visible -mt-0.5">
+                                                            <div className="font-black text-[#105541] text-xs sm:text-[13px] leading-snug m-0 p-0">{activeCircle.circle}</div>
+                                                            <div className="text-[9.5px] text-gray-600 font-bold leading-snug m-0 p-0">{activeCircle.center || 'المركز الرئيسي لتحفيظ القرآن'}</div>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="text-right overflow-visible -mt-0.5">
+                                                        <div className="font-black text-[#105541] text-xs sm:text-[13px] leading-snug m-0 p-0">
+                                                            {activeCircle.circle}
+                                                        </div>
+                                                        <div className="text-[9.5px] font-bold text-gray-600 leading-snug m-0 p-0">
+                                                            {activeCircle.center || 'المركز الرئيسي لتحفيظ القرآن'}
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </div>
-                                        </div>
-                                    )}
-                                </div>
+                                        </td>
 
-                                {/* Left Side: Metadata */}
-                                <div className="text-left space-y-0.5 text-[10px] text-gray-600 min-w-[70mm]">
-                                    <div>تاريخ الإصدار: <span className="font-mono font-bold text-gray-900">{todayStr}</span></div>
-                                    <div>تغطية الفترة: <span className="font-bold text-[#105541]">{periodLabel}</span></div>
-                                    <div>عدد الجلسات: <span className="font-mono font-bold text-gray-900">{overallStats.sessionsCount} جلسة</span></div>
-                                </div>
+                                        {/* Center Side: Main Title */}
+                                        <td className="w-1/3 text-center align-middle px-1">
+                                            <h1 className="text-base sm:text-lg font-black text-[#105541] leading-tight text-center break-words max-w-full m-0 p-0">
+                                                {renderTitle(customTitle || defaultTitle)}
+                                            </h1>
+                                        </td>
+
+                                        {/* Left Side: Metadata */}
+                                        <td className="w-1/3 text-left align-middle">
+                                            <div className="flex flex-col items-end justify-center space-y-0.5 text-[8.5px] text-gray-600" dir="rtl">
+                                                <div className="whitespace-nowrap"><span className="font-bold text-gray-800">المدة المحددة للتقرير:</span> <span className="font-bold text-[#105541]">من {formatDateWithDay(dateRange.start)} إلى {formatDateWithDay(dateRange.end)}</span></div>
+                                                <div className="whitespace-nowrap"><span className="font-bold text-gray-800">مُعد التقرير:</span> <span className="font-bold text-gray-900">{getLoggedInUserName() || activeCircle.teacher}</span></div>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+
+                            {/* Executive Header Box Table (شبكة معلومات التقرير الرئيسية) */}
+                            <div className="border-2 border-[#105541] rounded-xl overflow-hidden mb-1.5 bg-white shadow-2xs shrink-0">
+                                <table className="w-full table-fixed border-collapse text-[9.5px] text-center" dir="rtl">
+                                    <thead>
+                                        <tr className="bg-[#105541] text-white font-bold text-[9px] h-[22px]">
+                                            <th className="w-1/4 py-0.5 border-l border-[#105541]/40 font-bold text-center align-middle">اسم المركز / المدرسة</th>
+                                            <th className="w-1/4 py-0.5 border-l border-[#105541]/40 font-bold text-center align-middle">اسم الحلقة</th>
+                                            <th className="w-1/4 py-0.5 border-l border-[#105541]/40 font-bold text-center align-middle">{teachersInfo.label}</th>
+                                            <th className="w-1/4 py-0.5 font-bold text-center align-middle">فئة التقرير</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr className="border-b border-[#105541] h-[24px]">
+                                            <td className="w-1/4 py-0.5 px-1 border-l border-gray-300 font-extrabold text-gray-900 truncate align-middle">{activeCircle.center || 'المدرسة المتميزة'}</td>
+                                            <td className="w-1/4 py-0.5 px-1 border-l border-gray-300 font-extrabold text-gray-900 truncate align-middle">{activeCircle.circle}</td>
+                                            <td className="w-1/4 py-0.5 px-1 border-l border-gray-300 font-extrabold text-gray-900 truncate align-middle">{customTeacherName.trim() ? customTeacherName : teachersInfo.names}</td>
+                                            <td className="w-1/4 py-0.5 px-1 font-extrabold text-gray-900 truncate align-middle">{periodLabel}</td>
+                                        </tr>
+                                        <tr className="text-[9px] h-[22px]">
+                                            <td className="w-1/4 bg-[#8c591b] text-white font-bold py-0.5 border-l border-[#784c17] text-center align-middle">فترة التقرير</td>
+                                            <td colSpan={3} className="bg-[#fcf8f2] text-[#543810] font-extrabold py-0.5 px-2 text-center align-middle">
+                                                <span><strong>الفترة الفعلية للتقرير:</strong> من {formatDateWithDay(dateRange.start)} إلى {formatDateWithDay(dateRange.end)} ({overallStats.sessionsCount} جلسة | {studyDaysCount} أيام دراسة)</span>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
 
-                            {/* Report Title Banner */}
-                            <div className="text-center space-y-1 my-3">
-                                <h2 className="text-[15px] font-black text-[#105541] border-b-[1.5px] border-emerald-800/10 pb-1 inline-block">
-                                    {customTitle || defaultTitle}
-                                </h2>
-                                <p className="text-[9px] text-gray-500 font-medium leading-relaxed max-w-xl mx-auto">
-                                    تم توليد هذا التقرير إلكترونياً من قواعد بيانات النظام لرصد وتحليل مستويات الطلاب التعليمية والإدارية للفترة المعنية بدقة وموثوقية عالية.
-                                </p>
-                            </div>
-
-                            {/* ERP KPI Metrics Panel */}
-                            <div className="grid grid-cols-4 gap-3 mb-3">
-                                <div className="bg-emerald-50/30 p-2.5 rounded-xl border border-emerald-800/10 text-center space-y-0.5">
-                                    <span className="text-[8.5px] font-black text-emerald-800 block">الطلاب المقيدين</span>
-                                    <div className="text-lg font-black text-emerald-900 font-mono leading-none">{overallStats.activeCount}</div>
-                                    <span className="text-[7.5px] text-gray-500 block">طلاب فاعلين</span>
-                                </div>
-
-                                <div className="bg-emerald-50/30 p-2.5 rounded-xl border border-emerald-800/10 text-center space-y-0.5">
-                                    <span className="text-[8.5px] font-black text-emerald-800 block">مؤشر الالتزام بالحضور</span>
-                                    <div className="text-lg font-black text-[#105541] font-mono leading-none">{periodAttendanceStats.commitmentIndex}%</div>
-                                    <div className="w-12 h-1 bg-gray-200 mx-auto rounded-full overflow-hidden mt-0.5">
-                                        <div className="bg-[#105541] h-full" style={{ width: `${periodAttendanceStats.commitmentIndex}%` }}></div>
+                            {/* ERP KPI Metrics Panel (التقرير الإجمالي) */}
+                            {showStatsInReport && (
+                                <div className="border-2 border-[#105541] rounded-xl overflow-hidden mb-1.5 bg-white shadow-2xs shrink-0">
+                                    <div className="bg-[#105541] text-white font-black text-[10px] py-0.5 text-center tracking-wider leading-none h-[20px] flex items-center justify-center overflow-hidden">
+                                        <span className="inline-block -mt-1.5 font-black">التقرير الإجمالي</span>
                                     </div>
+                                    <table className="w-full table-fixed border-collapse text-[9px] text-center" dir="rtl">
+                                        <tbody>
+                                            {/* Row 1 Headers */}
+                                            <tr className="bg-[#156e55] text-white font-bold text-[8.5px] h-[18px]">
+                                                <td className="w-1/4 py-0.5 border-l border-emerald-900/30 align-middle">عدد طلاب الحلقة</td>
+                                                <td className="w-1/4 py-0.5 border-l border-emerald-900/30 align-middle">أيام الدراسة</td>
+                                                <td className="w-1/4 py-0.5 border-l border-emerald-900/30 align-middle">إجمالي الحفظ (أجزاء/صفحات)</td>
+                                                <td className="w-1/4 py-0.5 align-middle">إجمالي المراجعة (أجزاء/صفحات)</td>
+                                            </tr>
+                                            {/* Row 1 Values */}
+                                            <tr className="border-b border-gray-300 h-[22px]">
+                                                <td className="py-0.5 font-black text-gray-900 font-mono border-l border-gray-300 align-middle">{overallStats.activeCount} طالب</td>
+                                                <td className="py-0.5 font-black text-gray-900 font-mono border-l border-gray-300 align-middle">{studyDaysCount} أيام</td>
+                                                <td className="py-0.5 font-black text-gray-900 font-mono border-l border-gray-300 align-middle">{formatPagesCount(overallStats.totalMemoPages)} ص ({totalMemoAjzaa} جزء)</td>
+                                                <td className="py-0.5 font-black text-gray-900 font-mono align-middle">{formatPagesCount(overallStats.totalReviewPages)} ص ({totalReviewAjzaa} جزء)</td>
+                                            </tr>
+                                            {/* Row 2 Headers */}
+                                            <tr className="bg-[#156e55] text-white font-bold text-[8.5px] h-[18px]">
+                                                <td className="py-0.5 border-l border-emerald-900/30 align-middle">مؤشر الالتزام بالحضور</td>
+                                                <td className="py-0.5 border-l border-emerald-900/30 align-middle">المنهج المصاحب</td>
+                                                <td className="py-0.5 border-l border-emerald-900/30 align-middle">معدل درجات التسميع</td>
+                                                <td className="py-0.5 align-middle">مجموع نقاط التميز</td>
+                                            </tr>
+                                            {/* Row 2 Values */}
+                                            <tr className="h-[22px]">
+                                                <td className="py-0.5 font-black text-gray-900 font-mono border-l border-gray-300 align-middle">{periodAttendanceStats.commitmentIndex}%</td>
+                                                <td className="py-0.5 font-black text-gray-900 font-mono border-l border-gray-300 text-[8.5px] px-1 truncate align-middle">{accompanimentCurriculumText}</td>
+                                                <td className="py-0.5 font-black text-gray-900 font-mono border-l border-gray-300 align-middle">{avgTasmieScoreText}</td>
+                                                <td className="py-0.5 font-black text-gray-900 font-mono align-middle">{overallStats.totalPoints} نقطة</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
                                 </div>
-
-                                <div className="bg-emerald-50/30 p-2.5 rounded-xl border border-emerald-800/10 text-center space-y-0.5">
-                                    <span className="text-[8.5px] font-black text-emerald-800 block">الإنجاز القرآني بالفترة</span>
-                                    <div className="text-lg font-black text-emerald-900 font-mono leading-none">
-                                        {reportType === 'memorization' || reportType === 'comprehensive' 
-                                            ? `${formatPagesCount(overallStats.totalMemoPages)} ص` 
-                                            : `${overallStats.totalPoints} ن`
-                                        }
-                                    </div>
-                                    <span className="text-[7.5px] text-gray-500 block truncate">
-                                        {reportType === 'memorization' || reportType === 'comprehensive'
-                                            ? `مراجعة: ${formatPagesCount(overallStats.totalReviewPages)} صفحة`
-                                            : 'نقطة مكتسبة'
-                                        }
-                                    </span>
-                                </div>
-
-                                <div className="bg-emerald-50/30 p-2.5 rounded-xl border border-emerald-800/10 text-center space-y-0.5">
-                                    <span className="text-[8.5px] font-black text-emerald-800 block">متوسط درجات الاختبارات</span>
-                                    <div className="text-lg font-black text-emerald-900 font-mono leading-none">{overallStats.avgTestScore}%</div>
-                                    <span className="text-[7.5px] text-gray-500 block">معدل التحصيل العلمي العام</span>
-                                </div>
-                            </div>
-
-                            {/* Comparative Visual Attendance Stats Panel (100% Real Period Data) */}
-                            <div className="bg-gray-50/50 p-2.5 rounded-xl border border-gray-150 text-[9px] mb-3 text-right" dir="rtl">
-                                <div className="flex flex-col space-y-1.5">
-                                    <h4 className="font-black text-[9.5px] text-[#105541] border-b pb-1">📊 مؤشر الالتزام والانتظام بالفترة الزمنية المحددة</h4>
-                                    <div className="grid grid-cols-4 gap-4 pt-1 text-center">
-                                        <div className="space-y-1">
-                                            <span className="text-[8.5px] font-bold text-gray-400 block">الحضور الفعلي</span>
-                                            <div className="flex items-center justify-center gap-1">
-                                                <span className="font-mono font-black text-emerald-700 text-sm">{periodAttendanceStats.presentRate}%</span>
-                                                <span className="text-[7.5px] text-gray-400">({periodAttendanceStats.present} ح)</span>
-                                            </div>
-                                            <div className="w-full h-1.5 bg-gray-200/50 rounded-full overflow-hidden">
-                                                <div className="bg-emerald-600 h-full" style={{ width: `${periodAttendanceStats.presentRate}%` }}></div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="space-y-1">
-                                            <span className="text-[8.5px] font-bold text-gray-400 block">الغياب</span>
-                                            <div className="flex items-center justify-center gap-1">
-                                                <span className="font-mono font-black text-red-600 text-sm">{periodAttendanceStats.absentRate}%</span>
-                                                <span className="text-[7.5px] text-gray-400">({periodAttendanceStats.absent} غ)</span>
-                                            </div>
-                                            <div className="w-full h-1.5 bg-gray-200/50 rounded-full overflow-hidden">
-                                                <div className="bg-red-600 h-full" style={{ width: `${periodAttendanceStats.absentRate}%` }}></div>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <span className="text-[8.5px] font-bold text-gray-400 block">التأخير</span>
-                                            <div className="flex items-center justify-center gap-1">
-                                                <span className="font-mono font-black text-amber-600 text-sm">{periodAttendanceStats.lateRate}%</span>
-                                                <span className="text-[7.5px] text-gray-400">({periodAttendanceStats.late} ت)</span>
-                                            </div>
-                                            <div className="w-full h-1.5 bg-gray-200/50 rounded-full overflow-hidden">
-                                                <div className="bg-amber-500 h-full" style={{ width: `${periodAttendanceStats.lateRate}%` }}></div>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-1">
-                                            <span className="text-[8.5px] font-bold text-gray-400 block">الاستئذان الموثق</span>
-                                            <div className="flex items-center justify-center gap-1">
-                                                <span className="font-mono font-black text-blue-600 text-sm">{periodAttendanceStats.excusedRate}%</span>
-                                                <span className="text-[7.5px] text-gray-400">({periodAttendanceStats.excused} ع)</span>
-                                            </div>
-                                            <div className="w-full h-1.5 bg-gray-200/50 rounded-full overflow-hidden">
-                                                <div className="bg-blue-500 h-full" style={{ width: `${periodAttendanceStats.excusedRate}%` }}></div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                            )}
                         </>
                     ) : (
                         /* RUNNING HEADER FOR SUBSEQUENT PAGES */
-                        <div className="flex justify-between items-center pb-1.5 border-b border-gray-200 text-[9px] text-gray-400 font-bold mb-4 text-right" dir="rtl">
-                            <span>{customTitle || defaultTitle}</span>
-                            <span>الرقم المرجعي: REF-{activeCircle.numericId || '1024'} | الصفحة {pageIndex + 1} من {studentChunks.length}</span>
+                        <div className="flex justify-between items-center pb-1 border-b-2 border-[#105541] text-[9.5px] text-gray-700 font-bold mb-2 text-right shrink-0" dir="rtl">
+                            <span className="text-[#105541] font-black">{renderTitle(customTitle || defaultTitle)} — {activeCircle.circle}</span>
+                            <span>الصفحة {pageIndex + 1} من {studentChunks.length}</span>
                         </div>
                     )}
 
-                    {/* STATISTICAL TABLE */}
-                    <div className="flex-grow text-right mb-2" dir="rtl">
-                        <table className="w-full text-right border-collapse text-[10px] border border-gray-900 text-black">
+                    {/* DETAILED STUDENT TABLE (التقرير التفصيلي) */}
+                    <div className="border-2 border-[#105541] rounded-xl overflow-hidden mb-1.5 bg-white shadow-2xs flex-grow flex flex-col">
+                        <div className="bg-[#105541] text-white font-black text-[10px] py-0.5 text-center tracking-wide leading-none shrink-0 h-[20px] flex items-center justify-center overflow-hidden">
+                            <span className="inline-block -mt-1.5 font-black">التقرير التفصيلي</span>
+                        </div>
+                        <table className="w-full text-right border-collapse text-[9.5px] text-black table-fixed flex-grow" dir="rtl">
+                            <colgroup>
+                                <col style={{ width: '3.5%' }} />
+                                <col style={{ width: reportType === 'tests' ? '15%' : '16%' }} />
+                                <col style={{ width: '4%' }} />
+                                <col style={{ width: '4%' }} />
+                                <col style={{ width: '4%' }} />
+                                <col style={{ width: '4%' }} />
+                                <col style={{ width: reportType === 'tests' ? '5%' : '5.5%' }} />
+                                
+                                {(reportType === 'comprehensive' || reportType === 'memorization') && (
+                                    <>
+                                        <col style={{ width: '6.5%' }} />
+                                        <col style={{ width: '6.5%' }} />
+                                    </>
+                                )}
+                                {reportType === 'points' && (
+                                    <>
+                                        <col style={{ width: '6.5%' }} />
+                                        <col style={{ width: '6.5%' }} />
+                                    </>
+                                )}
+                                {reportType === 'tests' && (
+                                    <>
+                                        <col style={{ width: '4.5%' }} />
+                                        <col style={{ width: '4.5%' }} />
+                                        <col style={{ width: '4.5%' }} />
+                                    </>
+                                )}
+                                
+                                <col style={{ width: '34.5%' }} />
+                                <col style={{ width: reportType === 'tests' ? '12%' : '11%' }} />
+                            </colgroup>
                             <thead>
-                                <tr className="bg-emerald-800/10 text-[9px] font-black h-8 text-emerald-950">
-                                    <th className="border border-gray-900 w-[3.5%] text-center">م</th>
-                                    <th className="border border-gray-900 w-[18%] px-2 text-right">اسم الطالب</th>
-                                    <th className="border border-gray-900 w-[4.5%] text-center text-emerald-800">حضور</th>
-                                    <th className="border border-gray-900 w-[4.5%] text-center text-red-600">غياب</th>
-                                    <th className="border border-gray-900 w-[4.5%] text-center text-amber-600">تأخر</th>
-                                    <th className="border border-gray-900 w-[4.5%] text-center text-blue-600">استئذان</th>
-                                    <th className="border border-gray-900 w-[6%] text-center">الالتزام</th>
+                                {/* Header Row 1: Groups */}
+                                <tr className="bg-[#0d4a39] text-white text-[9px] font-black text-center h-[23px]">
+                                    <th rowSpan={2} className="border border-emerald-800 text-center align-middle bg-[#0d4a39] text-white relative z-10">م</th>
+                                    <th rowSpan={2} className="border border-emerald-800 px-1.5 text-right align-middle bg-[#0d4a39] text-white relative z-10">اسم الطالب</th>
                                     
-                                    {/* Dynamic Headers based on type */}
+                                    {/* Attendance Group Header */}
+                                    <th colSpan={5} className="border border-emerald-800 py-0.5 text-center bg-[#0d4a39] align-middle">الحضور والالتزام</th>
+                                    
+                                    {/* Dynamic Category Group Header */}
+                                    {(reportType === 'comprehensive' || reportType === 'memorization') && (
+                                        <th colSpan={2} className="border border-emerald-800 py-0.5 text-center bg-[#0d4a39] align-middle">إنجاز الحفظ والمراجعة</th>
+                                    )}
+
+                                    {reportType === 'points' && (
+                                        <th colSpan={2} className="border border-emerald-800 py-0.5 text-center bg-[#0d4a39] align-middle">نقاط التميز</th>
+                                    )}
+
+                                    {reportType === 'tests' && (
+                                        <th colSpan={3} className="border border-emerald-800 py-0.5 text-center bg-[#0d4a39] align-middle">نتائج الاختبارات</th>
+                                    )}
+
+                                    <th rowSpan={2} className="border border-emerald-800 px-1.5 text-right align-middle bg-[#0d4a39] text-white relative z-10">السور والآيات المسمعة بالفترة</th>
+                                    <th rowSpan={2} className="border border-emerald-800 px-1 text-center align-middle bg-[#0d4a39] text-white relative z-10">التقييم العام</th>
+                                </tr>
+
+                                {/* Header Row 2: Sub-headers */}
+                                <tr className="text-white text-[8.5px] font-bold text-center h-[22px]">
+                                    <th className="border border-emerald-800 py-0.5 bg-[#156e55] text-emerald-100 align-middle">حضور</th>
+                                    <th className="border border-emerald-800 py-0.5 bg-[#156e55] text-red-200 align-middle">غياب</th>
+                                    <th className="border border-emerald-800 py-0.5 bg-[#156e55] text-amber-200 align-middle">تأخر</th>
+                                    <th className="border border-emerald-800 py-0.5 bg-[#156e55] text-blue-200 align-middle">استئذان</th>
+                                    <th className="border border-emerald-800 py-0.5 bg-[#156e55] text-white align-middle">النسبة</th>
+
                                     {(reportType === 'comprehensive' || reportType === 'memorization') && (
                                         <>
-                                            <th className="border border-gray-900 w-[6.5%] text-center">الحفظ</th>
-                                            <th className="border border-gray-900 w-[6.5%] text-center">المراجعة</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">الحفظ</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">المراجعة</th>
                                         </>
                                     )}
 
                                     {reportType === 'points' && (
                                         <>
-                                            <th className="border border-gray-900 w-[6.5%] text-center">النقاط</th>
-                                            <th className="border border-gray-900 w-[6.5%] text-center">التميز</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">النقاط</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">التميز</th>
                                         </>
                                     )}
 
                                     {reportType === 'tests' && (
                                         <>
-                                            <th className="border border-gray-900 w-[4.5%] text-center">اختبارات</th>
-                                            <th className="border border-gray-900 w-[4.5%] text-center">أعلى علامة</th>
-                                            <th className="border border-gray-900 w-[4%] text-center">المعدل</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">عدد</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">أعلى</th>
+                                            <th className="border border-emerald-800 py-0.5 bg-[#156e55] align-middle">المعدل</th>
                                         </>
                                     )}
-
-                                    <th className="border border-gray-900 px-1.5 text-right w-[32%]">السور المسمعة بالفترة</th>
-                                    <th className="border border-gray-900 px-1 text-center w-[9.5%]">التقييم العام</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {chunk.map((student, idx) => {
-                                    const absoluteIndex = pageIndex === 0 
-                                        ? idx + 1 
-                                        : firstPageSize + (pageIndex - 1) * otherPageSize + idx + 1;
-                                    
-                                    const stat = studentsStats[student.id] || {
-                                        attendanceRate: 100, present: 0, late: 0, absent: 0, excused: 0, totalSessions: 0,
-                                        memorizedPages: 0, reviewedPages: 0, pointsGained: 0, testAverage: 0, testsTaken: 0, highestTestScore: 0
-                                    };
-                                    
-                                    const evalData = getOverallEvaluation(stat);
+                        <tbody>
+                            {chunk.map((student, idx) => {
+                                // Calculate overall absolute index across all chunks
+                                let previousItemsCount = 0;
+                                for (let c = 0; c < pageIndex; c++) {
+                                    previousItemsCount += studentChunks[c]?.length || 0;
+                                }
+                                const absoluteIndex = previousItemsCount + idx + 1;
+                                
+                                const stat = studentsStats[student.id] || {
+                                    attendanceRate: 100, present: 0, late: 0, absent: 0, excused: 0, totalSessions: 0,
+                                    memorizedPages: 0, reviewedPages: 0, pointsGained: 0, testAverage: 0, testsTaken: 0, highestTestScore: 0
+                                };
+                                
+                                const evalData = getOverallEvaluation(stat);
 
-                                    return (
-                                        <tr key={student.id} className={`h-7 text-[9px] transition-colors align-middle ${idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/20'}`}>
-                                            <td className="border border-gray-900 text-center font-bold align-middle">{absoluteIndex}</td>
-                                            <td className="border border-gray-900 px-2 font-black text-gray-900 align-middle text-right">{student.name}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-emerald-800 align-middle">{stat.present}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-red-700 align-middle">{stat.absent}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-amber-700 align-middle">{stat.late}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-bold text-blue-700 align-middle">{stat.excused}</td>
-                                            <td className="border border-gray-900 text-center font-mono font-black text-gray-900 align-middle">{stat.attendanceRate}%</td>
+                                return (
+                                    <tr 
+                                        key={student.id} 
+                                        className={`h-7 text-[9px] align-middle transition-colors ${
+                                            idx % 2 === 0 ? 'bg-white' : 'bg-[#f2f8f5]'
+                                        }`}
+                                    >
+                                        <td className="border border-emerald-950/25 text-center font-bold text-gray-900 align-middle">{absoluteIndex}</td>
+                                        <td className="border border-emerald-950/25 px-1.5 font-black text-gray-950 align-middle text-right text-[10.5px] leading-tight break-words">{student.name}</td>
+                                        <td className="border border-emerald-950/25 text-center font-mono font-bold text-emerald-800 align-middle">{stat.present}</td>
+                                        <td className="border border-emerald-950/25 text-center font-mono font-bold text-red-700 align-middle">{stat.absent}</td>
+                                        <td className="border border-emerald-950/25 text-center font-mono font-bold text-amber-700 align-middle">{stat.late}</td>
+                                        <td className="border border-emerald-950/25 text-center font-mono font-bold text-blue-700 align-middle">{stat.excused}</td>
+                                        <td className="border border-emerald-950/25 text-center font-mono font-black text-gray-900 align-middle">{stat.attendanceRate}%</td>
 
-                                            {/* Dynamic Columns */}
-                                            {(reportType === 'comprehensive' || reportType === 'memorization') && (
-                                                <>
-                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-[#105541] align-middle">{formatPagesCount(stat.memorizedPages)} ص</td>
-                                                    <td className="border border-gray-900 text-center font-mono font-bold text-gray-600 align-middle">{formatPagesCount(stat.reviewedPages)} ص</td>
-                                                </>
-                                            )}
+                                        {/* Dynamic Columns */}
+                                        {(reportType === 'comprehensive' || reportType === 'memorization') && (
+                                            <>
+                                                <td className="border border-emerald-950/25 text-center font-mono font-extrabold text-[#105541] align-middle">{formatPagesCount(stat.memorizedPages)} ص</td>
+                                                <td className="border border-emerald-950/25 text-center font-mono font-bold text-gray-700 align-middle">{formatPagesCount(stat.reviewedPages)} ص</td>
+                                            </>
+                                        )}
 
-                                            {reportType === 'points' && (
-                                                <>
-                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-amber-700 align-middle">{stat.pointsGained} ن</td>
-                                                    <td className="border border-gray-900 text-center text-[8.5px] font-black text-amber-800 px-1 py-0.5 truncate align-middle">
-                                                        {stat.pointsGained >= 200 ? '💎 ماسي' : stat.pointsGained >= 120 ? '🥇 ذهبي' : stat.pointsGained >= 60 ? '🥈 فضي' : '🥉 برونزي'}
-                                                    </td>
-                                                </>
-                                            )}
+                                        {reportType === 'points' && (
+                                            <>
+                                                <td className="border border-emerald-950/25 text-center font-mono font-extrabold text-amber-700 align-middle">{stat.pointsGained} ن</td>
+                                                <td className="border border-emerald-950/25 text-center text-[8.5px] font-black text-amber-800 px-1 py-0.5 align-middle">
+                                                    {stat.pointsGained >= 200 ? '💎 ماسي' : stat.pointsGained >= 120 ? '🥇 ذهبي' : stat.pointsGained >= 60 ? '🥈 فضي' : '🥉 برونزي'}
+                                                </td>
+                                            </>
+                                        )}
 
-                                            {reportType === 'tests' && (
-                                                <>
-                                                    <td className="border border-gray-900 text-center font-mono align-middle">{stat.testsTaken}</td>
-                                                    <td className="border border-gray-900 text-center font-mono font-bold text-emerald-800 align-middle">{stat.highestTestScore}%</td>
-                                                    <td className="border border-gray-900 text-center font-mono font-extrabold text-emerald-700 align-middle">{stat.testAverage}%</td>
-                                                </>
-                                            )}
+                                        {reportType === 'tests' && (
+                                            <>
+                                                <td className="border border-emerald-950/25 text-center font-mono align-middle">{stat.testsTaken}</td>
+                                                <td className="border border-emerald-950/25 text-center font-mono font-bold text-emerald-800 align-middle">{stat.highestTestScore}%</td>
+                                                <td className="border border-emerald-950/25 text-center font-mono font-extrabold text-emerald-700 align-middle">{stat.testAverage}%</td>
+                                            </>
+                                        )}
 
-                                            {/* Recited Surahs in Period (Penultimate column) */}
-                                            {(() => {
-                                                const surahSummary = getStudentSurahSummaryForPeriod(filteredSessions, student.id);
-                                                return (
-                                                    <td className="border border-gray-900 px-1.5 py-1 text-[7.5px] leading-tight text-right font-medium align-middle">
-                                                        {surahSummary.memoText && (
-                                                            <div className="text-emerald-950 font-medium">
-                                                                <span className="font-extrabold text-emerald-800">حفظ: </span>
-                                                                {surahSummary.memoText}
-                                                            </div>
-                                                        )}
-                                                        {surahSummary.reviewText && (
-                                                            <div className="text-blue-950 font-medium mt-0.5">
-                                                                <span className="font-extrabold text-blue-800">مراجعة: </span>
-                                                                {surahSummary.reviewText}
-                                                            </div>
-                                                        )}
-                                                        {!surahSummary.memoText && !surahSummary.reviewText && (
-                                                            <span className="text-gray-400 font-bold block text-center">—</span>
-                                                        )}
-                                                    </td>
-                                                );
-                                            })()}
+                                        {/* Recited Surahs in Period (Penultimate column) */}
+                                        {(() => {
+                                            const surahSummary = getStudentSurahSummaryForPeriod(filteredSessions, student.id);
+                                            return (
+                                                <td className="border border-emerald-950/25 px-1.5 py-0.5 text-[8.5px] leading-tight text-right font-medium align-middle break-words">
+                                                    {surahSummary.memoText && (
+                                                        <div className="text-emerald-950 font-medium">
+                                                            <span className="font-extrabold text-[#105541]">حفظ: </span>
+                                                            {surahSummary.memoText}
+                                                        </div>
+                                                    )}
+                                                    {surahSummary.reviewText && (
+                                                        <div className="text-blue-950 font-medium mt-0.5">
+                                                            <span className="font-extrabold text-blue-800">مراجعة: </span>
+                                                            {surahSummary.reviewText}
+                                                        </div>
+                                                    )}
+                                                    {!surahSummary.memoText && !surahSummary.reviewText && (
+                                                        <span className="text-gray-400 font-bold block text-center">—</span>
+                                                    )}
+                                                </td>
+                                            );
+                                        })()}
 
-                                            {/* Overall Evaluation (Last column) */}
-                                            <td className={`border border-gray-900 text-center text-[8.5px] px-1 font-bold align-middle ${evalData.color}`}>
-                                                {evalData.text}
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                            </tbody>
-                        </table>
-                    </div>
+                                        {/* Overall Evaluation (Last column) */}
+                                        <td className={`border border-emerald-950/25 text-center text-[8.5px] px-1 font-bold align-middle ${evalData.color}`}>
+                                            {evalData.text}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
 
                     {/* SIGNATURES & BOTTOM FOOTER - ON EVERY PAGE */}
                     <div className="mt-auto pt-2">
-                        <div className="flex items-center justify-between text-[8.5px] text-gray-800 font-bold border-t border-gray-300 pt-1.5 px-1" dir="rtl">
+                        <div className="flex items-center justify-between text-[8.5px] text-gray-900 font-bold border-t-2 border-[#105541]/30 pt-1.5 px-2" dir="rtl">
                             <div className="text-right">
-                                إدارة التحفيظ: <span className="font-normal text-gray-400">............................</span>
+                                توقيع المعلم المربّي: <span className="font-normal text-gray-400">............................</span>
                             </div>
-                            <div className="text-center text-[8px] text-gray-500 font-bold">
+                            <div className="text-center text-[8px] text-gray-600 font-bold">
                                 {showPageNumbers && (
                                     <span>صفحة {pageIndex + 1} من {studentChunks.length}</span>
                                 )}
                             </div>
                             <div className="text-left" dir="rtl">
-                                المعلم: <span className="font-normal text-gray-400">............................</span>
+                                مصادقة إدارة المدرسة / الجمعية: <span className="font-normal text-gray-400">............................</span>
                             </div>
                         </div>
 
                         {/* SUBTLE SYSTEM FOOTER & TIMESTAMP */}
-                        <div className="flex items-center justify-between text-[7px] text-gray-400 font-medium pt-1 border-t border-gray-150 mt-1 px-1" dir="rtl">
-                            <div className="text-right">
-                                تم إنشاء هذا الكشف عبر نظام حلقتي لإدارة المدارس القرآنية
+                        <div className="flex items-center justify-between text-[7.5px] pt-1 border-t border-gray-200 mt-1 px-2" dir="rtl">
+                            <div className="w-1/4" />
+                            <div className="w-2/4 text-center text-gray-400 font-medium text-[7.5px]">
+                                تم توليد واستخراج هذا التقرير عبر نظام حلقتي لإدارة المدارس القرآنية. برمجة وتطوير: عبدالله مبارك المخلافي
                             </div>
-                            <div className="text-left font-mono" dir="ltr">
-                                {todayStr} {new Date().toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
+                            <div className="w-1/4 text-left font-mono text-[7.5px] text-gray-500 font-bold whitespace-nowrap" dir="rtl">
+                                {todayStr} - {formatTime12()}
                             </div>
                         </div>
                     </div>
@@ -1033,16 +1383,100 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                                             backgroundColor: '#ffffff',
                                                             windowWidth: orientation === 'landscape' ? 1122 : 794,
                                                             onclone: (clonedDoc) => {
-                                                                const clonedPages = clonedDoc.querySelectorAll('#export-target-container .report-page-element');
-                                                                clonedPages.forEach((pageEl: any) => {
-                                                                    pageEl.style.transform = 'none';
-                                                                    pageEl.style.margin = '0 auto';
-                                                                    pageEl.style.boxShadow = 'none';
-                                                                });
+                                                                const style = clonedDoc.createElement('style');
+                                                                style.innerHTML = `
+                                                                    * { 
+                                                                        box-sizing: border-box !important; 
+                                                                        -webkit-print-color-adjust: exact !important; 
+                                                                        print-color-adjust: exact !important; 
+                                                                        letter-spacing: normal !important;
+                                                                        transform: none !important;
+                                                                        animation: none !important;
+                                                                        transition: none !important;
+                                                                        margin-top: 0 !important;
+                                                                    }
+                                                                    h1, h2, h3, h4, h5, h6, p, span, div, label {
+                                                                        margin-top: 0 !important;
+                                                                        padding-top: 0 !important;
+                                                                    }
+                                                                    html, body { 
+                                                                        direction: rtl !important; 
+                                                                        font-family: 'Tajawal', 'Inter', system-ui, -apple-system, sans-serif !important;
+                                                                        background-color: #ffffff !important;
+                                                                        margin: 0 !important;
+                                                                        padding: 0 !important;
+                                                                    }
+                                                                    table { 
+                                                                        border-collapse: collapse !important; 
+                                                                        border-spacing: 0 !important; 
+                                                                        width: 100% !important; 
+                                                                        table-layout: fixed !important;
+                                                                    }
+                                                                    thead {
+                                                                        display: table-header-group !important;
+                                                                    }
+                                                                    tbody {
+                                                                        display: table-row-group !important;
+                                                                    }
+                                                                    tr {
+                                                                        display: table-row !important;
+                                                                    }
+                                                                    th, td { 
+                                                                        vertical-align: middle !important; 
+                                                                        line-height: 1.05 !important; 
+                                                                        box-sizing: border-box !important;
+                                                                        padding-top: 0px !important;
+                                                                        padding-bottom: 12px !important;
+                                                                    }
+                                                                    td > *, th > * {
+                                                                        margin-top: 0 !important;
+                                                                        padding-top: 0 !important;
+                                                                        transform: translateY(-4px) !important;
+                                                                    }
+                                                                    th[rowspan], th[rowSpan] {
+                                                                        background-color: #0d4a39 !important;
+                                                                        color: #ffffff !important;
+                                                                        position: relative !important;
+                                                                        z-index: 10 !important;
+                                                                    }
+                                                                    div.bg-\[\#105541\] span {
+                                                                        margin-top: -6px !important;
+                                                                        padding-top: 0px !important;
+                                                                        padding-bottom: 0px !important;
+                                                                        display: inline-block !important;
+                                                                        line-height: 1 !important;
+                                                                        transform: translateY(-5px) !important;
+                                                                    }
+                                                                    div.bg-\[\#105541\] {
+                                                                        padding-top: 0px !important;
+                                                                        padding-bottom: 0px !important;
+                                                                        margin-top: 0px !important;
+                                                                        overflow: visible !important;
+                                                                        height: 20px !important;
+                                                                        display: flex !important;
+                                                                        align-items: center !important;
+                                                                        justify-content: center !important;
+                                                                    }
+                                                                    .report-page-element {
+                                                                        transform: none !important;
+                                                                        margin: 0 auto !important;
+                                                                        box-shadow: none !important;
+                                                                        position: relative !important;
+                                                                        background-color: #ffffff !important;
+                                                                    }
+                                                                `;
+                                                                clonedDoc.head.appendChild(style);
+                                                                clonedDoc.documentElement.setAttribute('dir', 'rtl');
+                                                                clonedDoc.body.setAttribute('dir', 'rtl');
+
                                                                 const container = clonedDoc.querySelector('#export-target-container') as HTMLElement;
                                                                 if (container) {
+                                                                    container.style.position = 'static';
+                                                                    container.style.left = '0';
+                                                                    container.style.top = '0';
                                                                     container.style.transform = 'none';
                                                                     container.style.padding = '0';
+                                                                    container.style.margin = '0 auto';
                                                                 }
                                                             }
                                                         });
@@ -1095,16 +1529,100 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                                             backgroundColor: '#ffffff',
                                                             windowWidth: orientation === 'landscape' ? 1122 : 794,
                                                             onclone: (clonedDoc) => {
-                                                                const clonedPages = clonedDoc.querySelectorAll('#export-target-container .report-page-element');
-                                                                clonedPages.forEach((pageEl: any) => {
-                                                                    pageEl.style.transform = 'none';
-                                                                    pageEl.style.margin = '0 auto';
-                                                                    pageEl.style.boxShadow = 'none';
-                                                                });
+                                                                const style = clonedDoc.createElement('style');
+                                                                style.innerHTML = `
+                                                                    * { 
+                                                                        box-sizing: border-box !important; 
+                                                                        -webkit-print-color-adjust: exact !important; 
+                                                                        print-color-adjust: exact !important; 
+                                                                        letter-spacing: normal !important;
+                                                                        transform: none !important;
+                                                                        animation: none !important;
+                                                                        transition: none !important;
+                                                                        margin-top: 0 !important;
+                                                                    }
+                                                                    h1, h2, h3, h4, h5, h6, p, span, div, label {
+                                                                        margin-top: 0 !important;
+                                                                        padding-top: 0 !important;
+                                                                    }
+                                                                    html, body { 
+                                                                        direction: rtl !important; 
+                                                                        font-family: 'Tajawal', 'Inter', system-ui, -apple-system, sans-serif !important;
+                                                                        background-color: #ffffff !important;
+                                                                        margin: 0 !important;
+                                                                        padding: 0 !important;
+                                                                    }
+                                                                    table { 
+                                                                        border-collapse: collapse !important; 
+                                                                        border-spacing: 0 !important; 
+                                                                        width: 100% !important; 
+                                                                        table-layout: fixed !important;
+                                                                    }
+                                                                    thead {
+                                                                        display: table-header-group !important;
+                                                                    }
+                                                                    tbody {
+                                                                        display: table-row-group !important;
+                                                                    }
+                                                                    tr {
+                                                                        display: table-row !important;
+                                                                    }
+                                                                    th, td { 
+                                                                        vertical-align: middle !important; 
+                                                                        line-height: 1.05 !important; 
+                                                                        box-sizing: border-box !important;
+                                                                        padding-top: 0px !important;
+                                                                        padding-bottom: 12px !important;
+                                                                    }
+                                                                    td > *, th > * {
+                                                                        margin-top: 0 !important;
+                                                                        padding-top: 0 !important;
+                                                                        transform: translateY(-4px) !important;
+                                                                    }
+                                                                    th[rowspan], th[rowSpan] {
+                                                                        background-color: #0d4a39 !important;
+                                                                        color: #ffffff !important;
+                                                                        position: relative !important;
+                                                                        z-index: 10 !important;
+                                                                    }
+                                                                    div.bg-\[\#105541\] span {
+                                                                        margin-top: -6px !important;
+                                                                        padding-top: 0px !important;
+                                                                        padding-bottom: 0px !important;
+                                                                        display: inline-block !important;
+                                                                        line-height: 1 !important;
+                                                                        transform: translateY(-5px) !important;
+                                                                    }
+                                                                    div.bg-\[\#105541\] {
+                                                                        padding-top: 0px !important;
+                                                                        padding-bottom: 0px !important;
+                                                                        margin-top: 0px !important;
+                                                                        overflow: visible !important;
+                                                                        height: 20px !important;
+                                                                        display: flex !important;
+                                                                        align-items: center !important;
+                                                                        justify-content: center !important;
+                                                                    }
+                                                                    .report-page-element {
+                                                                        transform: none !important;
+                                                                        margin: 0 auto !important;
+                                                                        box-shadow: none !important;
+                                                                        position: relative !important;
+                                                                        background-color: #ffffff !important;
+                                                                    }
+                                                                `;
+                                                                clonedDoc.head.appendChild(style);
+                                                                clonedDoc.documentElement.setAttribute('dir', 'rtl');
+                                                                clonedDoc.body.setAttribute('dir', 'rtl');
+
                                                                 const container = clonedDoc.querySelector('#export-target-container') as HTMLElement;
                                                                 if (container) {
+                                                                    container.style.position = 'static';
+                                                                    container.style.left = '0';
+                                                                    container.style.top = '0';
                                                                     container.style.transform = 'none';
                                                                     container.style.padding = '0';
+                                                                    container.style.margin = '0 auto';
                                                                 }
                                                             }
                                                         });
@@ -1149,97 +1667,73 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                         initial={{ opacity: 0, x: 15 }}
                         animate={{ opacity: 1, x: 0 }}
                         exit={{ opacity: 0, x: -15 }}
-                        className="space-y-6"
+                        className="space-y-4"
                     >
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-3 gap-2 sm:gap-4">
                             {/* Card 1: Comprehensive */}
                             <button
                                 onClick={() => { setReportType('comprehensive'); setView('setup'); }}
-                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-emerald-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                                className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-center hover:border-emerald-500 dark:hover:border-emerald-400 shadow-2xs hover:shadow-md transition-all group flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95"
                             >
-                                <div className="space-y-2">
-                                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/30 group-hover:scale-110 transition-transform">
-                                        <FaFileAlt size={20} />
-                                    </div>
-                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">التقرير الشامل للحلقة</h3>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">ملخص أداء الحلقة الشامل الذي يحتوي على الإحصائيات العامة ومستوى حضور وحفظ الطلاب.</p>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40 group-hover:scale-105 transition-transform">
+                                    <FaFileAlt className="text-base sm:text-xl" />
                                 </div>
-                                <span className="text-[10px] text-emerald-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">ابدأ الإعداد ←</span>
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-gray-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400">التقرير الشامل</h3>
                             </button>
 
                             {/* Card 2: Attendance */}
                             <button
                                 onClick={() => { setReportType('attendance'); setView('setup'); }}
-                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-blue-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                                className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-center hover:border-blue-500 dark:hover:border-blue-400 shadow-2xs hover:shadow-md transition-all group flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95"
                             >
-                                <div className="space-y-2">
-                                    <div className="w-12 h-12 rounded-2xl bg-blue-50 dark:bg-blue-950/20 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-100 dark:border-blue-900/30 group-hover:scale-110 transition-transform">
-                                        <FaCalendarAlt size={20} />
-                                    </div>
-                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">تقرير الحضور والغياب</h3>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">تحليل دقيق لالتزام الطلاب، نسب الغياب، التأخير، والأعطال المرصودة في الفترة.</p>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center justify-center border border-blue-100 dark:border-blue-900/40 group-hover:scale-105 transition-transform">
+                                    <FaCalendarAlt className="text-base sm:text-xl" />
                                 </div>
-                                <span className="text-[10px] text-blue-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">ابدأ الإعداد ←</span>
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-gray-100 group-hover:text-blue-700 dark:group-hover:text-blue-400">الحضور والغياب</h3>
                             </button>
 
                             {/* Card 3: Points */}
                             <button
                                 onClick={() => { setReportType('points'); setView('setup'); }}
-                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-amber-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                                className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-center hover:border-amber-500 dark:hover:border-amber-400 shadow-2xs hover:shadow-md transition-all group flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95"
                             >
-                                <div className="space-y-2">
-                                    <div className="w-12 h-12 rounded-2xl bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900/30 group-hover:scale-110 transition-transform">
-                                        <FaTrophy size={20} />
-                                    </div>
-                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">تقرير النقاط والتحفيز</h3>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">قائمة الشرف، مجموع النقاط المكتسبة، والمكافآت الإضافية لتشجيع التنافس.</p>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 flex items-center justify-center border border-amber-100 dark:border-amber-900/40 group-hover:scale-105 transition-transform">
+                                    <FaTrophy className="text-base sm:text-xl" />
                                 </div>
-                                <span className="text-[10px] text-amber-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">ابدأ الإعداد ←</span>
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-gray-100 group-hover:text-amber-700 dark:group-hover:text-amber-400">النقاط والتحفيز</h3>
                             </button>
 
                             {/* Card 4: Memorization */}
                             <button
                                 onClick={() => { setReportType('memorization'); setView('setup'); }}
-                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-purple-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                                className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-center hover:border-purple-500 dark:hover:border-purple-400 shadow-2xs hover:shadow-md transition-all group flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95"
                             >
-                                <div className="space-y-2">
-                                    <div className="w-12 h-12 rounded-2xl bg-purple-50 dark:bg-purple-950/20 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900/30 group-hover:scale-110 transition-transform">
-                                        <FaBook size={20} />
-                                    </div>
-                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">تقرير مستويات الحفظ والمراجعة</h3>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">متابعة دقيقة لكميات الصفحات المحفوظة والمراجعة ومعدل التقدم اليومي لكل طالب.</p>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-purple-50 dark:bg-purple-950/40 text-purple-600 dark:text-purple-400 flex items-center justify-center border border-purple-100 dark:border-purple-900/40 group-hover:scale-105 transition-transform">
+                                    <FaBook className="text-base sm:text-xl" />
                                 </div>
-                                <span className="text-[10px] text-purple-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">ابدأ الإعداد ←</span>
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-gray-100 group-hover:text-purple-700 dark:group-hover:text-purple-400">الحفظ والمراجعة</h3>
                             </button>
 
                             {/* Card 5: Tests */}
                             <button
                                 onClick={() => { setReportType('tests'); setView('setup'); }}
-                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-rose-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                                className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-center hover:border-rose-500 dark:hover:border-rose-400 shadow-2xs hover:shadow-md transition-all group flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95"
                             >
-                                <div className="space-y-2">
-                                    <div className="w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-100 dark:border-rose-900/30 group-hover:scale-110 transition-transform">
-                                        <FaAward size={20} />
-                                    </div>
-                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">تقرير الاختبارات والخطط</h3>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">ملخص شامل لنتائج الاختبارات الدورية ومستوى تقدم الطلاب مقارنة بالخطط المقررة.</p>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 flex items-center justify-center border border-rose-100 dark:border-rose-900/40 group-hover:scale-105 transition-transform">
+                                    <FaAward className="text-base sm:text-xl" />
                                 </div>
-                                <span className="text-[10px] text-rose-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">ابدأ الإعداد ←</span>
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-gray-100 group-hover:text-rose-700 dark:group-hover:text-rose-400">الاختبارات والخطط</h3>
                             </button>
 
                             {/* Card 6: Smart Recitation */}
                             <button
                                 onClick={() => { setShowSmartFormModal(true); }}
-                                className="p-6 bg-white dark:bg-gray-800 rounded-3xl border border-gray-100 dark:border-gray-700 text-right hover:border-emerald-500 dark:hover:border-accent shadow-sm hover:shadow-md transition-all group flex flex-col justify-between h-[180px]"
+                                className="p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 text-center hover:border-emerald-500 dark:hover:border-emerald-400 shadow-2xs hover:shadow-md transition-all group flex flex-col items-center justify-center gap-2 cursor-pointer active:scale-95"
                             >
-                                <div className="space-y-2">
-                                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/30 group-hover:scale-110 transition-transform">
-                                        <FaFilePdf size={20} />
-                                    </div>
-                                    <h3 className="font-bold text-sm text-gray-800 dark:text-white mt-1">كشف التسميع</h3>
-                                    <p className="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed line-clamp-2">توليد كشف تسميع ذكي للطباعة الورقية والإدخال التلقائي للبيانات وحفظ التقدم عبر الكاميرا.</p>
+                                <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40 group-hover:scale-105 transition-transform">
+                                    <FaFilePdf className="text-base sm:text-xl" />
                                 </div>
-                                <span className="text-[10px] text-emerald-600 dark:text-accent font-bold mt-2 flex items-center gap-1 self-start">فتح الأداة ←</span>
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-gray-100 group-hover:text-emerald-700 dark:group-hover:text-emerald-400">كشف التسميع</h3>
                             </button>
                         </div>
                     </motion.div>
@@ -1249,134 +1743,571 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                 {view === 'setup' && (
                     <motion.div
                         key="setup-view"
-                        initial={{ opacity: 0, x: 15 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -15 }}
-                        className="grid grid-cols-1 lg:grid-cols-3 gap-6"
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="space-y-3.5 max-w-4xl mx-auto pb-8"
                     >
-                        {/* Settings Form */}
-                        <div className="lg:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-3xl border border-gray-100 dark:border-gray-700 shadow-sm space-y-6">
-                            <div>
-                                <h2 className="text-sm font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                                    <FaSlidersH className="text-emerald-600" />
-                                    <span>إعدادات التقرير المخصص</span>
-                                </h2>
-                                <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">قم بتعديل خيارات العرض والفلترة لاستخراج التقرير المطلوب</p>
-                            </div>
-
-                            {/* Period Selection (Google Analytics Style) */}
-                            <div className="space-y-2.5">
-                                <label className="text-[11px] font-bold text-gray-700 dark:text-gray-300">حدد الفترة الزمنية لتغطية التقرير:</label>
-                                <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-                                    {[
-                                        { id: 'last7', label: 'آخر 7 أيام' },
-                                        { id: 'last30', label: 'آخر 30 يوماً' },
-                                        { id: 'currentMonth', label: 'الشهر الحالي' },
-                                        { id: 'lastMonth', label: 'الشهر السابق' },
-                                        { id: 'allTime', label: 'كامل الفترة' },
-                                        { id: 'custom', label: 'مخصص...' }
-                                    ].map(item => (
-                                        <button
-                                            key={item.id}
-                                            onClick={() => setPeriod(item.id as any)}
-                                            className={`py-2 px-1 text-center rounded-xl text-[10px] font-bold transition-all ${
-                                                period === item.id 
-                                                ? 'bg-[#105541] text-white shadow-sm' 
-                                                : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-800'
-                                            }`}
-                                        >
-                                            {item.label}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {period === 'custom' && (
-                                    <div className="grid grid-cols-2 gap-3 pt-2">
-                                        <div className="space-y-1">
-                                            <span className="text-[9px] font-bold text-gray-400">تاريخ البدء</span>
-                                            <input 
-                                                type="date" 
-                                                value={customStartDate}
-                                                onChange={(e) => setCustomStartDate(e.target.value)}
-                                                className="w-full text-xs p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 outline-none text-gray-800 dark:text-white"
-                                            />
-                                        </div>
-                                        <div className="space-y-1">
-                                            <span className="text-[9px] font-bold text-gray-400">تاريخ الانتهاء</span>
-                                            <input 
-                                                type="date" 
-                                                value={customEndDate}
-                                                onChange={(e) => setCustomEndDate(e.target.value)}
-                                                className="w-full text-xs p-2.5 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 outline-none text-gray-800 dark:text-white"
-                                            />
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Edit Report Title */}
-                            <div className="space-y-1.5">
-                                <label className="text-[11px] font-bold text-gray-700 dark:text-gray-300">عنوان التقرير (يظهر في الهيدر):</label>
-                                <input 
-                                    type="text" 
-                                    value={customTitle}
-                                    onChange={(e) => setCustomTitle(e.target.value)}
-                                    className="w-full text-xs p-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 outline-none font-semibold text-gray-800 dark:text-white focus:border-[#105541]"
-                                    placeholder="أدخل عنواناً مخصصاً للتقرير"
-                                />
-                            </div>
-
-                            {/* Options are auto-configured for premium presentation */}
-
-                            {/* Action Buttons */}
-                            <div className="flex gap-3 pt-4 border-t dark:border-gray-700">
-                                <button
-                                    onClick={() => setView('preview')}
-                                    className="flex-1 py-3 bg-[#105541] hover:bg-[#105541]/95 text-white font-bold rounded-2xl shadow-lg hover:shadow-emerald-600/10 transition-all text-xs"
-                                >
-                                    توليد ومعاينة التقرير 📊
-                                </button>
-                                <button
+                        {/* Top Header Card */}
+                        <div className="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xs flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <button 
                                     onClick={() => setView('select')}
-                                    className="px-6 py-3 bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-100 dark:border-gray-800 font-bold rounded-2xl transition-all text-xs"
+                                    className="p-2 text-gray-500 hover:text-gray-800 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all cursor-pointer"
+                                    title="رجوع لاختيار التقرير"
                                 >
-                                    إلغاء
+                                    <FaArrowLeft className="rotate-180" size={14} />
                                 </button>
+                                <div>
+                                    <h2 className="text-sm sm:text-base font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                        <SlidersHorizontal className="w-4 h-4 text-emerald-600" />
+                                        <span>إعداد التقرير</span>
+                                    </h2>
+                                    <p className="text-[10px] sm:text-xs text-gray-500 dark:text-gray-400">خصّص البيانات والفترة والطلاب لاستخراج التقرير المطلوب</p>
+                                </div>
+                            </div>
+
+                            <span className="px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 rounded-xl font-bold text-xs">
+                                {reportType === 'comprehensive' && 'التقرير الشامل'}
+                                {reportType === 'attendance' && 'الحضور والغياب'}
+                                {reportType === 'points' && 'النقاط والتحفيز'}
+                                {reportType === 'memorization' && 'الحفظ والمراجعة'}
+                                {reportType === 'tests' && 'الاختبارات والخطط'}
+                            </span>
+                        </div>
+
+                        {/* 1. Report Title (عنوان التقرير في البداية) */}
+                        <div className="bg-white dark:bg-gray-800 p-4 sm:p-4.5 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-2">
+                            <div className="flex items-center justify-between">
+                                <label className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2">
+                                    <FileText className="w-4 h-4 text-emerald-600" />
+                                    <span>عنوان التقرير</span>
+                                </label>
+                                <span className="text-[10px] text-gray-400">معبأ تلقائياً ويمكنك تعديله</span>
+                            </div>
+                            <input 
+                                type="text" 
+                                value={customTitle}
+                                onChange={(e) => setCustomTitle(e.target.value)}
+                                className="w-full text-xs sm:text-sm p-3 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 outline-none font-bold text-gray-900 dark:text-white focus:border-emerald-600 focus:bg-white dark:focus:bg-gray-800 transition-all"
+                                placeholder="أدخل عنوان التقرير..."
+                            />
+                        </div>
+
+                        {/* 2. Report Period Section (قسم الفترة الزمنية بعد العنوان - مبسط ومقلل المساحة) */}
+                        <div className="bg-white dark:bg-gray-800 p-3.5 sm:p-4 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xs space-y-3">
+                            <div className="flex items-center justify-between border-b pb-2.5 border-gray-100 dark:border-gray-700">
+                                <h3 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2">
+                                    <CalendarLucide className="w-4 h-4 text-emerald-600" />
+                                    <span>فترة التقرير (المناسبة)</span>
+                                </h3>
+                                <div className="flex items-center gap-2 text-[11px]">
+                                    <span className="px-2 py-0.5 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-medium">
+                                        الجلسات: <strong className="text-gray-900 dark:text-white">{filteredSessions.length}</strong>
+                                    </span>
+                                    <span className="px-2 py-0.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-medium border border-emerald-100 dark:border-emerald-800/40">
+                                        أيام الدراسة: <strong>{studyDaysCount}</strong> يوم
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* Compact Period Buttons */}
+                            <div className="grid grid-cols-4 sm:grid-cols-7 gap-1.5">
+                                {[
+                                    { id: 'today', label: 'اليوم' },
+                                    { id: 'last7', label: 'آخر 7 أيام' },
+                                    { id: 'last30', label: 'آخر 30 يوماً' },
+                                    { id: 'currentMonth', label: 'الشهر الحالي' },
+                                    { id: 'lastMonth', label: 'الشهر السابق' },
+                                    { id: 'allTime', label: 'كامل الفترة' },
+                                    { id: 'custom', label: 'مخصص...' }
+                                ].map(item => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onClick={() => setPeriod(item.id as any)}
+                                        className={`py-1.5 px-1 text-center rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                                            period === item.id 
+                                            ? 'bg-[#105541] text-white shadow-xs' 
+                                            : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 dark:hover:bg-gray-900 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                                        }`}
+                                    >
+                                        {item.label}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {period === 'custom' && (
+                                <div className="grid grid-cols-2 gap-2.5 pt-1">
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] font-bold text-gray-500 block">من تاريخ</span>
+                                        <input 
+                                            type="date" 
+                                            value={customStartDate}
+                                            onChange={(e) => setCustomStartDate(e.target.value)}
+                                            className="w-full text-xs p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 outline-none text-gray-800 dark:text-white"
+                                        />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <span className="text-[10px] font-bold text-gray-500 block">إلى تاريخ</span>
+                                        <input 
+                                            type="date" 
+                                            value={customEndDate}
+                                            onChange={(e) => setCustomEndDate(e.target.value)}
+                                            className="w-full text-xs p-2 border border-gray-200 dark:border-gray-700 rounded-xl bg-gray-50 dark:bg-gray-900 outline-none text-gray-800 dark:text-white"
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Formatted Date Range Display Banner */}
+                            <div className="px-3 py-2 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-100 dark:border-emerald-900/40 flex items-center justify-between text-[11px] text-emerald-900 dark:text-emerald-300">
+                                <div className="flex items-center gap-1.5">
+                                    <CalendarLucide className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                                    <span>
+                                        <strong>التاريخ الفعلي:</strong> {period === 'allTime' ? 'كامل الفترة المسجلة' : (
+                                            dateRange.start === dateRange.end 
+                                                ? formatDateWithDay(dateRange.start) 
+                                                : `من ${formatDateWithDay(dateRange.start)} إلى ${formatDateWithDay(dateRange.end)}`
+                                        )}
+                                    </span>
+                                </div>
                             </div>
                         </div>
 
-                        {/* Summary Side Widget */}
-                        <div className="bg-emerald-50/50 dark:bg-gray-900/30 p-6 rounded-3xl border border-emerald-100/30 dark:border-gray-800 shadow-sm flex flex-col justify-between h-fit space-y-6">
-                            <div className="space-y-4">
-                                <div>
-                                    <h3 className="font-extrabold text-xs text-emerald-800 dark:text-emerald-400 uppercase tracking-wider">نظرة عامة على البيانات</h3>
-                                    <p className="text-[10px] text-gray-500 mt-0.5">البيانات التي سيتم تضمينها بناءً على الفلترة الحالية</p>
-                                </div>
-
-                                <div className="space-y-2 text-xs">
-                                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                                        <span className="text-gray-500 dark:text-gray-400">الحلقة المستهدفة:</span>
-                                        <span className="font-bold text-gray-800 dark:text-gray-200">{activeCircle.circle}</span>
+                        {/* 3. Additional Settings Collapsible Section (الإعدادات الإضافية - مغلق افتراضياً) */}
+                        <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-2xs overflow-hidden transition-all">
+                            <button
+                                type="button"
+                                onClick={() => setShowAdditionalSettings(!showAdditionalSettings)}
+                                className="w-full p-4 flex items-center justify-between bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750 transition-colors cursor-pointer select-none"
+                            >
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-8 h-8 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400 flex items-center justify-center border border-emerald-100 dark:border-emerald-900/40">
+                                        <SlidersHorizontal size={15} />
                                     </div>
-                                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                                        <span className="text-gray-500 dark:text-gray-400">إجمالي الطلاب الفاعلين:</span>
-                                        <span className="font-bold text-gray-800 dark:text-gray-200">{overallStats.activeCount} طالب</span>
-                                    </div>
-                                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                                        <span className="text-gray-500 dark:text-gray-400">الجلسات المكتشفة في الفترة:</span>
-                                        <span className="font-bold text-gray-800 dark:text-gray-200">{overallStats.sessionsCount} جلسة</span>
-                                    </div>
-                                    <div className="flex justify-between items-center py-2 border-b border-gray-100 dark:border-gray-800">
-                                        <span className="text-gray-500 dark:text-gray-400">نسبة الحضور المتوقعة:</span>
-                                        <span className="font-bold text-emerald-600 dark:text-accent">{overallStats.avgAttendanceRate}%</span>
+                                    <div className="text-right">
+                                        <h3 className="font-bold text-xs sm:text-sm text-gray-900 dark:text-white flex items-center gap-2">
+                                            <span>الإعدادات الإضافية</span>
+                                        </h3>
+                                        <p className="text-[10px] text-gray-400">ملخص التقرير، اختيار وترتيب الطلاب، الشعار، اتجاه الورقة</p>
                                     </div>
                                 </div>
-                            </div>
 
-                            <div className="p-4 bg-emerald-50 dark:bg-emerald-950/20 rounded-2xl border border-emerald-100 dark:border-emerald-900/30 text-emerald-800 dark:text-emerald-400 text-[10px] leading-relaxed">
-                                <FaInfoCircle className="inline ml-1 mb-0.5 text-emerald-600" />
-                                <strong>نصيحة المعاينة:</strong> ننصح بترك تخطيط الصفحة على الوضع <strong>الأفقي (Landscape)</strong> عند التصدير لملف PDF ليتم تمثيل البيانات وجداول الموازنة والرسوم البيانية بشكل احترافي وأكثر اتساعاً.
-                            </div>
+                                <div className="flex items-center gap-2 text-gray-400">
+                                    <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-100 dark:border-emerald-900/40">
+                                        {showAdditionalSettings ? 'إخفاء الإعدادات' : 'توسيع الإعدادات'}
+                                    </span>
+                                    <ChevronDownLucide className={`w-4 h-4 transition-transform duration-200 text-gray-500 ${showAdditionalSettings ? 'rotate-180 text-emerald-600' : ''}`} />
+                                </div>
+                            </button>
+
+                            {/* Collapsible Content */}
+                            {showAdditionalSettings && (
+                                <div className="p-4 sm:p-5 border-t border-gray-100 dark:border-gray-700 space-y-4 bg-gray-50/50 dark:bg-gray-900/30">
+                                    
+                                    {/* Option 1: Show/Hide Stats Summary */}
+                                    <div className="p-3 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 flex items-center justify-between">
+                                        <div className="space-y-0.5">
+                                            <span className="text-xs font-bold text-gray-800 dark:text-white block">إظهار ملخص الإحصائيات بالتقرير</span>
+                                            <span className="text-[10px] text-gray-400 block">عرض بطاقات الأداء الموحد وإحصائيات الحضور والحفظ في أعلا الورقة</span>
+                                        </div>
+                                        <label className="flex items-center gap-2 text-xs font-bold text-gray-700 dark:text-gray-300 cursor-pointer">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={showStatsInReport}
+                                                onChange={(e) => setShowStatsInReport(e.target.checked)}
+                                                className="w-4 h-4 text-emerald-600 rounded-md focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                                            />
+                                        </label>
+                                    </div>
+
+                                    {/* Option 2: Student Selection & Filter */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                        <div className="flex items-center justify-between border-b pb-2.5 border-gray-100 dark:border-gray-700">
+                                            <div>
+                                                <h4 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2">
+                                                    <Users className="w-4 h-4 text-emerald-600" />
+                                                    <span>اختيار الطلاب في التقرير</span>
+                                                </h4>
+                                                <p className="text-[10px] text-gray-500 dark:text-gray-400">حدد نطاق الطلاب المطلوب تضمينهم في الكشف</p>
+                                            </div>
+                                            <span className="text-xs font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-xl border border-emerald-100 dark:border-emerald-800/40">
+                                                تحديد {sortedStudentsForReport.length} من {activeStudents.length} طالب
+                                            </span>
+                                        </div>
+
+                                        {/* Selection Mode Pills */}
+                                        <div className="grid grid-cols-3 gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => setStudentSelectionType('all')}
+                                                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                                                    studentSelectionType === 'all'
+                                                    ? 'bg-[#105541] text-white shadow-xs'
+                                                    : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                                                }`}
+                                            >
+                                                جميع الطلاب ({activeStudents.length})
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setStudentSelectionType('level')}
+                                                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                                                    studentSelectionType === 'level'
+                                                    ? 'bg-[#105541] text-white shadow-xs'
+                                                    : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                                                }`}
+                                            >
+                                                حسب المستوى
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setStudentSelectionType('manual')}
+                                                className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                                                    studentSelectionType === 'manual'
+                                                    ? 'bg-[#105541] text-white shadow-xs'
+                                                    : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                                                }`}
+                                            >
+                                                تحديد يدوي
+                                            </button>
+                                        </div>
+
+                                        {/* Sub-Option 1: By Level / Category */}
+                                        {studentSelectionType === 'level' && (
+                                            <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700 space-y-2">
+                                                <span className="text-xs font-bold text-gray-700 dark:text-gray-300 block">اختر فئة الطلاب:</span>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedLevel('all')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                            selectedLevel === 'all' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+                                                        }`}
+                                                    >
+                                                        الكل ({activeStudents.length})
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedLevel('khatim')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                            selectedLevel === 'khatim' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+                                                        }`}
+                                                    >
+                                                        الخاتمون ({activeStudents.filter(s => s.isKhatim).length})
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setSelectedLevel('non-khatim')}
+                                                        className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                            selectedLevel === 'non-khatim' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+                                                        }`}
+                                                    >
+                                                        غير الخاتمين ({activeStudents.filter(s => !s.isKhatim).length})
+                                                    </button>
+                                                    {availableLevels.map(lvl => (
+                                                        <button
+                                                            key={lvl}
+                                                            type="button"
+                                                            onClick={() => setSelectedLevel(lvl)}
+                                                            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                                                                selectedLevel === lvl ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700'
+                                                            }`}
+                                                        >
+                                                            مستوى {lvl} ({activeStudents.filter(s => s.level === lvl).length})
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Sub-Option 2: Manual Selection Checkboxes */}
+                                        {studentSelectionType === 'manual' && (
+                                            <div className="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <div className="relative flex-1">
+                                                        <Search className="w-3.5 h-3.5 text-gray-400 absolute right-3 top-2.5" />
+                                                        <input 
+                                                            type="text" 
+                                                            value={studentSearchQuery}
+                                                            onChange={(e) => setStudentSearchQuery(e.target.value)}
+                                                            placeholder="بحث باسم الطالب..."
+                                                            className="w-full text-xs pr-8 pl-3 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-800 dark:text-white outline-none"
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-center gap-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedStudentIds(activeStudents.map(s => s.id))}
+                                                            className="px-2.5 py-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-950/50 rounded-lg transition-colors cursor-pointer"
+                                                        >
+                                                            تحديد الكل
+                                                        </button>
+                                                        <span className="text-gray-300">|</span>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setSelectedStudentIds([])}
+                                                            className="px-2.5 py-1 text-[11px] font-bold text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-lg transition-colors cursor-pointer"
+                                                        >
+                                                            إلغاء الكل
+                                                        </button>
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-44 overflow-y-auto p-1">
+                                                    {activeStudents
+                                                        .filter(s => !studentSearchQuery || s.name.includes(studentSearchQuery))
+                                                        .map(student => {
+                                                            const isSelected = selectedStudentIds.includes(student.id);
+                                                            return (
+                                                                <label 
+                                                                    key={student.id} 
+                                                                    className={`flex items-center gap-2 p-2 rounded-lg border text-xs cursor-pointer transition-all ${
+                                                                        isSelected 
+                                                                        ? 'bg-emerald-50 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800 font-bold text-emerald-900 dark:text-emerald-300' 
+                                                                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300'
+                                                                    }`}
+                                                                >
+                                                                    <input 
+                                                                        type="checkbox" 
+                                                                        checked={isSelected}
+                                                                        onChange={(e) => {
+                                                                            if (e.target.checked) {
+                                                                                setSelectedStudentIds([...selectedStudentIds, student.id]);
+                                                                            } else {
+                                                                                setSelectedStudentIds(selectedStudentIds.filter(id => id !== student.id));
+                                                                            }
+                                                                        }}
+                                                                        className="w-3.5 h-3.5 text-emerald-600 rounded-md focus:ring-emerald-500 accent-emerald-600 cursor-pointer"
+                                                                    />
+                                                                    <span className="truncate">{student.name}</span>
+                                                                </label>
+                                                            );
+                                                        })
+                                                    }
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Option 3: Student Sorting */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                        <h4 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2 border-b pb-2.5 border-gray-100 dark:border-gray-700">
+                                            <ArrowUpDown className="w-4 h-4 text-emerald-600" />
+                                            <span>طريقة ترتيب الطلاب في التقرير</span>
+                                        </h4>
+
+                                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                                            {[
+                                                { id: 'default', label: 'افتراضي (ترتيب الحلقة)' },
+                                                { id: 'performance', label: 'الأفضل أداءً (النقاط)' },
+                                                { id: 'name', label: 'أبجدياً (اسم الطالب)' },
+                                                { id: 'attendance', label: 'نسبة الحضور' },
+                                                { id: 'memorization', label: 'كمية الحفظ' },
+                                            ].map(item => (
+                                                <button
+                                                    key={item.id}
+                                                    type="button"
+                                                    onClick={() => setSortBy(item.id as any)}
+                                                    className={`py-2 px-2.5 rounded-xl text-xs font-bold text-center transition-all cursor-pointer ${
+                                                        sortBy === item.id
+                                                        ? 'bg-[#105541] text-white shadow-xs'
+                                                        : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-900/50 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700'
+                                                    }`}
+                                                >
+                                                    {item.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Option 3.5: Custom Teacher Name */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                        <div className="flex items-center justify-between border-b pb-2.5 border-gray-100 dark:border-gray-700">
+                                            <h4 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2">
+                                                <Users className="w-4 h-4 text-emerald-600" />
+                                                <span>اسم المعلم / المعلمين في التقرير</span>
+                                            </h4>
+                                            {customTeacherName.trim() && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setCustomTeacherName('')}
+                                                    className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 hover:underline"
+                                                >
+                                                    استعادة التلقائي
+                                                </button>
+                                            )}
+                                        </div>
+                                        <div className="space-y-1 pt-0.5">
+                                            <span className="text-[10px] text-gray-400 block">
+                                                يمكنك تعديل النص الذي يظهر في خانة المعلمين بالتقرير، أو تركه فارغاً للتعبئة التلقائية ({teachersInfo.names})
+                                            </span>
+                                            <input 
+                                                type="text"
+                                                value={customTeacherName}
+                                                onChange={(e) => setCustomTeacherName(e.target.value)}
+                                                placeholder={`تلقائي: ${teachersInfo.names}`}
+                                                className="w-full text-xs p-2.5 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 text-gray-800 dark:text-white outline-none focus:ring-2 focus:ring-emerald-500"
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* Option 4: Custom Logo Upload */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                        <h4 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2 border-b pb-2.5 border-gray-100 dark:border-gray-700">
+                                            <ImageIcon className="w-4 h-4 text-emerald-600" />
+                                            <span>شعار التقرير والحلقة</span>
+                                        </h4>
+
+                                        <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-gray-200 dark:border-gray-700">
+                                            <div className="w-12 h-12 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex items-center justify-center overflow-hidden p-1 shrink-0">
+                                                {customReportLogo || activeCircle.logo ? (
+                                                    <img 
+                                                        src={customReportLogo || activeCircle.logo} 
+                                                        alt="Logo Preview" 
+                                                        className="w-full h-full object-contain"
+                                                        referrerPolicy="no-referrer"
+                                                    />
+                                                ) : (
+                                                    <ImageIcon className="w-5 h-5 text-gray-400" />
+                                                )}
+                                            </div>
+                                            <div className="flex flex-col gap-1.5 flex-1">
+                                                <input 
+                                                    type="file" 
+                                                    ref={logoFileInputRef}
+                                                    onChange={handleLogoUpload}
+                                                    accept="image/*"
+                                                    className="hidden"
+                                                />
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => logoFileInputRef.current?.click()}
+                                                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1.5 justify-center cursor-pointer transition-all"
+                                                    >
+                                                        <Upload size={13} />
+                                                        <span>رفع شعار جديد للتقرير</span>
+                                                    </button>
+                                                    {customReportLogo && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setCustomReportLogo('')}
+                                                            className="text-[11px] font-bold text-red-600 dark:text-red-400 hover:underline flex items-center gap-1 cursor-pointer"
+                                                        >
+                                                            <Trash2 size={11} />
+                                                            <span>استعادة الشعار الأصلي</span>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Option 5: Paper Orientation */}
+                                    <div className="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 space-y-3">
+                                        <h4 className="font-bold text-xs sm:text-sm text-gray-800 dark:text-white flex items-center gap-2 border-b pb-2.5 border-gray-100 dark:border-gray-700">
+                                            <Layout className="w-4 h-4 text-emerald-600" />
+                                            <span>اتجاه التقرير بالصفحة (A4)</span>
+                                        </h4>
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <button
+                                                type="button"
+                                                onClick={() => setOrientation('landscape')}
+                                                className={`p-3 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold cursor-pointer transition-all ${
+                                                    orientation === 'landscape'
+                                                    ? 'bg-[#105541] text-white border-[#105541] shadow-xs'
+                                                    : 'bg-gray-50 dark:bg-gray-900/50 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                <span>A4 عرضي (Landscape)</span>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() => setOrientation('portrait')}
+                                                className={`p-3 rounded-xl border flex items-center justify-center gap-2 text-xs font-bold cursor-pointer transition-all ${
+                                                    orientation === 'portrait'
+                                                    ? 'bg-[#105541] text-white border-[#105541] shadow-xs'
+                                                    : 'bg-gray-50 dark:bg-gray-900/50 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-100'
+                                                }`}
+                                            >
+                                                <span>A4 طولي (Portrait)</span>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Option 6: Report Content Overview */}
+                                    <div className="bg-emerald-50/50 dark:bg-emerald-950/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-900/40 space-y-2.5">
+                                        <h4 className="font-bold text-xs sm:text-sm text-emerald-900 dark:text-emerald-300 flex items-center gap-2 border-b pb-2 border-emerald-200/60 dark:border-emerald-900/40">
+                                            <FileCheck className="w-4 h-4 text-emerald-600" />
+                                            <span>محتويات هذا التقرير:</span>
+                                        </h4>
+
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-emerald-950 dark:text-emerald-200">
+                                            {reportType === 'comprehensive' && (
+                                                <>
+                                                    <div className="flex items-center gap-2">✓ جدول الحضور وإحصائيات الالتزام الموحدة</div>
+                                                    <div className="flex items-center gap-2">✓ رصد كمية الصفحات المحفوظة والمراجعة</div>
+                                                    <div className="flex items-center gap-2">✓ نتائج الاختبارات ومجموع النقاط المكتسبة</div>
+                                                    <div className="flex items-center gap-2">✓ التقييم النهائي العام لكل طالب بالفترة</div>
+                                                </>
+                                            )}
+                                            {reportType === 'attendance' && (
+                                                <>
+                                                    <div className="flex items-center gap-2">✓ تفاصيل أيام الحضور والتأخير والغياب</div>
+                                                    <div className="flex items-center gap-2">✓ توثيق رصيد الأعذار المقبولة والملاحظات</div>
+                                                    <div className="flex items-center gap-2">✓ مؤشرات نسبة الانتظام ومعدل الالتزام</div>
+                                                    <div className="flex items-center gap-2">✓ تصنيف الطلاب حسب مستوى الانضباط</div>
+                                                </>
+                                            )}
+                                            {reportType === 'points' && (
+                                                <>
+                                                    <div className="flex items-center gap-2">✓ قائمة الشرف ومجموع النقاط المكتسبة</div>
+                                                    <div className="flex items-center gap-2">✓ سجل التعديلات اليدوية والمكافآت</div>
+                                                    <div className="flex items-center gap-2">✓ الترتيب التنافسي لطلاب الحلقة بالفترة</div>
+                                                    <div className="flex items-center gap-2">✓ تفاصيل نقاط الانضباط والحفظ والمراجعة</div>
+                                                </>
+                                            )}
+                                            {reportType === 'memorization' && (
+                                                <>
+                                                    <div className="flex items-center gap-2">✓ عدد صفحات الحفظ والمراجعة الدقيقة</div>
+                                                    <div className="flex items-center gap-2">✓ آخر سورة وآية تم الوصول إليها لكل طالب</div>
+                                                    <div className="flex items-center gap-2">✓ متوسط معدل الإنجاز اليومي والقرآني</div>
+                                                    <div className="flex items-center gap-2">✓ رصد التقديرات ونسبة إتقان التسميع</div>
+                                                </>
+                                            )}
+                                            {reportType === 'tests' && (
+                                                <>
+                                                    <div className="flex items-center gap-2">✓ درجات ومعدلات الاختبارات الدورية</div>
+                                                    <div className="flex items-center gap-2">✓ أعلى النتاجات والتقديرات المحققة</div>
+                                                    <div className="flex items-center gap-2">✓ مقارنة نتائج الطلاب بالخطط المقرر تنفيذها</div>
+                                                    <div className="flex items-center gap-2">✓ سجل التقييمات الشفهية والتحريرية</div>
+                                                </>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Bottom Action Bar */}
+                        <div className="flex items-center gap-3 pt-2">
+                            <button
+                                type="button"
+                                onClick={() => setView('preview')}
+                                className="flex-1 py-3.5 bg-[#105541] hover:bg-[#105541]/95 text-white font-bold rounded-xl shadow-md transition-all text-sm flex items-center justify-center gap-2 cursor-pointer"
+                            >
+                                <span>توليد ومعاينة التقرير 📊</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setView('select')}
+                                className="px-6 py-3.5 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-200 font-bold rounded-xl transition-all text-xs cursor-pointer"
+                            >
+                                إلغاء
+                            </button>
                         </div>
                     </motion.div>
                 )}
@@ -1497,7 +2428,7 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                                     style={{
                                         width: orientation === 'landscape' ? '297mm' : '210mm',
                                         height: orientation === 'landscape' ? '210mm' : '297mm',
-                                        padding: orientation === 'landscape' ? '12mm 15mm' : '15mm 15mm',
+                                        padding: orientation === 'landscape' ? '3mm 8mm 5mm 8mm' : '3.5mm 8mm 5.5mm 8mm',
                                         boxSizing: 'border-box',
                                         fontFamily: '"Tajawal", "Inter", sans-serif',
                                     }}
@@ -1529,7 +2460,7 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
                         style={{
                             width: orientation === 'landscape' ? '297mm' : '210mm',
                             height: orientation === 'landscape' ? '210mm' : '297mm',
-                            padding: orientation === 'landscape' ? '12mm 15mm' : '15mm 15mm',
+                            padding: orientation === 'landscape' ? '3mm 8mm 5mm 8mm' : '3.5mm 8mm 5.5mm 8mm',
                             boxSizing: 'border-box',
                             fontFamily: '"Tajawal", "Inter", sans-serif',
                             backgroundColor: '#ffffff'
