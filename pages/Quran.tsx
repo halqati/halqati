@@ -50,6 +50,12 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
     const [selectedJuz, setSelectedJuz] = useState<number>(1);
     const [navType, setNavType] = useState<'page' | 'surah' | 'juz'>('page');
     
+    // Display Mode: 'mushaf' (authentic page images) or 'text' (Uthmani text)
+    const [displayMode, setDisplayMode] = useState<'mushaf' | 'text'>('mushaf');
+    const [zoomScale, setZoomScale] = useState<number>(1);
+    const [imgLoading, setImgLoading] = useState<boolean>(true);
+    const [imgError, setImgError] = useState<boolean>(false);
+
     const [loading, setLoading] = useState<boolean>(false);
     const [quranData, setQuranData] = useState<QuranSurahRange[]>([]);
     
@@ -84,6 +90,23 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
             localStorage.setItem('last_read_quran_page', currentPage.toString());
         }
     }, [currentPage]);
+
+    // Handle mobile back button
+    useEffect(() => {
+        if (isSearchOpen || isSurahModalOpen) {
+            try {
+                window.history.pushState({ quranModalOpen: true }, '');
+            } catch (e) {}
+
+            const handlePopState = () => {
+                setIsSearchOpen(false);
+                setIsSurahModalOpen(false);
+            };
+
+            window.addEventListener('popstate', handlePopState);
+            return () => window.removeEventListener('popstate', handlePopState);
+        }
+    }, [isSearchOpen, isSurahModalOpen]);
 
     // Load data based on navigation selection
     useEffect(() => {
@@ -280,10 +303,7 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
                                 صفحة
                             </button>
                             <button
-                                onClick={() => {
-                                    setNavType('surah');
-                                    setIsSurahModalOpen(true);
-                                }}
+                                onClick={() => setNavType('surah')}
                                 className={`px-3 py-1 rounded-lg transition cursor-pointer ${
                                     navType === 'surah' ? 'bg-amber-700 text-white shadow-xs' : 'text-amber-950 dark:text-gray-300 hover:text-amber-700'
                                 }`}
@@ -319,6 +339,20 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
                             </div>
                         )}
 
+                        {navType === 'surah' && (
+                            <select
+                                value={selectedSurah}
+                                onChange={(e) => setSelectedSurah(parseInt(e.target.value))}
+                                className="bg-white dark:bg-gray-850 px-3 py-1.5 rounded-xl border border-amber-700/20 dark:border-gray-700 text-xs font-bold text-amber-950 dark:text-white outline-none cursor-pointer shadow-2xs max-w-[150px] sm:max-w-[200px] truncate"
+                            >
+                                {surahs.map((s, idx) => (
+                                    <option key={idx + 1} value={idx + 1}>
+                                        {idx + 1}. سورة {s.name} ({s.verses} آية)
+                                    </option>
+                                ))}
+                            </select>
+                        )}
+
                         {navType === 'juz' && (
                             <select
                                 value={selectedJuz}
@@ -331,49 +365,86 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
                             </select>
                         )}
 
-                        {/* Search Button */}
-                        <button
-                            onClick={() => setIsSearchOpen(true)}
-                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs"
-                            title="البحث في المصحف"
-                        >
-                            <Search className="w-4 h-4" />
-                            <span className="hidden sm:inline">بحث</span>
-                        </button>
+                        {/* Search Button & Display Mode Switcher */}
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={() => setDisplayMode(prev => prev === 'mushaf' ? 'text' : 'mushaf')}
+                                className="px-3 py-1.5 bg-amber-100 dark:bg-gray-800 hover:bg-amber-200 dark:hover:bg-gray-750 text-amber-950 dark:text-amber-200 rounded-xl transition cursor-pointer flex items-center gap-1.5 text-xs font-bold border border-amber-700/20"
+                                title="تغيير نمط العرض (صفحات مصورة / نص عثماني)"
+                            >
+                                <BookMarked className="w-4 h-4 text-amber-700 dark:text-amber-400" />
+                                <span>{displayMode === 'mushaf' ? 'عرض النص' : 'عرض المصحف'}</span>
+                            </button>
+
+                            <button
+                                onClick={() => setIsSearchOpen(true)}
+                                className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl transition cursor-pointer flex items-center gap-1 text-xs font-bold shadow-xs"
+                                title="البحث في المصحف"
+                            >
+                                <Search className="w-4 h-4" />
+                                <span className="hidden sm:inline">بحث</span>
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Font Family & Size Controls */}
-                    <div className="flex items-center gap-1.5">
-                        <button
-                            onClick={() => setFontSize(prev => Math.max(18, prev - 2))}
-                            className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-gray-200 hover:text-amber-700 transition cursor-pointer"
-                            title="تصغير الخط"
-                        >
-                            <Minus className="w-3.5 h-3.5" />
-                        </button>
+                    {/* Controls: Zoom for Mushaf mode or Font for Text mode */}
+                    {displayMode === 'mushaf' ? (
+                        <div className="flex items-center gap-1.5 bg-amber-100/80 dark:bg-gray-800/80 px-2 py-1 rounded-xl border border-amber-700/20">
+                            <button
+                                onClick={() => setZoomScale(prev => Math.max(0.8, prev - 0.1))}
+                                className="p-1.5 bg-white dark:bg-gray-700 rounded-lg text-gray-800 dark:text-gray-200 hover:text-amber-700 transition cursor-pointer shadow-2xs"
+                                title="تصغير الصفحة"
+                            >
+                                <Minus className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                                onClick={() => setZoomScale(1)}
+                                className="px-2 py-0.5 text-xs font-bold text-amber-900 dark:text-amber-200 cursor-pointer"
+                                title="إعادة الضبط"
+                            >
+                                {Math.round(zoomScale * 100)}%
+                            </button>
+                            <button
+                                onClick={() => setZoomScale(prev => Math.min(1.8, prev + 0.1))}
+                                className="p-1.5 bg-white dark:bg-gray-700 rounded-lg text-gray-800 dark:text-gray-200 hover:text-amber-700 transition cursor-pointer shadow-2xs"
+                                title="تكبير الصفحة"
+                            >
+                                <Plus className="w-3.5 h-3.5" />
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="flex items-center gap-1.5">
+                            <button
+                                onClick={() => setFontSize(prev => Math.max(18, prev - 2))}
+                                className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-gray-200 hover:text-amber-700 transition cursor-pointer"
+                                title="تصغير الخط"
+                            >
+                                <Minus className="w-3.5 h-3.5" />
+                            </button>
 
-                        <span className="text-xs font-bold text-amber-950 dark:text-amber-300 w-6 text-center font-mono">
-                            {fontSize}
-                        </span>
+                            <span className="text-xs font-bold text-amber-950 dark:text-amber-300 w-6 text-center font-mono">
+                                {fontSize}
+                            </span>
 
-                        <button
-                            onClick={() => setFontSize(prev => Math.min(48, prev + 2))}
-                            className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-gray-200 hover:text-amber-700 transition cursor-pointer"
-                            title="تكبير الخط"
-                        >
-                            <Plus className="w-3.5 h-3.5" />
-                        </button>
+                            <button
+                                onClick={() => setFontSize(prev => Math.min(48, prev + 2))}
+                                className="p-1.5 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-lg text-gray-800 dark:text-gray-200 hover:text-amber-700 transition cursor-pointer"
+                                title="تكبير الخط"
+                            >
+                                <Plus className="w-3.5 h-3.5" />
+                            </button>
 
-                        <select
-                            value={fontFamily}
-                            onChange={(e) => setFontFamily(e.target.value)}
-                            className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-2 py-1 text-xs font-bold text-gray-800 dark:text-gray-200 outline-none cursor-pointer hidden md:block"
-                        >
-                            {FONT_OPTIONS.map(opt => (
-                                <option key={opt.value} value={opt.value}>{opt.label}</option>
-                            ))}
-                        </select>
-                    </div>
+                            <select
+                                value={fontFamily}
+                                onChange={(e) => setFontFamily(e.target.value)}
+                                className="bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-700 rounded-xl px-2 py-1 text-xs font-bold text-gray-800 dark:text-gray-200 outline-none cursor-pointer hidden md:block"
+                            >
+                                {FONT_OPTIONS.map(opt => (
+                                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
                 </div>
             </header>
 
@@ -418,18 +489,18 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
                         {/* Physical Mushaf Page Frame */}
                         <AnimatePresence mode="wait">
                             <motion.div
-                                key={navType === 'page' ? currentPage : `${navType}-${selectedSurah}-${selectedJuz}`}
+                                key={navType === 'page' ? `${displayMode}-${currentPage}` : `${displayMode}-${selectedSurah}-${selectedJuz}`}
                                 initial={{ opacity: 0, x: 20 }}
                                 animate={{ opacity: 1, x: 0 }}
                                 exit={{ opacity: 0, x: -20 }}
                                 transition={{ duration: 0.2 }}
-                                className="relative border-2 sm:border-4 border-amber-700/40 dark:border-amber-500/30 rounded-2xl p-4 sm:p-8 md:p-12 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[550px] w-full max-w-full overflow-hidden box-border flex flex-col justify-between transition-colors duration-300"
+                                className="relative border-2 sm:border-4 border-amber-700/40 dark:border-amber-500/30 rounded-2xl p-3 sm:p-6 md:p-8 bg-[#FAF6EB] dark:bg-gray-900 text-gray-950 dark:text-gray-50 shadow-2xl min-h-[550px] w-full max-w-full overflow-hidden box-border flex flex-col justify-between transition-colors duration-300"
                             >
                                 {/* Inner Ornamental Line */}
                                 <div className="absolute inset-2 border border-amber-700/15 dark:border-amber-500/15 rounded-xl pointer-events-none" />
 
                                 {/* Page Top Bar: Juz & Surah */}
-                                <div className="flex justify-between items-center border-b border-amber-700/20 pb-4 mb-6 text-xs md:text-sm text-amber-950 dark:text-amber-300 font-extrabold select-none">
+                                <div className="flex justify-between items-center border-b border-amber-700/20 pb-3 mb-4 text-xs md:text-sm text-amber-950 dark:text-amber-300 font-extrabold select-none z-10">
                                     <span className="bg-amber-200/80 dark:bg-amber-950/60 px-3.5 py-1 rounded-full border border-amber-700/15">
                                         {getJuzNameArabic(quranData[0]?.ayahs[0]?.juz || 1)}
                                     </span>
@@ -438,64 +509,86 @@ export const QuranPage: React.FC<QuranPageProps> = ({ onBack }) => {
                                     </span>
                                 </div>
 
-                                {/* Quran Verses Flow with Uthmani Font */}
-                                <div 
-                                    className="flex-1 leading-[2.6] md:leading-[2.8] tracking-wide text-justify select-text"
-                                    style={{ 
-                                        fontFamily: fontFamily, 
-                                        fontSize: `${fontSize}px`,
-                                        direction: 'rtl',
-                                        textJustify: 'inter-word'
-                                    }}
-                                >
-                                    {quranData.map((surah) => (
-                                        <div key={surah.number} className="mb-8">
-                                            {/* Surah Decorative Banner */}
-                                            <div className="my-5 text-center select-none">
-                                                <div className="relative py-2 flex items-center justify-center">
-                                                    <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                                                        <div className="w-full border-t border-dashed border-amber-500/70 dark:border-amber-700/50"></div>
-                                                    </div>
-                                                    <div className="relative px-8 py-1.5 bg-amber-200/90 dark:bg-gray-800 border-2 border-amber-600/70 text-amber-950 dark:text-amber-200 font-black text-sm md:text-base rounded-full shadow-xs flex items-center gap-2">
-                                                        <span>❖ سُورَةُ {surah.name} ❖</span>
-                                                    </div>
-                                                </div>
-                                                
-                                                {/* Bismillah Banner */}
-                                                {surah.number !== 9 && (
-                                                    <div className="block text-center text-amber-950 dark:text-amber-200 py-3 font-bold text-base md:text-lg tracking-wide select-none" style={{ fontFamily }}>
-                                                        بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Verses Flow */}
-                                            <div>
-                                                {surah.ayahs.map((ayah) => {
-                                                    let text = ayah.text;
-                                                    const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
-                                                    const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
-                                                    if (ayah.numberInSurah === 1) {
-                                                        if (text.startsWith(basmalahPrefix1)) {
-                                                            text = text.slice(basmalahPrefix1.length).trim();
-                                                        } else if (text.startsWith(basmalahPrefix2)) {
-                                                            text = text.slice(basmalahPrefix2.length).trim();
-                                                        }
-                                                    }
-
-                                                    return (
-                                                        <span key={ayah.numberInSurah} className="inline">
-                                                            <span>{text}</span>
-                                                            <span className="text-amber-800 dark:text-amber-400 font-sans mx-1.5 select-none font-bold text-xs md:text-sm inline-block align-middle">
-                                                                ﴿{ayah.numberInSurah}﴾
-                                                            </span>
-                                                        </span>
-                                                    );
-                                                })}
-                                            </div>
+                                {/* Content Body: Authentic Page Image OR Uthmani Text */}
+                                {displayMode === 'mushaf' && navType === 'page' ? (
+                                    <div className="flex-1 flex flex-col items-center justify-center my-2 overflow-auto relative min-h-[480px]">
+                                        <div 
+                                            className="transition-transform duration-200 ease-out flex items-center justify-center w-full"
+                                            style={{ transform: `scale(${zoomScale})`, transformOrigin: 'top center' }}
+                                        >
+                                            <img
+                                                src={`https://files.quran.app/hafs/madani/width_1024/page${currentPage.toString().padStart(3, '0')}.png`}
+                                                alt={`صفحة ${currentPage} من المصحف الشريف`}
+                                                className="max-w-full h-auto object-contain max-h-[70vh] rounded-md shadow-sm filter contrast-[1.03]"
+                                                loading="eager"
+                                                onError={(e) => {
+                                                    // Fallback gracefully if image cannot be fetched
+                                                    console.warn('Page image failed to load, switching to text view fallback');
+                                                    setDisplayMode('text');
+                                                }}
+                                            />
                                         </div>
-                                    ))}
-                                </div>
+                                    </div>
+                                ) : (
+                                    /* Quran Verses Flow with Uthmani Font */
+                                    <div 
+                                        className="flex-1 leading-[2.6] md:leading-[2.8] tracking-wide text-justify select-text"
+                                        style={{ 
+                                            fontFamily: fontFamily, 
+                                            fontSize: `${fontSize}px`,
+                                            direction: 'rtl',
+                                            textJustify: 'inter-word'
+                                        }}
+                                    >
+                                        {quranData.map((surah) => (
+                                            <div key={surah.number} className="mb-8">
+                                                {/* Surah Decorative Banner */}
+                                                <div className="my-5 text-center select-none">
+                                                    <div className="relative py-2 flex items-center justify-center">
+                                                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                                                            <div className="w-full border-t border-dashed border-amber-500/70 dark:border-amber-700/50"></div>
+                                                        </div>
+                                                        <div className="relative px-8 py-1.5 bg-amber-200/90 dark:bg-gray-800 border-2 border-amber-600/70 text-amber-950 dark:text-amber-200 font-black text-sm md:text-base rounded-full shadow-xs flex items-center gap-2">
+                                                            <span>❖ سُورَةُ {surah.name} ❖</span>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Bismillah Banner */}
+                                                    {surah.number !== 9 && (
+                                                        <div className="block text-center text-amber-950 dark:text-amber-200 py-3 font-bold text-base md:text-lg tracking-wide select-none" style={{ fontFamily }}>
+                                                            بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* Verses Flow */}
+                                                <div>
+                                                    {surah.ayahs.map((ayah) => {
+                                                        let text = ayah.text;
+                                                        const basmalahPrefix1 = "بِسْمِ اللَّهِ الرَّحْمَٰنِ الرَّحِيمِ";
+                                                        const basmalahPrefix2 = "بِسْمِ ٱللَّهِ ٱلرَّحْمَٰنِ ٱلرَّحِيمِ";
+                                                        if (ayah.numberInSurah === 1) {
+                                                            if (text.startsWith(basmalahPrefix1)) {
+                                                                text = text.slice(basmalahPrefix1.length).trim();
+                                                            } else if (text.startsWith(basmalahPrefix2)) {
+                                                                text = text.slice(basmalahPrefix2.length).trim();
+                                                            }
+                                                        }
+
+                                                        return (
+                                                            <span key={ayah.numberInSurah} className="inline">
+                                                                <span>{text}</span>
+                                                                <span className="text-amber-800 dark:text-amber-400 font-sans mx-1.5 select-none font-bold text-xs md:text-sm inline-block align-middle">
+                                                                    ﴿{ayah.numberInSurah}﴾
+                                                                </span>
+                                                            </span>
+                                                        );
+                                                    })}
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
 
                                 {/* Page Footer Navigation */}
                                 {navType === 'page' && (

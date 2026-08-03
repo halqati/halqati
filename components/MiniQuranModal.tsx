@@ -234,12 +234,26 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
         if (isOpen) {
             document.body.style.overflow = 'hidden';
             document.addEventListener('mousedown', handleClickOutside);
-        }
 
-        return () => {
-            document.body.style.overflow = '';
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
+            // Push history state so hardware / browser back button closes the modal safely
+            try {
+                window.history.pushState({ miniQuranModalOpen: true }, '');
+            } catch (e) {
+                console.warn('History pushState error:', e);
+            }
+
+            const handlePopState = () => {
+                onClose();
+            };
+
+            window.addEventListener('popstate', handlePopState);
+
+            return () => {
+                document.body.style.overflow = '';
+                document.removeEventListener('mousedown', handleClickOutside);
+                window.removeEventListener('popstate', handlePopState);
+            };
+        }
     }, [isOpen, onClose]);
 
     // Check if offline is ready
