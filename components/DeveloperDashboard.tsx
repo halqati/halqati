@@ -57,6 +57,7 @@ import {
     RotateCcw,
     ShieldCheck,
     Check,
+    Send,
     Sliders
 } from 'lucide-react';
 import { auth, signInWithEmailAndPassword, updatePassword, deleteUser, db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion, deleteField } from '../firebase';
@@ -619,21 +620,29 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const toggleMaintenanceMode = async (circleId: string, current: boolean, note?: string) => {
         setLoadingCircleActions(prev => ({ ...prev, [`${circleId}-maintenance`]: true }));
         try {
-            await updateDoc(doc(db, 'circles', circleId), { 
+            const circleRef = doc(db, 'circles', circleId);
+            await updateDoc(circleRef, { 
                 isMaintenance: !current,
                 ...(note !== undefined ? { maintenanceNote: note } : {}),
                 lastUpdated: Date.now()
             });
+
+            // Verify write in database before confirming
+            const checkSnap = await getDoc(circleRef);
+            if (!checkSnap.exists() || checkSnap.data()?.isMaintenance !== !current) {
+                throw new Error("لم يتم التحديث في قاعدة البيانات بنجاح");
+            }
+
             setCircles(prev => prev.map(c => c.id === circleId ? { 
                 ...c, 
                 isMaintenance: !current, 
                 ...(note !== undefined ? { maintenanceNote: note } : {}), 
                 lastUpdated: Date.now() 
             } : c));
-            addToast(`تم ${!current ? 'تفعيل' : 'إلغاء'} وضع الصيانة بنجاح`, 'info');
-        } catch (error) {
+            addToast(`تم ${!current ? 'تفعيل' : 'إلغاء'} وضع الصيانة بنجاح وحفظه في قاعدة البيانات`, 'info');
+        } catch (error: any) {
             console.error("Error setting maintenance mode:", error);
-            addToast('فشل تحديث وضع الصيانة', 'error');
+            addToast('❌ فشل تحديث وضع الصيانة: ' + (error.message || error), 'error');
         } finally {
             setLoadingCircleActions(prev => ({ ...prev, [`${circleId}-maintenance`]: false }));
         }
@@ -643,19 +652,27 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         setLoadingCircleActions(prev => ({ ...prev, [`${circleId}-status`]: true }));
         const newStatus = currentStatus === 'inactive' ? 'active' : 'inactive';
         try {
-            await updateDoc(doc(db, 'circles', circleId), { 
+            const circleRef = doc(db, 'circles', circleId);
+            await updateDoc(circleRef, { 
                 status: newStatus,
                 lastUpdated: Date.now()
             });
+
+            // Verify write in database before confirming
+            const checkSnap = await getDoc(circleRef);
+            if (!checkSnap.exists() || checkSnap.data()?.status !== newStatus) {
+                throw new Error("لم يتم حفظ حالة الحلقة في قاعدة البيانات بنجاح");
+            }
+
             setCircles(prev => prev.map(c => c.id === circleId ? { 
                 ...c, 
                 status: newStatus, 
                 lastUpdated: Date.now() 
             } : c));
-            addToast(`تم ${newStatus === 'inactive' ? 'تعطيل' : 'تفعيل'} الحلقة بنجاح`, 'success');
-        } catch (error) {
+            addToast(`تم ${newStatus === 'inactive' ? 'تعطيل' : 'تفعيل'} الحلقة بنجاح وحفظها في قاعدة البيانات`, 'success');
+        } catch (error: any) {
             console.error("Error setting circle status:", error);
-            addToast('فشل تحديث حالة الحلقة', 'error');
+            addToast('❌ فشل تحديث حالة الحلقة: ' + (error.message || error), 'error');
         } finally {
             setLoadingCircleActions(prev => ({ ...prev, [`${circleId}-status`]: false }));
         }
@@ -769,19 +786,27 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const toggleCircleStop = async (circleId: string, current: boolean) => {
         setLoadingCircleActions(prev => ({ ...prev, [`${circleId}-stop`]: true }));
         try {
-            await updateDoc(doc(db, 'circles', circleId), { 
+            const circleRef = doc(db, 'circles', circleId);
+            await updateDoc(circleRef, { 
                 isStopped: !current,
                 lastUpdated: Date.now()
             });
+
+            // Verify write in database before confirming
+            const checkSnap = await getDoc(circleRef);
+            if (!checkSnap.exists() || checkSnap.data()?.isStopped !== !current) {
+                throw new Error("لم يتم حفظ حالة إيقاف الحلقة في قاعدة البيانات بنجاح");
+            }
+
             setCircles(prev => prev.map(c => c.id === circleId ? { 
                 ...c, 
                 isStopped: !current, 
                 lastUpdated: Date.now() 
             } : c));
-            addToast(`تم ${!current ? 'إيقاف نشاط' : 'استئناف نشاط'} الحلقة بنجاح`, 'success');
-        } catch (error) {
+            addToast(`تم ${!current ? 'إيقاف نشاط' : 'استئناف نشاط'} الحلقة بنجاح وحفظه في قاعدة البيانات`, 'success');
+        } catch (error: any) {
             console.error("Error toggling circle stop state:", error);
-            addToast('فشل تحديث حالة إيقاف الحلقة', 'error');
+            addToast('❌ فشل تحديث حالة إيقاف الحلقة: ' + (error.message || error), 'error');
         } finally {
             setLoadingCircleActions(prev => ({ ...prev, [`${circleId}-stop`]: false }));
         }
@@ -1123,6 +1148,46 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
             addToast('❌ فشل حذف الإشعار', 'error');
         }
     };
+
+    // Republish / Resend notification
+    const handleRepublishNotification = async (notif: any, resetStats: boolean = false) => {
+        try {
+            const notifRef = doc(db, 'developer_notifications', notif.id);
+            const now = Date.now();
+            const payload: any = {
+                active: true,
+                createdAt: now,
+                scheduledAt: now
+            };
+            if (resetStats) {
+                payload.stats = {
+                    delivered: [],
+                    viewed: [],
+                    closed: [],
+                    buttonClicks: {}
+                };
+            }
+            await updateDoc(notifRef, payload);
+            const checkSnap = await getDoc(notifRef);
+            if (!checkSnap.exists() || !checkSnap.data()?.active) {
+                throw new Error("لم يتم التثبت من نشر الإشعار بنجاح في قاعدة البيانات");
+            }
+            addToast(`🚀 تم إعادة نشر النشاط (${notif.title}) بنجاح!`, 'success');
+        } catch (e: any) {
+            console.error("Error republishing notification:", e);
+            addToast('❌ فشل إعادة نشر النشاط: ' + (e.message || e), 'error');
+        }
+    };
+
+    // Keep selected notification details updated in real time as stats change from users
+    useEffect(() => {
+        if (selectedNotifDetails) {
+            const updated = developerNotifications.find(n => n.id === selectedNotifDetails.id);
+            if (updated) {
+                setSelectedNotifDetails(updated);
+            }
+        }
+    }, [developerNotifications]);
 
     // Prepare form for editing
     const handleEditNotification = (notif: any) => {
@@ -2928,6 +2993,14 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                                 <div className="flex items-center gap-1">
                                                                     <button
                                                                         type="button"
+                                                                        onClick={() => handleRepublishNotification(notif, false)}
+                                                                        className="p-1 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 rounded-lg transition-all"
+                                                                        title="إعادة نشر الإشعار / النشاط"
+                                                                    >
+                                                                        <Send size={12} />
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
                                                                         onClick={() => setSelectedNotifDetails(notif)}
                                                                         className="px-2 py-1 bg-white/5 hover:bg-emerald-500/20 text-gray-300 hover:text-emerald-300 text-[9px] rounded-lg font-bold transition-all"
                                                                     >
@@ -3066,8 +3139,72 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                             )}
                                         </div>
 
+                                        {/* Realtime Recipient Teacher Breakdown Status List */}
+                                        <div className="bg-[#050807] p-3.5 rounded-2xl border border-white/5 space-y-2">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-[10px] font-black text-emerald-400 block">👥 حالة جميع المستلمين (مباشر)</span>
+                                                <span className="text-[9px] text-gray-500 font-mono">
+                                                    إجمالي المستهدفين: {
+                                                        users.filter(u => {
+                                                            if (selectedNotifDetails.targetType === 'all') return true;
+                                                            if (selectedNotifDetails.targetType === 'users') return selectedNotifDetails.targetUids?.includes(u.uid);
+                                                            if (selectedNotifDetails.targetType === 'circles') return circles.some(c => selectedNotifDetails.targetCircleIds?.includes(c.id) && (c.ownerId === u.uid || c.teachers?.[u.uid]));
+                                                            return false;
+                                                        }).length
+                                                    }
+                                                </span>
+                                            </div>
+
+                                            <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar">
+                                                {users.filter(u => {
+                                                    if (selectedNotifDetails.targetType === 'all') return true;
+                                                    if (selectedNotifDetails.targetType === 'users') return selectedNotifDetails.targetUids?.includes(u.uid);
+                                                    if (selectedNotifDetails.targetType === 'circles') return circles.some(c => selectedNotifDetails.targetCircleIds?.includes(c.id) && (c.ownerId === u.uid || c.teachers?.[u.uid]));
+                                                    return false;
+                                                }).map(t => {
+                                                    const delivered = (selectedNotifDetails.stats?.delivered || []).includes(t.uid);
+                                                    const viewed = (selectedNotifDetails.stats?.viewed || []).includes(t.uid);
+                                                    const closed = (selectedNotifDetails.stats?.closed || []).includes(t.uid);
+                                                    const userCircle = circles.find(c => c.ownerId === t.uid || c.teachers?.[t.uid])?.circle || 'معلم / عضو';
+
+                                                    return (
+                                                        <div key={t.uid} className="bg-[#0a0f0d] p-2.5 rounded-xl border border-white/5 flex items-center justify-between text-[10px] gap-2">
+                                                            <div className="space-y-0.5">
+                                                                <p className="font-bold text-white flex items-center gap-1.5">
+                                                                    <span>{t.displayName || (t as any).name || 'مستخدم'}</span>
+                                                                    <span className="text-[8px] bg-emerald-500/10 text-emerald-400 px-1.5 py-0.2 rounded font-mono">{userCircle}</span>
+                                                                </p>
+                                                                <p className="text-[8px] text-gray-500 font-mono">معرّف: {t.uid.slice(0, 8)}...</p>
+                                                            </div>
+
+                                                            <div className="flex items-center gap-1 flex-wrap justify-end">
+                                                                <span className={`px-2 py-0.5 rounded-lg font-bold text-[8px] border ${delivered ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-gray-800/50 text-gray-500 border-gray-700/30'}`}>
+                                                                    {delivered ? '🟢 وصل' : '⏳ لم يصل'}
+                                                                </span>
+                                                                <span className={`px-2 py-0.5 rounded-lg font-bold text-[8px] border ${viewed ? 'bg-blue-500/10 text-blue-400 border-blue-500/20' : 'bg-gray-800/50 text-gray-500 border-gray-700/30'}`}>
+                                                                    {viewed ? '👁️ تم العرض' : '👁️‍🗨️ لم يُشاهد'}
+                                                                </span>
+                                                                <span className={`px-2 py-0.5 rounded-lg font-bold text-[8px] border ${closed ? 'bg-purple-500/10 text-purple-400 border-purple-500/20' : 'bg-gray-800/50 text-gray-500 border-gray-700/30'}`}>
+                                                                    {closed ? '✅ تم التنفيذ/الإغلاق' : '⏳ قيد الانتظار'}
+                                                                </span>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+
                                         {/* Actions in Details Modal */}
-                                        <div className="flex gap-2 pt-2 border-t border-white/10">
+                                        <div className="flex gap-2 pt-2 border-t border-white/10 flex-wrap">
+                                            <button
+                                                onClick={() => {
+                                                    const notif = selectedNotifDetails;
+                                                    handleRepublishNotification(notif, false);
+                                                }}
+                                                className="py-2.5 px-3 bg-emerald-500 text-black hover:bg-emerald-400 font-black rounded-xl text-xs transition-all flex items-center gap-1"
+                                            >
+                                                🚀 إعادة نشر
+                                            </button>
                                             <button
                                                 onClick={() => {
                                                     const notif = selectedNotifDetails;

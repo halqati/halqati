@@ -1034,7 +1034,8 @@ const App: React.FC = () => {
             'hasShownAddonsNotification_m1', 'hasShownContactDevNotification_m2',
             'lastMonthlyStatsNotification', 'hasAgreedToCommunityTerms', 'hasShownFeedbackRequest',
             'bulkRewards', 'numericId', 'transferCode', 'transferPassword', 'allowDirectEntry',
-            'authorizedUserIds', 'ownerId', 'teachers', 'lastUpdated'
+            'authorizedUserIds', 'ownerId', 'teachers', 'lastUpdated',
+            'status', 'isStopped', 'isMaintenance', 'maintenanceNote', 'suspendedByTeacherUid', 'suspendedByTeacherReason'
         ];
         metadataKeys.forEach(key => {
             if ((remote as any)[key] !== undefined) {
@@ -1058,7 +1059,8 @@ const App: React.FC = () => {
             'hasShownAddonsNotification_m1', 'hasShownContactDevNotification_m2',
             'lastMonthlyStatsNotification', 'hasAgreedToCommunityTerms', 'hasShownFeedbackRequest',
             'bulkRewards', 'numericId', 'transferCode', 'transferPassword', 'allowDirectEntry',
-            'authorizedUserIds', 'ownerId', 'teachers', 'lastUpdated'
+            'authorizedUserIds', 'ownerId', 'teachers', 'lastUpdated',
+            'status', 'isStopped', 'isMaintenance', 'maintenanceNote', 'suspendedByTeacherUid', 'suspendedByTeacherReason'
         ];
         metadataKeys.forEach(key => {
             if ((circle as any)[key] !== undefined) {
