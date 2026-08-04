@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-[#105541]/10' ? 'framer-motion' : 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { ShieldCheck, User, ArrowRight, X, AlertTriangle } from 'lucide-react';
 
 interface TransferTeacher {

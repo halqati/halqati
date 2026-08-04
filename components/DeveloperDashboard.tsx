@@ -928,8 +928,8 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const processedCircles = useMemo(() => {
         let list = [...circles];
         list.sort((a, b) => {
-            const timeA = a.lastUpdated || a.createdAt || (a.numericId ? Number(a.numericId) : 0) || 0;
-            const timeB = b.lastUpdated || b.createdAt || (b.numericId ? Number(b.numericId) : 0) || 0;
+            const timeA = a.lastUpdated || (a as any).createdAt || (a.numericId ? Number(a.numericId) : 0) || 0;
+            const timeB = b.lastUpdated || (b as any).createdAt || (b.numericId ? Number(b.numericId) : 0) || 0;
             return timeB - timeA;
         });
 
@@ -1006,6 +1006,27 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         } catch (e: any) {
             console.error("Emergency delete error:", e);
             addToast('❌ فشل الحذف الجذري للحلقة: ' + (e.message || e), 'error');
+        }
+    };
+
+    const handleArchiveAndDeleteCircle = async (circleId: string, circleData: CircleData) => {
+        if (!db) return;
+        try {
+            const archiveData = {
+                archivedAt: Date.now(),
+                archivedByUid: userProfile?.uid || 'developer',
+                archivedByName: userProfile?.displayName || 'المطور الرئيسي',
+                circleId: circleId,
+                circleData: circleData
+            };
+            await setDoc(doc(db, 'archived_circles', circleId), archiveData);
+            await deleteDoc(doc(db, 'circles', circleId));
+
+            addToast(`✅ تم حذف حلقة (${circleData.circle || 'الحلقة'}) بنجاح ونقل نسختها إلى الأرشيف`, 'success');
+            setSelectedCircle(null);
+        } catch (e: any) {
+            console.error("Archive and delete error:", e);
+            addToast('❌ فشل أرشفة وحذف الحلقة: ' + (e.message || e), 'error');
         }
     };
 
@@ -2478,6 +2499,23 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                     className="p-2.5 rounded-xl border bg-blue-500/10 text-blue-400 border-blue-500/20 hover:bg-blue-500/20 font-bold text-center transition-all"
                                                 >
                                                     🚀 إرسال إشعار عاجل
+                                                </button>
+                                                <button 
+                                                    onClick={() => {
+                                                        openActionDialog({
+                                                            type: 'confirm',
+                                                            title: `🗑️ حذف حلقة (${activeCircle.circle}) نهائياً`,
+                                                            description: `سيتم إزالة حلقة "${activeCircle.circle}" بالكامل من النظام ونقل نسختها إلى الأرشيف فوراً، مع إزالة ظهورها لجميع المستخدمين. هل أنت متأكد؟`,
+                                                            isDanger: true,
+                                                            onConfirm: async () => {
+                                                                await handleArchiveAndDeleteCircle(activeCircle.id, activeCircle);
+                                                            }
+                                                        });
+                                                    }}
+                                                    className="p-2.5 rounded-xl border bg-red-600/20 text-red-400 border-red-500/30 hover:bg-red-600/30 font-bold text-center transition-all flex items-center justify-center gap-1.5 shadow-md shadow-red-600/10"
+                                                >
+                                                    <Trash2 size={14} />
+                                                    <span>حذف الحلقة نهائياً (للأرشيف)</span>
                                                 </button>
                                             </div>
                                         </div>

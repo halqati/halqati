@@ -375,6 +375,19 @@ const CircleInfo: React.FC<CircleInfoProps> = ({ data, onBack, onEdit, onUpdateC
                 </div>
             </div>
 
+            {/* Leave / Delete Circle Button */}
+            {onDeleteCircle && (
+                <div className="pt-1">
+                    <button 
+                        onClick={() => onDeleteCircle(data.id)}
+                        className="w-full py-3.5 px-4 bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 rounded-2xl font-bold text-xs flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer shadow-sm"
+                    >
+                        <FaTrash size={12} />
+                        <span>{data.ownerId === currentUserId ? 'إدارة / خروج أو حذف الحلقة' : 'الخروج من إشراف الحلقة'}</span>
+                    </button>
+                </div>
+            )}
+
             {/* Minimal Code Editor */}
             <AnimatePresence>
                 {isEditingCode && (
