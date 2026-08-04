@@ -366,9 +366,14 @@ const Settings: React.FC<SettingsProps> = ({ data, allCircles, user, userProfile
                                     )}
                                     {allCircles.length > 1 && (
                                         <button 
-                                            onClick={() => onDeleteCircle(circle.id)} 
-                                            className="p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer"
-                                            title={circle.ownerId === user?.uid ? "إدارة/حذف الحلقة" : "الخروج من الحلقة"}
+                                            onClick={() => {
+                                                if (!hasCircleSettingsPermission) {
+                                                    addToast?.("عذراً، لا تمتلك الصلاحية الكافية لحذف هذه الحلقة.", "error");
+                                                } else {
+                                                    onDeleteCircle(circle.id);
+                                                }
+                                            }} 
+                                            className={`p-1 text-gray-400 hover:text-red-500 transition-colors cursor-pointer ${!hasCircleSettingsPermission ? 'opacity-50' : ''}`}
                                         >
                                             <FaTrash size={10} />
                                         </button>
