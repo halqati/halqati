@@ -275,6 +275,7 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const [archivedCircles, setArchivedCircles] = useState<any[]>([]);
     const [circleViewMode, setCircleViewMode] = useState<'active' | 'archived'>('active');
     const [selectedArchivedCircle, setSelectedArchivedCircle] = useState<any | null>(null);
+    const [selectedArchivedIds, setSelectedArchivedIds] = useState<string[]>([]);
     const [editingPermissionsTeacherUid, setEditingPermissionsTeacherUid] = useState<string | null>(null);
     const [tempGranularPermissions, setTempGranularPermissions] = useState<any | null>(null);
 
@@ -1018,7 +1019,9 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         if (!db) return;
         try {
             const circleId = archivedItem.circleId || archivedItem.id;
-            const rawData = archivedItem.circleData || archivedItem;
+            // Fetch fresh copy from archived_circles to ensure any developer edits are included
+            const archivedSnap = await getDoc(doc(db, 'archived_circles', archivedItem.id));
+            const rawData = archivedSnap.exists() ? (archivedSnap.data()?.circleData || archivedSnap.data()) : (archivedItem.circleData || archivedItem);
             
             const { archivedAt, archivedByUid, archivedByName, circleId: cId, circleData, ...restData } = rawData;
             
@@ -1034,10 +1037,56 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
 
             addToast(`✅ تم استعادة حلقة (${restoredCircle.circle}) بنجاح وإعادتها لجميع الأعضاء`, 'success');
             setSelectedArchivedCircle(null);
+            setSelectedArchivedIds(prev => prev.filter(id => id !== archivedItem.id));
         } catch (e: any) {
             console.error("Restore circle error:", e);
             addToast('❌ فشلت استعادة الحلقة: ' + (e.message || e), 'error');
         }
+    };
+
+    const handleRestoreArchivedCirclesBatch = async (items: any[]) => {
+        if (!db || items.length === 0) return;
+        let count = 0;
+        for (const archivedItem of items) {
+            try {
+                const circleId = archivedItem.circleId || archivedItem.id;
+                const archivedSnap = await getDoc(doc(db, 'archived_circles', archivedItem.id));
+                const rawData = archivedSnap.exists() ? (archivedSnap.data()?.circleData || archivedSnap.data()) : (archivedItem.circleData || archivedItem);
+                const { archivedAt, archivedByUid, archivedByName, circleId: cId, circleData, ...restData } = rawData;
+                
+                const restoredCircle: CircleData = {
+                    ...restData,
+                    id: circleId,
+                    status: 'active',
+                    lastUpdated: Date.now()
+                };
+
+                await setDoc(doc(db, 'circles', circleId), restoredCircle);
+                await deleteDoc(doc(db, 'archived_circles', archivedItem.id));
+                count++;
+            } catch (e) {
+                console.error("Batch restore error for item", archivedItem.id, e);
+            }
+        }
+        addToast(`✅ تم استعادة ${count} حلقة/حلقات بنجاح إلى النظام النشط`, 'success');
+        setSelectedArchivedIds([]);
+        setSelectedArchivedCircle(null);
+    };
+
+    const handleDeleteArchivedCirclesBatch = async (items: any[]) => {
+        if (!db || items.length === 0) return;
+        let count = 0;
+        for (const archivedItem of items) {
+            try {
+                await deleteDoc(doc(db, 'archived_circles', archivedItem.id));
+                count++;
+            } catch (e) {
+                console.error("Batch delete error for item", archivedItem.id, e);
+            }
+        }
+        addToast(`💥 تم الحذف النهائي لـ ${count} حلقة/حلقات من الأرشيف`, 'success');
+        setSelectedArchivedIds([]);
+        setSelectedArchivedCircle(null);
     };
 
     const handleEmergencyDeleteCircle = async (circleId: string, circleName: string, isArchived: boolean = false) => {
@@ -2248,21 +2297,130 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
 
                                     {/* Archived Circles View */}
                                     {circleViewMode === 'archived' && (
-                                        <div className="grid grid-cols-1 gap-3">
+                                        <div className="space-y-3">
+                                            {/* Bulk operations bar */}
+                                            {processedArchivedCircles.length > 0 && (
+                                                <div className="bg-[#0c1410] border border-amber-500/30 p-3 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                                                    <div className="flex items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={selectedArchivedIds.length === processedArchivedCircles.length && processedArchivedCircles.length > 0}
+                                                            onChange={(e) => {
+                                                                if (e.target.checked) {
+                                                                    setSelectedArchivedIds(processedArchivedCircles.map(item => item.id));
+                                                                } else {
+                                                                    setSelectedArchivedIds([]);
+                                                                }
+                                                            }}
+                                                            className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                                                        />
+                                                        <span className="text-gray-300 font-bold">
+                                                            تحديد الكل ({selectedArchivedIds.length} / {processedArchivedCircles.length})
+                                                        </span>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        {selectedArchivedIds.length > 0 && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const itemsToRestore = archivedCircles.filter(item => selectedArchivedIds.includes(item.id));
+                                                                        handleRestoreArchivedCirclesBatch(itemsToRestore);
+                                                                    }}
+                                                                    className="py-1.5 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                                                                >
+                                                                    <RotateCcw size={12} />
+                                                                    <span>استعادة المحددة ({selectedArchivedIds.length})</span>
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => {
+                                                                        openActionDialog({
+                                                                            type: 'confirm',
+                                                                            title: `💥 حذف نهائي لـ ${selectedArchivedIds.length} حلقات مؤرشفة`,
+                                                                            description: `هل أنت متأكد من حذف الحلقات المحددة (${selectedArchivedIds.length}) نهائياً وبشكل جذري من قاعدة البيانات السحابية؟ لا يمكن التراجع عن هذا الإجراء!`,
+                                                                            isDanger: true,
+                                                                            onConfirm: async () => {
+                                                                                const itemsToDelete = archivedCircles.filter(item => selectedArchivedIds.includes(item.id));
+                                                                                await handleDeleteArchivedCirclesBatch(itemsToDelete);
+                                                                            }
+                                                                        });
+                                                                    }}
+                                                                    className="py-1.5 px-3 bg-red-600 hover:bg-red-500 text-white rounded-xl font-bold flex items-center gap-1.5 transition-all shadow-md active:scale-95"
+                                                                >
+                                                                    <Trash2 size={12} />
+                                                                    <span>مسح المحددة ({selectedArchivedIds.length})</span>
+                                                                </button>
+                                                            </>
+                                                        )}
+
+                                                        <button
+                                                            onClick={() => {
+                                                                openActionDialog({
+                                                                    type: 'confirm',
+                                                                    title: '⚡ استعادة جميع الحلقات في الأرشيف',
+                                                                    description: `هل أنت متأكد من رغبتك في استعادة جميع الحلقات المؤرشفة (${archivedCircles.length} حلقة) وإعادتها فوراً لأعضائها؟`,
+                                                                    onConfirm: async () => {
+                                                                        await handleRestoreArchivedCirclesBatch(archivedCircles);
+                                                                    }
+                                                                });
+                                                            }}
+                                                            className="py-1.5 px-3 bg-emerald-950/80 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-900 rounded-xl font-bold flex items-center gap-1.5 transition-all"
+                                                        >
+                                                            <RotateCcw size={12} />
+                                                            <span>استعادة الكل ({archivedCircles.length})</span>
+                                                        </button>
+
+                                                        <button
+                                                            onClick={() => {
+                                                                openActionDialog({
+                                                                    type: 'confirm',
+                                                                    title: '🗑️ حذف جميع الحلقات المؤرشفة نهائياً',
+                                                                    description: `⚠️ تحذير شديد: هل أنت متأكد من المسح الكامل والنهائي لجميع الحلقات في الأرشيف (${archivedCircles.length} حلقة)؟ سيتم حذف بياناتها بالكامل ولن تظهر في الأرشيف مجدداً.`,
+                                                                    isDanger: true,
+                                                                    onConfirm: async () => {
+                                                                        await handleDeleteArchivedCirclesBatch(archivedCircles);
+                                                                    }
+                                                                });
+                                                            }}
+                                                            className="py-1.5 px-3 bg-red-950/80 text-red-300 border border-red-500/30 hover:bg-red-900 rounded-xl font-bold flex items-center gap-1.5 transition-all"
+                                                        >
+                                                            <Trash2 size={12} />
+                                                            <span>حذف الكل ({archivedCircles.length})</span>
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            <div className="grid grid-cols-1 gap-3">
                                             {processedArchivedCircles.map(item => {
                                                 const c = item.circleData || item;
+                                                const isSelected = selectedArchivedIds.includes(item.id);
                                                 return (
-                                                    <div key={item.id} className="bg-[#080d0a] border border-amber-500/20 p-4 rounded-xl relative space-y-3">
+                                                    <div key={item.id} className={`bg-[#080d0a] border ${isSelected ? 'border-amber-500 ring-1 ring-amber-500/50' : 'border-amber-500/20'} p-4 rounded-xl relative space-y-3 transition-all`}>
                                                         <div className="flex justify-between items-start gap-2">
-                                                            <div>
-                                                                <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
-                                                                    <Archive size={14} className="text-amber-400" />
-                                                                    <span>{c.circle || 'حلقة بدون اسم'}</span>
-                                                                    <span className="text-[9px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded font-mono font-bold">#{c.numericId || 'بدون ID'}</span>
-                                                                </h4>
-                                                                <p className="text-[10px] text-gray-400 mt-1">
-                                                                    المعلم الرئيسي: <span className="text-white font-bold">{c.teacher || 'غير محدد'}</span>
-                                                                </p>
+                                                            <div className="flex items-start gap-3">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isSelected}
+                                                                    onChange={(e) => {
+                                                                        if (e.target.checked) {
+                                                                            setSelectedArchivedIds(prev => [...prev, item.id]);
+                                                                        } else {
+                                                                            setSelectedArchivedIds(prev => prev.filter(id => id !== item.id));
+                                                                        }
+                                                                    }}
+                                                                    className="mt-1 w-4 h-4 rounded accent-amber-500 cursor-pointer"
+                                                                />
+                                                                <div>
+                                                                    <h4 className="text-xs font-bold text-amber-300 flex items-center gap-1.5">
+                                                                        <Archive size={14} className="text-amber-400" />
+                                                                        <span>{c.circle || 'حلقة بدون اسم'}</span>
+                                                                        <span className="text-[9px] bg-amber-500/10 text-amber-400 px-1.5 py-0.5 rounded font-mono font-bold">#{c.numericId || 'بدون ID'}</span>
+                                                                    </h4>
+                                                                    <p className="text-[10px] text-gray-400 mt-1">
+                                                                        المعلم الرئيسي: <span className="text-white font-bold">{c.teacher || 'غير محدد'}</span>
+                                                                    </p>
+                                                                </div>
                                                             </div>
                                                             <span className="text-[9px] bg-amber-500/10 text-amber-400 border border-amber-500/20 px-2 py-1 rounded-lg font-bold">
                                                                 📦 حلقة مؤرشفة
@@ -2285,20 +2443,23 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                             </div>
                                                         </div>
 
-                                                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/10">
+                                                        <div className="flex items-center gap-2 pt-1 border-t border-amber-500/10 flex-wrap">
                                                             <button
                                                                 onClick={() => handleRestoreArchivedCircle(item)}
-                                                                className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/20 active:scale-95"
+                                                                className="flex-1 py-2 px-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-emerald-600/20 active:scale-95 min-w-[140px]"
                                                             >
                                                                 <RotateCcw size={13} />
                                                                 <span>استعادة الحلقة وتفعيلها</span>
                                                             </button>
                                                             <button
-                                                                onClick={() => setSelectedArchivedCircle(item)}
-                                                                className="py-2 px-3 bg-gray-800 hover:bg-gray-700 text-gray-200 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1"
+                                                                onClick={() => {
+                                                                    setSelectedArchivedCircle(item);
+                                                                    setSelectedCircle(c);
+                                                                }}
+                                                                className="py-2 px-3 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1 active:scale-95"
                                                             >
                                                                 <Eye size={13} />
-                                                                <span>استعراض</span>
+                                                                <span>استعراض والتحكم بالحلقة ⚙️</span>
                                                             </button>
                                                             <button
                                                                 onClick={() => {
@@ -2327,7 +2488,8 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                 </div>
                                             )}
                                         </div>
-                                    )}
+                                    </div>
+                                )}
                                 </div>
                             )}
 

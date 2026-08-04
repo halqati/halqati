@@ -1265,14 +1265,11 @@ const App: React.FC = () => {
                     }
                 });
 
-                // If all queries have synced with server (not cache), remove circles that were deleted from server
-                if (isAllServerSynced) {
-                    for (const [id, c] of circlesMap.entries()) {
-                        const isUserCircle = c.ownerId === user.uid || c.authorizedUserIds?.includes(user.uid) || !!c.teachers?.[user.uid];
-                        if (!firestoreDocIds.has(id) && isUserCircle) {
-                            circlesMap.delete(id);
-                            delete lastLocalState.current[id];
-                        }
+                // Unconditionally remove circles from local map if they do not exist in Firestore snapshots
+                for (const [id] of Array.from(circlesMap.entries())) {
+                    if (!firestoreDocIds.has(id)) {
+                        circlesMap.delete(id);
+                        delete lastLocalState.current[id];
                     }
                 }
 
@@ -2053,6 +2050,11 @@ const App: React.FC = () => {
     const [alertModal, setAlertModal] = useState<AlertModalData>({ isOpen: false, title: '', message: '' });
     const [confirmationModal, setConfirmationModal] = useState<ConfirmationModalData>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
     const [choiceModal, setChoiceModal] = useState<ChoiceModalData>({ isOpen: false, title: '', message: '', actions: [], onCancel: () => {} });
+    const [transferOwnerModal, setTransferOwnerModal] = useState<{
+        isOpen: boolean;
+        circle: CircleData | null;
+        potentialOwners: Array<{ uid: string; name: string; role: string }>;
+    }>({ isOpen: false, circle: null, potentialOwners: [] });
     const [lastRecordModal, setLastRecordModal] = useState<LastRecordModalData>({ isOpen: false });
     const [reportGeneratorModal, setReportGeneratorModal] = useState<ReportGeneratorModalData>({ isOpen: false, studentId: null });
     const [studentReportModal, setStudentReportModal] = useState<StudentReportModalData>({ isOpen: false, student: null, reportContent: '', period: '' });
@@ -6060,7 +6062,91 @@ const App: React.FC = () => {
         }
     };
 
-    const handleLeaveCircleSupervision = async (circleToDelete: CircleData) => {
+    const executePermanentDeleteCircle = async (circleToDelete: CircleData) => {
+        const id = circleToDelete.id;
+        if (user && db) {
+            try {
+                // Save snapshot in archived_circles (without mentioning archive to user)
+                const archiveData = {
+                    archivedAt: Date.now(),
+                    archivedByUid: user.uid,
+                    archivedByName: userProfile?.displayName || user.displayName || 'معلم',
+                    circleId: id,
+                    circleData: circleToDelete
+                };
+                await setDoc(doc(db, 'archived_circles', id), archiveData);
+                await deleteDoc(doc(db, 'circles', id));
+            } catch (e) {
+                console.error("Permanent delete failed:", e);
+                addToast('فشل حذف الحلقة من السحابة', 'error');
+                return;
+            }
+        }
+        setAppData(d => {
+            const newCircles = d.circles.filter(c => c.id !== id);
+            return {
+                ...d,
+                circles: newCircles,
+                activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
+            };
+        });
+        addToast('🗑️ تم حذف الحلقة نهائياً من النظام', 'success');
+        if (activePage === 'circleInfo') {
+            setActivePage('settings');
+        }
+    };
+
+    const executeLeaveSupervisionWithNewOwner = async (circleToDelete: CircleData, newOwnerUid: string) => {
+        const id = circleToDelete.id;
+        if (!user || !db) return;
+        try {
+            const updatedAuthorizedIds = (circleToDelete.authorizedUserIds || []).filter(uid => uid !== user.uid);
+            const updatedTeachers = { ...(circleToDelete.teachers || {}) };
+            const teacherName = updatedTeachers[user.uid]?.name || userProfile?.displayName || user.displayName || 'معلم';
+            delete updatedTeachers[user.uid];
+
+            if (updatedTeachers[newOwnerUid]) {
+                updatedTeachers[newOwnerUid] = {
+                    ...updatedTeachers[newOwnerUid],
+                    role: 'owner'
+                };
+            }
+
+            const leaveNotification: Notification = {
+                id: `leave_${user.uid}_${Date.now()}`,
+                type: 'warning',
+                category: 'system',
+                message: `قام المعلم (${teacherName}) بنقل ملكية الحلقة إلى المعلم (${updatedTeachers[newOwnerUid]?.name || 'المعلم الجديد'}) والخروج من إشرافها.`,
+                createdAt: Date.now()
+            };
+
+            await updateDoc(doc(db, 'circles', id), {
+                authorizedUserIds: updatedAuthorizedIds,
+                teachers: updatedTeachers,
+                ownerId: newOwnerUid,
+                notifications: [leaveNotification, ...(circleToDelete.notifications || [])],
+                lastUpdated: Date.now()
+            });
+
+            setAppData(d => {
+                const newCircles = d.circles.filter(c => c.id !== id);
+                return {
+                    ...d,
+                    circles: newCircles,
+                    activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
+                };
+            });
+            addToast('🚪 تم نقل الملكية والخروج من إشراف الحلقة بنجاح', 'success');
+            if (activePage === 'circleInfo') {
+                setActivePage('settings');
+            }
+        } catch (e: any) {
+            console.error("Transfer owner & leave failed:", e);
+            addToast('فشل نقل الملكية والخروج من الحلقة', 'error');
+        }
+    };
+
+    const executeLeaveSupervision = async (circleToDelete: CircleData) => {
         const id = circleToDelete.id;
         if (user && db) {
             try {
@@ -6068,21 +6154,6 @@ const App: React.FC = () => {
                 const updatedTeachers = { ...(circleToDelete.teachers || {}) };
                 const teacherName = updatedTeachers[user.uid]?.name || userProfile?.displayName || user.displayName || 'معلم';
                 delete updatedTeachers[user.uid];
-
-                // If user was owner, reassign ownerId to the next available teacher in teachers map
-                let newOwnerId = circleToDelete.ownerId;
-                if (circleToDelete.ownerId === user.uid) {
-                    const remainingUids = Object.keys(updatedTeachers);
-                    if (remainingUids.length > 0) {
-                        newOwnerId = remainingUids[0];
-                        if (updatedTeachers[newOwnerId]) {
-                            updatedTeachers[newOwnerId] = {
-                                ...updatedTeachers[newOwnerId],
-                                role: 'owner'
-                            };
-                        }
-                    }
-                }
 
                 const leaveNotification: Notification = {
                     id: `leave_${user.uid}_${Date.now()}`,
@@ -6092,13 +6163,10 @@ const App: React.FC = () => {
                     createdAt: Date.now()
                 };
 
-                const updatedNotifications = [leaveNotification, ...(circleToDelete.notifications || [])];
-
                 await updateDoc(doc(db, 'circles', id), {
                     authorizedUserIds: updatedAuthorizedIds,
                     teachers: updatedTeachers,
-                    ownerId: newOwnerId,
-                    notifications: updatedNotifications,
+                    notifications: [leaveNotification, ...(circleToDelete.notifications || [])],
                     lastUpdated: Date.now()
                 });
             } catch (e) {
@@ -6115,9 +6183,44 @@ const App: React.FC = () => {
                 activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
             };
         });
-        addToast('🚪 تم الخروج من إدارة الحلقة بنجاح', 'success');
+        addToast('🚪 تم الخروج من إشراف الحلقة بنجاح', 'success');
         if (activePage === 'circleInfo') {
             setActivePage('settings');
+        }
+    };
+
+    const handleInitiateLeaveSupervision = (circleToDelete: CircleData) => {
+        const isOwner = circleToDelete.ownerId === user?.uid || circleToDelete.teachers?.[user?.uid || '']?.role === 'owner';
+        
+        if (isOwner) {
+            const potentialOwners = Object.entries(circleToDelete.teachers || {})
+                .filter(([uid, t]) => uid !== user?.uid && t.status !== 'rejected')
+                .map(([uid, t]) => ({
+                    uid,
+                    name: t.name || 'معلم',
+                    role: t.role || 'teacher'
+                }));
+
+            if (potentialOwners.length > 0) {
+                setTransferOwnerModal({
+                    isOpen: true,
+                    circle: circleToDelete,
+                    potentialOwners
+                });
+            } else {
+                setConfirmationModal({
+                    isOpen: true,
+                    title: 'تأكيد الخروج وحذف الحلقة',
+                    message: `لا يوجد معلمون أو مشرفون آخرون لنقل ملكية حلقة (${circleToDelete.circle}) إليها. بمجرد خروجك سيتم حذف الحلقة نهائياً من النظام ولن تتمكن من العودة إليها بنفسك.`,
+                    delay: 7,
+                    onConfirm: async () => {
+                        setConfirmationModal(p => ({ ...p, isOpen: false }));
+                        await executePermanentDeleteCircle(circleToDelete);
+                    }
+                });
+            }
+        } else {
+            executeLeaveSupervision(circleToDelete);
         }
     };
 
@@ -6134,69 +6237,38 @@ const App: React.FC = () => {
             setChoiceModal({
                 isOpen: true,
                 title: `إدارة وحذف حلقة (${circleToDelete.circle})`,
-                message: `بصفتك المنشئ/المالك أو صاحب صلاحية الحذف، يمكنك أرشفة الحلقة وحذفها نهائياً من جميع الأجهزة والمستخدمين، أو إزالتها عن إشرافك فقط.`,
+                message: `اختر الإجراء المناسب للحلقة:`,
                 actions: [
                     {
-                        text: '🗑️ أرشفة وحذف نهائي لجميع المستخدمين',
+                        text: '💥 حذف الحلقة نهائياً',
                         className: 'bg-red-600 hover:bg-red-700 text-white font-bold',
-                        onClick: async () => {
+                        onClick: () => {
                             setChoiceModal(p => ({ ...p, isOpen: false }));
-                            if (user && db) {
-                                try {
-                                    // 1. Save full snapshot in archived_circles
-                                    const archiveData = {
-                                        archivedAt: Date.now(),
-                                        archivedByUid: user.uid,
-                                        archivedByName: userProfile?.displayName || user.displayName || 'معلم',
-                                        circleId: id,
-                                        circleData: circleToDelete
-                                    };
-                                    await setDoc(doc(db, 'archived_circles', id), archiveData);
-
-                                    // 2. Delete from circles collection
-                                    await deleteDoc(doc(db, 'circles', id));
-                                } catch (e) {
-                                    console.error("Archive & Delete failed:", e);
-                                    addToast('فشلت أرشفة وحذف الحلقة من السحابة', 'error');
-                                    return;
+                            setConfirmationModal({
+                                isOpen: true,
+                                title: 'تأكيد الحذف النهائي للحلقة',
+                                message: `هل أنت متأكد من حذف حلقة (${circleToDelete.circle}) نهائياً؟ سيتم إزالتها من جميع المعلمين والمشرفين بالكامل. هذه العملية نهائية ولا يمكنك استعادة الحلقة بنفسك.`,
+                                delay: 7,
+                                onConfirm: async () => {
+                                    setConfirmationModal(p => ({ ...p, isOpen: false }));
+                                    await executePermanentDeleteCircle(circleToDelete);
                                 }
-                            }
-                            setAppData(d => {
-                                const newCircles = d.circles.filter(c => c.id !== id);
-                                return {
-                                    ...d,
-                                    circles: newCircles,
-                                    activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
-                                };
                             });
-                            addToast('🗑️ تم نقل الحلقة إلى الأرشيف وحذفها بنجاح', 'success');
-                            if (activePage === 'circleInfo') {
-                                setActivePage('settings');
-                            }
                         }
                     },
                     {
-                        text: '🚪 إزالة عن إشرافي فقط (تبقى للمعلمين الآخرين)',
+                        text: '🚪 إزالة والخروج من الإشراف',
                         className: 'bg-amber-600 hover:bg-amber-700 text-white font-bold',
-                        onClick: async () => {
+                        onClick: () => {
                             setChoiceModal(p => ({ ...p, isOpen: false }));
-                            await handleLeaveCircleSupervision(circleToDelete);
+                            handleInitiateLeaveSupervision(circleToDelete);
                         }
                     }
                 ],
                 onCancel: () => setChoiceModal(p => ({ ...p, isOpen: false }))
             });
         } else {
-            setConfirmationModal({
-                isOpen: true,
-                title: 'الخروج من إدارة الحلقة',
-                message: `لا تملك صلاحية الحذف الجذري لحلقة (${circleToDelete.circle}) لأنك لست المنشئ، ولكن يمكنك الخروج منها وإزالتها من حسابك دون التأثير على بقية المعلمين. هل تريد الخروج من إشرافها؟`,
-                onConfirm: async () => {
-                    setConfirmationModal(p => ({ ...p, isOpen: false }));
-                    await handleLeaveCircleSupervision(circleToDelete);
-                },
-                delay: 0
-            });
+            handleInitiateLeaveSupervision(circleToDelete);
         }
     };
 
@@ -7203,6 +7275,57 @@ const App: React.FC = () => {
                     addToast={addToast}
                 />
                 {choiceModal.isOpen && <ChoiceModal key="modal-choice" {...choiceModal} />}
+                {transferOwnerModal.isOpen && (
+                    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[999999] p-4 font-sans dir-rtl">
+                        <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-6 w-full max-w-md border border-gray-200 dark:border-gray-700 text-right">
+                            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+                                <span>👑</span>
+                                <span>نقل ملكية الحلقة قبل الخروج</span>
+                            </h3>
+                            <p className="text-xs text-gray-600 dark:text-gray-300 mb-4 leading-relaxed">
+                                بصفتك المالك/المنشئ لحلقة <strong className="text-amber-500 font-extrabold">{transferOwnerModal.circle?.circle}</strong>، يجب أولاً اختيار معلم أو مشرف جديد لتسليمه الملكية الكاملة قبل الخروج من الإشراف:
+                            </p>
+
+                            <div className="space-y-2 max-h-60 overflow-y-auto mb-5 custom-scrollbar">
+                                {transferOwnerModal.potentialOwners.map(po => (
+                                    <button
+                                        key={po.uid}
+                                        onClick={() => {
+                                            const c = transferOwnerModal.circle;
+                                            setTransferOwnerModal({ isOpen: false, circle: null, potentialOwners: [] });
+                                            if (c) executeLeaveSupervisionWithNewOwner(c, po.uid);
+                                        }}
+                                        className="w-full flex items-center justify-between p-3 rounded-xl bg-gray-50 dark:bg-gray-700/60 hover:bg-amber-500/10 dark:hover:bg-amber-500/20 border border-gray-200 dark:border-gray-600 hover:border-amber-500/40 transition-all text-right group"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center font-bold text-xs">
+                                                {po.name[0]}
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-bold text-gray-800 dark:text-white group-hover:text-amber-500">{po.name}</p>
+                                                <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                                                    {po.role === 'supervisor' ? 'مشرف' : 'معلم'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <span className="text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-1 rounded-lg">
+                                            تعيين كمالك وخروج
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
+
+                            <div className="flex justify-end">
+                                <button
+                                    onClick={() => setTransferOwnerModal({ isOpen: false, circle: null, potentialOwners: [] })}
+                                    className="px-4 py-2 text-xs font-bold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-xl transition-all"
+                                >
+                                    إلغاء
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
                 {lastRecordModal.isOpen && (
                     <LastRecordModal 
                         key="modal-last-record"
