@@ -507,24 +507,25 @@ export interface SupervisorReportSettings {
     isSummaryEnabled: boolean;
 }
 
-export interface WeeklyScheduleDay {
+export type ScheduleType = 'تسميع' | 'درس' | 'إجازة';
+
+export interface DaySchedule {
     dayKey: 'saturday' | 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday';
     dayName: string;
-    type: 'tasmeea' | 'dars'; // تسميع / درس
-    note?: string; // e.g. مراجعة عامة, اختبار, إجازة, حلقة مشتركة...
+    type: ScheduleType;
+    notes: string;
 }
 
-export interface WeeklySchedule {
+export interface CircleSchedule {
     id?: string;
-    name?: string; // For future expansion (e.g. "الجدول الاعتيادي", "رمضان", "الاختبارات")
-    days: WeeklyScheduleDay[];
+    createdAt?: number;
     updatedAt?: number;
-    updatedBy?: string;
+    isInitialized?: boolean;
+    days: DaySchedule[];
 }
 
 export interface CircleData {
     id: string;
-    weeklySchedule?: WeeklySchedule; // الجدول الدراسي للحلقة
     teacher: string;
     circle: string;
     center: string;
@@ -573,6 +574,7 @@ export interface CircleData {
     lastMonthlyStatsNotification?: string;
     hasAgreedToCommunityTerms?: boolean;
     hasShownFeedbackRequest?: boolean;
+    studySchedule?: CircleSchedule;
     bulkRewards?: BulkReward[]; // New: Track bulk point operations
     numericId: string; // Unique numeric ID for the circle
     transferCode: string; // 4-digit access code for the circle

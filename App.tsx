@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, GranularPermissions, SupervisorReportSettings, SystemSettings, SyncJob, WeeklySchedule } from './types';
+import { AppData, CircleData, CircleSchedule, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, GranularPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
 import { getResolvedGranularPermissions } from './permissions';
 import { PermissionsPage } from './pages/PermissionsPage';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
@@ -32,7 +32,7 @@ import Services from './pages/Services';
 import Reports from './pages/Reports';
 import Archive from './pages/Archive';
 import QuranPage from './pages/Quran';
-import CircleSchedule from './pages/CircleSchedule';
+import StudySchedule from './pages/StudySchedule';
 import AdminApp from './src/admin/AdminApp';
 
 
@@ -3571,17 +3571,6 @@ const App: React.FC = () => {
         pushStateSafely();
     }, [checkPermission, setViewingStudentId]);
 
-    const handleSaveWeeklySchedule = async (schedule: WeeklySchedule) => {
-        if (!activeCircle || !db) return;
-        setActiveCircleData(draft => ({ ...draft, weeklySchedule: schedule, lastUpdated: Date.now() }));
-        try {
-            await setDoc(doc(db, 'circles', activeCircle.id), { weeklySchedule: schedule, lastUpdated: Date.now() }, { merge: true });
-        } catch (e) {
-            console.error("Error saving weekly schedule to Firestore:", e);
-            throw e;
-        }
-    };
-
     const handleNewSession = () => {
         if (!checkPermission('canCreateSessions', 'إنشاء جلسات جديدة')) return;
 
@@ -3607,28 +3596,20 @@ const App: React.FC = () => {
         const day = String(now.getDate()).padStart(2, '0');
         const today = `${year}-${month}-${day}`;
 
-        // Check weekly schedule for today's mode
-        const dayOfWeek = now.getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
-        const dayMap: { [key: number]: 'saturday' | 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' } = {
-            6: 'saturday',
+        // Check if today is scheduled as a Lesson (درس) in the study schedule
+        const dayIdx = now.getDay();
+        const dayKeyMap: Record<number, 'saturday' | 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday'> = {
             0: 'sunday',
             1: 'monday',
             2: 'tuesday',
             3: 'wednesday',
             4: 'thursday',
-            5: 'friday'
+            5: 'friday',
+            6: 'saturday'
         };
-        const currentDayKey = dayMap[dayOfWeek];
-        let isScheduledLesson = false;
-        let scheduledLessonType = '';
-
-        if (activeCircle.weeklySchedule?.days) {
-            const todaySchedule = activeCircle.weeklySchedule.days.find(d => d.dayKey === currentDayKey);
-            if (todaySchedule && todaySchedule.type === 'dars') {
-                isScheduledLesson = true;
-                scheduledLessonType = (activeCircle.lessonTypes && activeCircle.lessonTypes[0]) || 'درس تلاوة';
-            }
-        }
+        const todayDayKey = dayKeyMap[dayIdx];
+        const scheduledToday = activeCircle.studySchedule?.days?.find(d => d.dayKey === todayDayKey);
+        const shouldAutoEnableLesson = scheduledToday?.type === 'درس';
 
         const newSession: Session = {
             id: generateUniqueId(),
@@ -3654,19 +3635,12 @@ const App: React.FC = () => {
                 manualPoints: [],
                 joinDate: s.joinDate || new Date().toISOString()
             })),
-            parentNotifications: {}, 
-            isDirty: false, 
-            isLesson: isScheduledLesson, 
-            lessonType: scheduledLessonType, 
-            lessonTitle: '',
+            parentNotifications: {}, isDirty: false, isLesson: !!shouldAutoEnableLesson, lessonType: '', lessonTitle: '',
         };
         setEditingSession(newSession);
         pushStateSafely();
         setPristineSession(JSON.parse(JSON.stringify(newSession)));
         handleNavigate('sessions');
-        if (isScheduledLesson) {
-            addToast('📅 تم تفعيل وضع الدرس تلقائياً بناءً على جدول الحلقة الأسبوعي اليوم (درس)', 'info');
-        }
     };
 
     const handleEditSession = (sessionId: number) => {
@@ -6765,20 +6739,6 @@ const App: React.FC = () => {
                                 }} 
                             />
                         )}
-                        {activeServicesPage === 'circleSchedule' && (
-                            <CircleSchedule 
-                                weeklySchedule={activeCircle.weeklySchedule}
-                                onSaveSchedule={handleSaveWeeklySchedule}
-                                circleName={activeCircle.circle}
-                                teacherName={activeCircle.teacher}
-                                centerName={activeCircle.center}
-                                addToast={addToast}
-                                onBack={() => { 
-                                    servicesHistoryRef.current.pop(); 
-                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1] || 'main'); 
-                                }} 
-                            />
-                        )}
                         {activeServicesPage === 'records' && (
                             <Records 
                                 key="services-records-page"
@@ -7082,6 +7042,22 @@ const App: React.FC = () => {
                                 onBack={() => {
                                     servicesHistoryRef.current.pop();
                                     setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1] || 'main');
+                                }}
+                                addToast={addToast}
+                            />
+                        )}
+                        {activeServicesPage === 'studySchedule' && (
+                            <StudySchedule
+                                activeCircle={activeCircle}
+                                onSaveSchedule={(updatedSchedule) => {
+                                    setActiveCircleData(draft => ({
+                                        ...draft,
+                                        studySchedule: updatedSchedule
+                                    }));
+                                }}
+                                onBack={() => {
+                                    servicesHistoryRef.current.pop();
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length - 1] || 'main');
                                 }}
                                 addToast={addToast}
                             />
