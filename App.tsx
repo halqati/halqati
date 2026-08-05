@@ -6064,6 +6064,21 @@ const App: React.FC = () => {
 
     const executePermanentDeleteCircle = async (circleToDelete: CircleData) => {
         const id = circleToDelete.id;
+        
+        // Optimistic update: Update local state immediately so user sees instant result
+        setAppData(d => {
+            const newCircles = d.circles.filter(c => c.id !== id);
+            return {
+                ...d,
+                circles: newCircles,
+                activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
+            };
+        });
+        addToast('🗑️ تم حذف الحلقة نهائياً من النظام', 'success');
+        if (activePage === 'circleInfo') {
+            setActivePage('settings');
+        }
+
         if (user && db) {
             try {
                 // Save snapshot in archived_circles (without mentioning archive to user)
@@ -6079,9 +6094,14 @@ const App: React.FC = () => {
             } catch (e) {
                 console.error("Permanent delete failed:", e);
                 addToast('فشل حذف الحلقة من السحابة', 'error');
-                return;
             }
         }
+    };
+
+    const executeLeaveSupervisionWithNewOwner = async (circleToDelete: CircleData, newOwnerUid: string) => {
+        const id = circleToDelete.id;
+
+        // Optimistic update: Update local state immediately
         setAppData(d => {
             const newCircles = d.circles.filter(c => c.id !== id);
             return {
@@ -6090,14 +6110,11 @@ const App: React.FC = () => {
                 activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
             };
         });
-        addToast('🗑️ تم حذف الحلقة نهائياً من النظام', 'success');
+        addToast('🚪 تم نقل الملكية والخروج من إشراف الحلقة بنجاح', 'success');
         if (activePage === 'circleInfo') {
             setActivePage('settings');
         }
-    };
 
-    const executeLeaveSupervisionWithNewOwner = async (circleToDelete: CircleData, newOwnerUid: string) => {
-        const id = circleToDelete.id;
         if (!user || !db) return;
         try {
             const updatedAuthorizedIds = (circleToDelete.authorizedUserIds || []).filter(uid => uid !== user.uid);
@@ -6127,19 +6144,6 @@ const App: React.FC = () => {
                 notifications: [leaveNotification, ...(circleToDelete.notifications || [])],
                 lastUpdated: Date.now()
             });
-
-            setAppData(d => {
-                const newCircles = d.circles.filter(c => c.id !== id);
-                return {
-                    ...d,
-                    circles: newCircles,
-                    activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
-                };
-            });
-            addToast('🚪 تم نقل الملكية والخروج من إشراف الحلقة بنجاح', 'success');
-            if (activePage === 'circleInfo') {
-                setActivePage('settings');
-            }
         } catch (e: any) {
             console.error("Transfer owner & leave failed:", e);
             addToast('فشل نقل الملكية والخروج من الحلقة', 'error');
@@ -6148,6 +6152,21 @@ const App: React.FC = () => {
 
     const executeLeaveSupervision = async (circleToDelete: CircleData) => {
         const id = circleToDelete.id;
+
+        // Optimistic update: Update local state immediately
+        setAppData(d => {
+            const newCircles = d.circles.filter(c => c.id !== id);
+            return {
+                ...d,
+                circles: newCircles,
+                activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
+            };
+        });
+        addToast('🚪 تم الخروج من إشراف الحلقة بنجاح', 'success');
+        if (activePage === 'circleInfo') {
+            setActivePage('settings');
+        }
+
         if (user && db) {
             try {
                 const updatedAuthorizedIds = (circleToDelete.authorizedUserIds || []).filter(uid => uid !== user.uid);
@@ -6172,20 +6191,7 @@ const App: React.FC = () => {
             } catch (e) {
                 console.error("Leave supervision failed:", e);
                 addToast('فشل الخروج من إشراف الحلقة', 'error');
-                return;
             }
-        }
-        setAppData(d => {
-            const newCircles = d.circles.filter(c => c.id !== id);
-            return {
-                ...d,
-                circles: newCircles,
-                activeCircleId: newCircles.length > 0 ? newCircles[0].id : null
-            };
-        });
-        addToast('🚪 تم الخروج من إشراف الحلقة بنجاح', 'success');
-        if (activePage === 'circleInfo') {
-            setActivePage('settings');
         }
     };
 
@@ -6212,7 +6218,6 @@ const App: React.FC = () => {
                     isOpen: true,
                     title: 'تأكيد الخروج وحذف الحلقة',
                     message: `لا يوجد معلمون أو مشرفون آخرون لنقل ملكية حلقة (${circleToDelete.circle}) إليها. بمجرد خروجك سيتم حذف الحلقة نهائياً من النظام ولن تتمكن من العودة إليها بنفسك.`,
-                    delay: 7,
                     onConfirm: async () => {
                         setConfirmationModal(p => ({ ...p, isOpen: false }));
                         await executePermanentDeleteCircle(circleToDelete);
@@ -6248,7 +6253,6 @@ const App: React.FC = () => {
                                 isOpen: true,
                                 title: 'تأكيد الحذف النهائي للحلقة',
                                 message: `هل أنت متأكد من حذف حلقة (${circleToDelete.circle}) نهائياً؟ سيتم إزالتها من جميع المعلمين والمشرفين بالكامل. هذه العملية نهائية ولا يمكنك استعادة الحلقة بنفسك.`,
-                                delay: 7,
                                 onConfirm: async () => {
                                     setConfirmationModal(p => ({ ...p, isOpen: false }));
                                     await executePermanentDeleteCircle(circleToDelete);

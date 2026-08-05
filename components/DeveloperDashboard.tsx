@@ -2267,21 +2267,34 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                                         </div>
                                                     </div>
                                                     
-                                                    <div className="grid grid-cols-3 gap-2 mt-3 pt-2 border-t border-[#105541]/5">
-                                                        <div className="text-center">
-                                                            <p className="text-[8px] text-gray-500 uppercase font-bold">طلاب</p>
-                                                            <p className="text-xs font-bold text-white">{circle.students?.length || 0}</p>
+                                                    <div className="flex items-center justify-between gap-2 mt-3 pt-2 border-t border-[#105541]/10">
+                                                        <div className="flex items-center gap-3 text-xs">
+                                                            <span className="text-gray-400">طلاب: <b className="text-white">{circle.students?.length || 0}</b></span>
+                                                            <span className="text-gray-400">حصص: <b className="text-white">{circle.sessions?.length || 0}</b></span>
                                                         </div>
-                                                        <div className="text-center">
-                                                            <p className="text-[8px] text-gray-600 uppercase font-bold">الحصص</p>
-                                                            <p className="text-xs font-bold text-white">{circle.sessions?.length || 0}</p>
-                                                        </div>
-                                                        <div className="text-center">
+                                                        <div className="flex items-center gap-1.5">
                                                             <button 
                                                                 onClick={() => setSelectedCircle(circle)}
-                                                                className="text-[8.5px] font-black text-blue-400 hover:text-blue-300 bg-blue-500/5 hover:bg-blue-500/10 px-2 py-1 rounded border border-blue-500/10 transition-all active:scale-95"
+                                                                className="text-[10px] font-bold text-blue-400 hover:text-blue-300 bg-blue-500/10 hover:bg-blue-500/20 px-2.5 py-1 rounded-xl border border-blue-500/20 transition-all active:scale-95 flex items-center gap-1"
                                                             >
-                                                                عرض لوحة التحكم بالتفصيل ⚙️
+                                                                <span>إدارة</span>
+                                                                <span>⚙️</span>
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => {
+                                                                    openActionDialog({
+                                                                        type: 'confirm',
+                                                                        title: `💥 حذف نهائي لحلقة (${circle.circle})`,
+                                                                        description: `تحذير المطور: هل أنت متأكد من المسح الكامل والنهائي لحلقة (${circle.circle}) من قاعدة البيانات السحابية؟ لا يمكن التراجع عن هذا الإجراء!`,
+                                                                        isDanger: true,
+                                                                        onConfirm: () => handleEmergencyDeleteCircle(circle.id, circle.circle, false)
+                                                                    });
+                                                                }}
+                                                                className="text-[10px] font-bold text-red-400 hover:text-white bg-red-600/15 hover:bg-red-600 px-2.5 py-1 rounded-xl border border-red-500/30 transition-all active:scale-95 flex items-center gap-1"
+                                                                title="حذف نهائي جذري"
+                                                            >
+                                                                <Trash2 size={11} />
+                                                                <span>حذف نهائي</span>
                                                             </button>
                                                         </div>
                                                     </div>
@@ -2575,6 +2588,21 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                             }`}>
                                                 {activeCircle.isMaintenance ? '🛠️ وضع الصيانة' : '🟢 تشغيل طبيعي'}
                                             </span>
+                                            <button
+                                                onClick={() => {
+                                                    openActionDialog({
+                                                        type: 'confirm',
+                                                        title: `💥 حذف نهائي لحلقة (${activeCircle.circle})`,
+                                                        description: `تحذير المطور: هل أنت متأكد من المسح الكامل والنهائي لحلقة (${activeCircle.circle}) من قاعدة البيانات السحابية بالكامل؟ لا يمكن التراجع عن هذا الإجراء!`,
+                                                        isDanger: true,
+                                                        onConfirm: () => handleEmergencyDeleteCircle(activeCircle.id, activeCircle.circle, false)
+                                                    });
+                                                }}
+                                                className="text-[10px] px-3 py-1 rounded-xl font-bold bg-red-600 hover:bg-red-500 text-white transition-all shadow-md active:scale-95 flex items-center gap-1 border border-red-400/30"
+                                            >
+                                                <Trash2 size={12} />
+                                                <span>حذف نهائي للحلقة 💥</span>
+                                            </button>
                                         </div>
                                     </div>
 
