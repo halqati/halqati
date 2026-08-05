@@ -1,6 +1,6 @@
 import React from 'react';
 import { motion } from 'framer-motion';
-import { FaBook, FaBookOpen, FaChartLine, FaClipboardCheck, FaTasks, FaCalendarCheck, FaBullhorn, FaFileAlt, FaGift, FaArchive, FaCommentDots } from 'react-icons/fa';
+import { FaBook, FaBookOpen, FaChartLine, FaClipboardCheck, FaTasks, FaCalendarCheck, FaBullhorn, FaFileAlt, FaGift, FaArchive, FaCommentDots, FaCalendarAlt } from 'react-icons/fa';
 
 interface ServicesProps {
     onNavigate: (page: string) => void;
@@ -28,6 +28,12 @@ const Services: React.FC<ServicesProps> = ({ onNavigate, hasFullManagement, hasU
             id: 'quran',
             title: 'المصحف الشريف',
             icon: FaBookOpen,
+            requiresManagement: false
+        },
+        {
+            id: 'circleSchedule',
+            title: 'الجدول الدراسي',
+            icon: FaCalendarAlt,
             requiresManagement: false
         },
         {

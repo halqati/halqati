@@ -10,7 +10,7 @@ import {
 import { 
     db, auth, collection, query, where, getDocs, addDoc, updatePassword, 
     reauthenticateWithCredential, EmailAuthProvider, verifyBeforeUpdateEmail, 
-    deleteUser, doc, writeBatch, updateDoc, updateProfile 
+    deleteUser, doc, setDoc, writeBatch, updateDoc, updateProfile 
 } from '../firebase';
 import { COUNTRIES } from '../constants';
 import { encrypt } from '../utils/encryption';

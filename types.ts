@@ -507,8 +507,24 @@ export interface SupervisorReportSettings {
     isSummaryEnabled: boolean;
 }
 
+export interface WeeklyScheduleDay {
+    dayKey: 'saturday' | 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday';
+    dayName: string;
+    type: 'tasmeea' | 'dars'; // تسميع / درس
+    note?: string; // e.g. مراجعة عامة, اختبار, إجازة, حلقة مشتركة...
+}
+
+export interface WeeklySchedule {
+    id?: string;
+    name?: string; // For future expansion (e.g. "الجدول الاعتيادي", "رمضان", "الاختبارات")
+    days: WeeklyScheduleDay[];
+    updatedAt?: number;
+    updatedBy?: string;
+}
+
 export interface CircleData {
     id: string;
+    weeklySchedule?: WeeklySchedule; // الجدول الدراسي للحلقة
     teacher: string;
     circle: string;
     center: string;

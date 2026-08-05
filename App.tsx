@@ -1,13 +1,13 @@
 
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, GranularPermissions, SupervisorReportSettings, SystemSettings, SyncJob } from './types';
+import { AppData, CircleData, Session, Student, Toast, ConfirmationModalData, AlertModalData, ChoiceModalData, LastRecordModalData, Notification, SessionStudent, ReportGeneratorModalData, StudentReportModalData, StudentReport, SupervisorReport, MemorizationRecord, ReviewRecord, Settings as AppSettings, Test, Plan, ShareModalData, Activity, PointsSettings, ManualPointAdjustment, NotificationSettings, Announcement, BulkReward, PointHistoryEntry, FollowUpSettings, UserProfile, TeacherPermissions, MemberPermissions, GranularPermissions, SupervisorReportSettings, SystemSettings, SyncJob, WeeklySchedule } from './types';
 import { getResolvedGranularPermissions } from './permissions';
 import { PermissionsPage } from './pages/PermissionsPage';
 import { AlertTriangle, RefreshCw, Megaphone } from 'lucide-react';
 import useLocalStorage from './hooks/useLocalStorage';
 import { getGenderedTerm, generateStudentReportText, generateSupervisorReportText, formatDate, downloadFile, shareBackupFile, calculateStudentTotalPoints, calculatePointsForSession, generateUniqueId, generateStudentId, generateUniqueStringId, generateNumericId, generateTransferCode, sanitizeForFirestore, sanitizeToEnglishNumber, mergeCircleData, calculatePagesCount, processSessionPagesCount, processAllSessionsPagesCount } from './utils/helpers';
-import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField, handleFirestoreError, OperationType } from './firebase';
+import { auth, db, loginWithGoogle, logoutUser, loginWithUsername, resetPassword, collection, doc, setDoc, addDoc, getDoc, getDocs, updateDoc, deleteDoc, onSnapshot, query, where, orderBy, serverTimestamp, Timestamp, arrayUnion, arrayRemove, onAuthStateChanged, User, signOut, setPersistence, browserLocalPersistence, browserSessionPersistence, runTransaction, deleteField, handleFirestoreError, OperationType } from './firebase';
 import { SEASONAL_MESSAGES, defaultMemberPermissions } from './constants';
 
 import Setup from './pages/Setup';
@@ -32,6 +32,7 @@ import Services from './pages/Services';
 import Reports from './pages/Reports';
 import Archive from './pages/Archive';
 import QuranPage from './pages/Quran';
+import CircleSchedule from './pages/CircleSchedule';
 import AdminApp from './src/admin/AdminApp';
 
 
@@ -3570,6 +3571,17 @@ const App: React.FC = () => {
         pushStateSafely();
     }, [checkPermission, setViewingStudentId]);
 
+    const handleSaveWeeklySchedule = async (schedule: WeeklySchedule) => {
+        if (!activeCircle || !db) return;
+        setActiveCircleData(draft => ({ ...draft, weeklySchedule: schedule, lastUpdated: Date.now() }));
+        try {
+            await setDoc(doc(db, 'circles', activeCircle.id), { weeklySchedule: schedule, lastUpdated: Date.now() }, { merge: true });
+        } catch (e) {
+            console.error("Error saving weekly schedule to Firestore:", e);
+            throw e;
+        }
+    };
+
     const handleNewSession = () => {
         if (!checkPermission('canCreateSessions', 'إنشاء جلسات جديدة')) return;
 
@@ -3595,6 +3607,29 @@ const App: React.FC = () => {
         const day = String(now.getDate()).padStart(2, '0');
         const today = `${year}-${month}-${day}`;
 
+        // Check weekly schedule for today's mode
+        const dayOfWeek = now.getDay(); // 0: Sun, 1: Mon, 2: Tue, 3: Wed, 4: Thu, 5: Fri, 6: Sat
+        const dayMap: { [key: number]: 'saturday' | 'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' } = {
+            6: 'saturday',
+            0: 'sunday',
+            1: 'monday',
+            2: 'tuesday',
+            3: 'wednesday',
+            4: 'thursday',
+            5: 'friday'
+        };
+        const currentDayKey = dayMap[dayOfWeek];
+        let isScheduledLesson = false;
+        let scheduledLessonType = '';
+
+        if (activeCircle.weeklySchedule?.days) {
+            const todaySchedule = activeCircle.weeklySchedule.days.find(d => d.dayKey === currentDayKey);
+            if (todaySchedule && todaySchedule.type === 'dars') {
+                isScheduledLesson = true;
+                scheduledLessonType = (activeCircle.lessonTypes && activeCircle.lessonTypes[0]) || 'درس تلاوة';
+            }
+        }
+
         const newSession: Session = {
             id: generateUniqueId(),
             date: today,
@@ -3619,12 +3654,19 @@ const App: React.FC = () => {
                 manualPoints: [],
                 joinDate: s.joinDate || new Date().toISOString()
             })),
-            parentNotifications: {}, isDirty: false, isLesson: false, lessonType: '', lessonTitle: '',
+            parentNotifications: {}, 
+            isDirty: false, 
+            isLesson: isScheduledLesson, 
+            lessonType: scheduledLessonType, 
+            lessonTitle: '',
         };
         setEditingSession(newSession);
         pushStateSafely();
         setPristineSession(JSON.parse(JSON.stringify(newSession)));
         handleNavigate('sessions');
+        if (isScheduledLesson) {
+            addToast('📅 تم تفعيل وضع الدرس تلقائياً بناءً على جدول الحلقة الأسبوعي اليوم (درس)', 'info');
+        }
     };
 
     const handleEditSession = (sessionId: number) => {
@@ -6717,6 +6759,20 @@ const App: React.FC = () => {
                         )}
                         {activeServicesPage === 'quran' && (
                             <QuranPage 
+                                onBack={() => { 
+                                    servicesHistoryRef.current.pop(); 
+                                    setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1] || 'main'); 
+                                }} 
+                            />
+                        )}
+                        {activeServicesPage === 'circleSchedule' && (
+                            <CircleSchedule 
+                                weeklySchedule={activeCircle.weeklySchedule}
+                                onSaveSchedule={handleSaveWeeklySchedule}
+                                circleName={activeCircle.circle}
+                                teacherName={activeCircle.teacher}
+                                centerName={activeCircle.center}
+                                addToast={addToast}
                                 onBack={() => { 
                                     servicesHistoryRef.current.pop(); 
                                     setActiveServicesPage(servicesHistoryRef.current[servicesHistoryRef.current.length-1] || 'main'); 
