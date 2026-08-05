@@ -449,8 +449,19 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ managementId,
                     archivedAt: Date.now(),
                     circleData: targetCircle,
                     archivedByName: 'مشرف الإدارة',
-                    reason: 'management_deletion'
+                    reason: 'management_deletion',
+                    isNewForDeveloper: true
                 });
+                try {
+                    await addDoc(collection(db, 'developer_notifications'), {
+                        type: 'circle_archived',
+                        title: '📦 أرشفة حلقة من قبل الإدارة',
+                        message: `قامت الإدارة بحذف حلقة (${targetCircle.circle || 'الحلقة'}) وتم إيداعها بأرشيف المطور بنجاح.`,
+                        createdAt: Date.now(),
+                        read: false,
+                        circleId: circleId
+                    });
+                } catch (errNotif) {}
             }
             await deleteDoc(doc(db, 'circles', circleId));
             addToast('💥 تم حذف الحلقة نهائياً وبشكل كامل بنجاح', 'success');

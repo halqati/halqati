@@ -107,8 +107,14 @@ service cloud.firestore {
 
     match /developer_notifications/{notifId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isDeveloper() || isAdmin();
-      allow update: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isDeveloper() || isAdmin();
+    }
+
+    match /archived_circles/{archivedId} {
+      allow read: if isSignedIn() && (isDeveloper() || isAdmin());
+      allow create, update: if isSignedIn();
+      allow delete: if isDeveloper() || isAdmin();
     }
 
     match /system/settings {

@@ -6083,14 +6083,30 @@ const App: React.FC = () => {
             try {
                 // Save snapshot in archived_circles (without mentioning archive to user)
                 const archiveData = {
+                    id: id,
                     archivedAt: Date.now(),
                     archivedByUid: user.uid,
                     archivedByName: userProfile?.displayName || user.displayName || 'معلم',
                     circleId: id,
-                    circleData: circleToDelete
+                    circleData: circleToDelete,
+                    reason: 'user_permanent_deletion',
+                    isNewForDeveloper: true
                 };
                 await setDoc(doc(db, 'archived_circles', id), archiveData);
                 await deleteDoc(doc(db, 'circles', id));
+
+                try {
+                    await addDoc(collection(db, 'developer_notifications'), {
+                        type: 'circle_archived',
+                        title: '📦 أرشفة حلقة محذوفة جديدة',
+                        message: `قام (${userProfile?.displayName || user.displayName || 'مستخدم'}) بحذف حلقة (${circleToDelete.circle || 'الحلقة'}) وتم إيداعها بأرشيف المطور بنجاح.`,
+                        createdAt: Date.now(),
+                        read: false,
+                        circleId: id
+                    });
+                } catch (errNotif) {
+                    console.error("Developer notification send error:", errNotif);
+                }
             } catch (e) {
                 console.error("Permanent delete failed:", e);
                 addToast('فشل حذف الحلقة من السحابة', 'error');

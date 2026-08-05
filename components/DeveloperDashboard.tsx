@@ -1058,6 +1058,23 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         });
     }, [archivedCircles, searchQuery, circleSortOption]);
 
+    const newArchivedCirclesCount = useMemo(() => {
+        return archivedCircles.filter(item => item.isNewForDeveloper).length;
+    }, [archivedCircles]);
+
+    const markArchivedCirclesAsRead = async () => {
+        if (!db) return;
+        const unreadItems = archivedCircles.filter(item => item.isNewForDeveloper);
+        if (unreadItems.length === 0) return;
+        for (const item of unreadItems) {
+            try {
+                await updateDoc(doc(db, 'archived_circles', item.id), { isNewForDeveloper: false });
+            } catch (err) {
+                console.error("Error marking archived circle as read:", err);
+            }
+        }
+    };
+
     const handleRestoreArchivedCircle = async (archivedItem: any) => {
         if (!db) return;
         try {
@@ -1414,7 +1431,7 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                             { id: 'overview', label: 'الرئيسية', icon: LayoutGrid },
                             { id: 'feedbacks', label: `اقتراحات المعلمين${unreadFeedbacksCount > 0 ? ` (${unreadFeedbacksCount})` : ''}`, icon: MessageSquare, hasBadge: unreadFeedbacksCount > 0 },
                             { id: 'users', label: 'المستخدمين', icon: UserCheck },
-                            { id: 'circles', label: 'الحلقات', icon: Box },
+                            { id: 'circles', label: `الحلقات${newArchivedCirclesCount > 0 ? ` 🔴` : ''}`, icon: Box, hasBadge: newArchivedCirclesCount > 0 },
                             { id: 'notifications', label: 'التنبيهات', icon: Megaphone },
                             { id: 'managements', label: 'الإدارات', icon: Building2 },
                             { id: 'logs', label: 'السجل', icon: ScrollText },
@@ -2188,8 +2205,11 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                             <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-md font-mono">{circles.length}</span>
                                         </button>
                                         <button
-                                            onClick={() => setCircleViewMode('archived')}
-                                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                                            onClick={() => {
+                                                setCircleViewMode('archived');
+                                                markArchivedCirclesAsRead();
+                                            }}
+                                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 relative ${
                                                 circleViewMode === 'archived'
                                                     ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30 shadow-sm'
                                                     : 'text-gray-400 hover:text-white hover:bg-gray-800/40'
@@ -2197,6 +2217,9 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                         >
                                             <span>📦 أرشيف الحلقات المحذوفة</span>
                                             <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-md font-mono">{archivedCircles.length}</span>
+                                            {newArchivedCirclesCount > 0 && (
+                                                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse border border-black shadow-[0_0_8px_rgba(239,68,68,0.8)]"></span>
+                                            )}
                                         </button>
                                     </div>
 
