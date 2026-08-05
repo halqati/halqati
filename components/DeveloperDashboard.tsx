@@ -58,7 +58,8 @@ import {
     ShieldCheck,
     Check,
     Send,
-    Sliders
+    Sliders,
+    Filter
 } from 'lucide-react';
 import { auth, signInWithEmailAndPassword, updatePassword, deleteUser, db, collection, query, onSnapshot, doc, updateDoc, getDocs, getDoc, setDoc, deleteDoc, orderBy, limit, serverTimestamp, arrayUnion, deleteField } from '../firebase';
 import { Management, AuditLog, UserProfile, CircleData, Student, SystemSettings, AppUpdateNotification, TeacherFeedbackItem, FeedbackType, FeedbackStatus, FeedbackMessage } from '../types';
@@ -274,6 +275,8 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
     const [selectedCircle, setSelectedCircle] = useState<CircleData | null>(null);
     const [archivedCircles, setArchivedCircles] = useState<any[]>([]);
     const [circleViewMode, setCircleViewMode] = useState<'active' | 'archived'>('active');
+    const [circleStatusFilter, setCircleStatusFilter] = useState<'all' | 'active' | 'inactive' | 'stopped' | 'maintenance'>('all');
+    const [circleSortOption, setCircleSortOption] = useState<'newest' | 'oldest' | 'most_students' | 'least_students' | 'most_sessions' | 'alphabetical'>('newest');
     const [selectedArchivedCircle, setSelectedArchivedCircle] = useState<any | null>(null);
     const [selectedArchivedIds, setSelectedArchivedIds] = useState<string[]>([]);
     const [editingPermissionsTeacherUid, setEditingPermissionsTeacherUid] = useState<string | null>(null);
@@ -979,10 +982,40 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
 
     const processedCircles = useMemo(() => {
         let list = [...circles];
+
+        // Filter by Status
+        if (circleStatusFilter !== 'all') {
+            if (circleStatusFilter === 'active') {
+                list = list.filter(c => c.status !== 'inactive' && !c.isStopped && !c.isMaintenance);
+            } else if (circleStatusFilter === 'inactive') {
+                list = list.filter(c => c.status === 'inactive');
+            } else if (circleStatusFilter === 'stopped') {
+                list = list.filter(c => c.isStopped);
+            } else if (circleStatusFilter === 'maintenance') {
+                list = list.filter(c => c.isMaintenance);
+            }
+        }
+
+        // Sorting
         list.sort((a, b) => {
-            const timeA = a.lastUpdated || (a as any).createdAt || (a.numericId ? Number(a.numericId) : 0) || 0;
-            const timeB = b.lastUpdated || (b as any).createdAt || (b.numericId ? Number(b.numericId) : 0) || 0;
-            return timeB - timeA;
+            if (circleSortOption === 'newest') {
+                const timeA = a.lastUpdated || (a as any).createdAt || (a.numericId ? Number(a.numericId) : 0) || 0;
+                const timeB = b.lastUpdated || (b as any).createdAt || (b.numericId ? Number(b.numericId) : 0) || 0;
+                return timeB - timeA;
+            } else if (circleSortOption === 'oldest') {
+                const timeA = a.lastUpdated || (a as any).createdAt || (a.numericId ? Number(a.numericId) : 0) || 0;
+                const timeB = b.lastUpdated || (b as any).createdAt || (b.numericId ? Number(b.numericId) : 0) || 0;
+                return timeA - timeB;
+            } else if (circleSortOption === 'most_students') {
+                return (b.students?.length || 0) - (a.students?.length || 0);
+            } else if (circleSortOption === 'least_students') {
+                return (a.students?.length || 0) - (b.students?.length || 0);
+            } else if (circleSortOption === 'most_sessions') {
+                return (b.sessions?.length || 0) - (a.sessions?.length || 0);
+            } else if (circleSortOption === 'alphabetical') {
+                return (a.circle || '').localeCompare(b.circle || '', 'ar');
+            }
+            return 0;
         });
 
         if (!searchQuery.trim()) return list;
@@ -994,11 +1027,21 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
             c.numericId?.toLowerCase().includes(queryLower) ||
             c.id?.toLowerCase().includes(queryLower)
         );
-    }, [circles, searchQuery]);
+    }, [circles, searchQuery, circleStatusFilter, circleSortOption]);
 
     const processedArchivedCircles = useMemo(() => {
         let list = [...archivedCircles];
-        list.sort((a, b) => (b.archivedAt || 0) - (a.archivedAt || 0));
+
+        list.sort((a, b) => {
+            if (circleSortOption === 'oldest') {
+                return (a.archivedAt || 0) - (b.archivedAt || 0);
+            } else if (circleSortOption === 'alphabetical') {
+                const cA = a.circleData?.circle || a.circle || '';
+                const cB = b.circleData?.circle || b.circle || '';
+                return cA.localeCompare(cB, 'ar');
+            }
+            return (b.archivedAt || 0) - (a.archivedAt || 0);
+        });
 
         if (!searchQuery.trim()) return list;
         const queryLower = searchQuery.toLowerCase().trim();
@@ -1013,7 +1056,7 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                 item.id?.toLowerCase().includes(queryLower)
             );
         });
-    }, [archivedCircles, searchQuery]);
+    }, [archivedCircles, searchQuery, circleSortOption]);
 
     const handleRestoreArchivedCircle = async (archivedItem: any) => {
         if (!db) return;
@@ -1094,18 +1137,26 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
         try {
             if (isArchived) {
                 await deleteDoc(doc(db, 'archived_circles', circleId));
+                addToast(`💥 تم الحذف النهائي لحلقة (${circleName}) من الأرشيف`, 'success');
             } else {
+                const targetCircle = circles.find(c => c.id === circleId) || (selectedCircle?.id === circleId ? selectedCircle : null);
+                if (targetCircle) {
+                    await setDoc(doc(db, 'archived_circles', circleId), {
+                        id: circleId,
+                        archivedAt: Date.now(),
+                        circleData: targetCircle,
+                        archivedByName: 'مطور النظام',
+                        reason: 'developer_emergency_deletion'
+                    });
+                }
                 await deleteDoc(doc(db, 'circles', circleId));
-                try {
-                    await deleteDoc(doc(db, 'archived_circles', circleId));
-                } catch (e) { /* ignore */ }
+                addToast(`📦 تم حذف حلقة (${circleName}) ونقل نسخة كاملة لأرشيف المطور بنجاح`, 'success');
             }
-            addToast(`💥 تم الحذف الجذري والنهائي لحلقة (${circleName})`, 'success');
             setSelectedCircle(null);
             setSelectedArchivedCircle(null);
         } catch (e: any) {
             console.error("Emergency delete error:", e);
-            addToast('❌ فشل الحذف الجذري للحلقة: ' + (e.message || e), 'error');
+            addToast('❌ فشلت عملية الحذف: ' + (e.message || e), 'error');
         }
     };
 
@@ -2150,17 +2201,140 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                                     </div>
 
                                     {/* Search and filter */}
+                                    {/* Search and Advanced Filters Bar */}
                                     <div className="bg-[#0a0f0d] border border-[#105541]/10 p-4 rounded-2xl space-y-3">
-                                        <div className="relative">
-                                            <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
-                                            <input 
-                                                type="text" 
-                                                placeholder={circleViewMode === 'active' ? "بحث باسم الحلقة، المعلم، المركز، أو المعرّف (ID)..." : "بحث في أرشيف الحلقات المحذوفة..."}
-                                                value={searchQuery}
-                                                onChange={(e) => setSearchQuery(e.target.value)}
-                                                className="w-full bg-[#050807] border border-[#105541]/20 rounded-xl py-2.5 pr-9 pl-3 text-xs outline-none focus:ring-1 focus:ring-[#105541] text-white font-medium font-sans"
-                                            />
+                                        {/* Top Row: Search input + Sort dropdown */}
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <div className="relative flex-1 min-w-[200px]">
+                                                <Search className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" size={14} />
+                                                <input 
+                                                    type="text" 
+                                                    placeholder={circleViewMode === 'active' ? "بحث باسم الحلقة، المعلم، المدينة، أو المعرّف (ID)..." : "بحث في أرشيف الحلقات المحذوفة..."}
+                                                    value={searchQuery}
+                                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                                    className="w-full bg-[#050807] border border-[#105541]/20 rounded-xl py-2.5 pr-9 pl-8 text-xs outline-none focus:ring-1 focus:ring-[#105541] text-white font-medium font-sans"
+                                                />
+                                                {searchQuery && (
+                                                    <button 
+                                                        onClick={() => setSearchQuery('')}
+                                                        className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-xs font-bold"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                                )}
+                                            </div>
+
+                                            {/* Sort Dropdown */}
+                                            <div className="relative">
+                                                <select
+                                                    value={circleSortOption}
+                                                    onChange={(e: any) => setCircleSortOption(e.target.value)}
+                                                    className="bg-[#050807] border border-[#105541]/20 rounded-xl py-2.5 px-3 text-xs text-emerald-400 outline-none focus:ring-1 focus:ring-[#105541] font-bold cursor-pointer"
+                                                >
+                                                    <option value="newest">🕒 الأحدث (تعديلاً/إنشاءً)</option>
+                                                    <option value="oldest">⌛ الأقدم</option>
+                                                    <option value="most_students">👥 الأكثر طلاباً</option>
+                                                    <option value="least_students">📉 الأقل طلاباً</option>
+                                                    <option value="most_sessions">📖 الأكثر حصصاً</option>
+                                                    <option value="alphabetical">🔤 أبجدي (أ - ي)</option>
+                                                </select>
+                                            </div>
                                         </div>
+
+                                        {/* Status Filter Tabs (Only shown in Active mode) */}
+                                        {circleViewMode === 'active' && (
+                                            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 no-scrollbar text-xs">
+                                                <span className="text-[10px] text-gray-400 font-bold ml-1 flex items-center gap-1 whitespace-nowrap">
+                                                    <Filter size={12} className="text-emerald-500" />
+                                                    الحالة:
+                                                </span>
+                                                <button
+                                                    onClick={() => setCircleStatusFilter('all')}
+                                                    className={`px-3 py-1.5 rounded-xl font-bold transition-all text-xs flex items-center gap-1 whitespace-nowrap ${
+                                                        circleStatusFilter === 'all'
+                                                            ? 'bg-emerald-500 text-white shadow-md shadow-emerald-500/20'
+                                                            : 'bg-gray-900/60 text-gray-400 hover:text-white border border-gray-800'
+                                                    }`}
+                                                >
+                                                    <span>الكل</span>
+                                                    <span className="text-[10px] opacity-80 font-mono">({circles.length})</span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => setCircleStatusFilter('active')}
+                                                    className={`px-3 py-1.5 rounded-xl font-bold transition-all text-xs flex items-center gap-1 whitespace-nowrap ${
+                                                        circleStatusFilter === 'active'
+                                                            ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/20'
+                                                            : 'bg-emerald-500/5 text-emerald-400/80 hover:bg-emerald-500/10 border border-emerald-500/10'
+                                                    }`}
+                                                >
+                                                    <span>🟢 نشطة</span>
+                                                    <span className="text-[10px] font-mono">
+                                                        ({circles.filter(c => c.status !== 'inactive' && !c.isStopped && !c.isMaintenance).length})
+                                                    </span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => setCircleStatusFilter('inactive')}
+                                                    className={`px-3 py-1.5 rounded-xl font-bold transition-all text-xs flex items-center gap-1 whitespace-nowrap ${
+                                                        circleStatusFilter === 'inactive'
+                                                            ? 'bg-red-600 text-white shadow-md shadow-red-600/20'
+                                                            : 'bg-red-500/5 text-red-400/80 hover:bg-red-500/10 border border-red-500/10'
+                                                    }`}
+                                                >
+                                                    <span>🔴 معطلة</span>
+                                                    <span className="text-[10px] font-mono">
+                                                        ({circles.filter(c => c.status === 'inactive').length})
+                                                    </span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => setCircleStatusFilter('stopped')}
+                                                    className={`px-3 py-1.5 rounded-xl font-bold transition-all text-xs flex items-center gap-1 whitespace-nowrap ${
+                                                        circleStatusFilter === 'stopped'
+                                                            ? 'bg-rose-600 text-white shadow-md shadow-rose-600/20'
+                                                            : 'bg-rose-500/5 text-rose-400/80 hover:bg-rose-500/10 border border-rose-500/10'
+                                                    }`}
+                                                >
+                                                    <span>⚠️ موقوفة</span>
+                                                    <span className="text-[10px] font-mono">
+                                                        ({circles.filter(c => c.isStopped).length})
+                                                    </span>
+                                                </button>
+
+                                                <button
+                                                    onClick={() => setCircleStatusFilter('maintenance')}
+                                                    className={`px-3 py-1.5 rounded-xl font-bold transition-all text-xs flex items-center gap-1 whitespace-nowrap ${
+                                                        circleStatusFilter === 'maintenance'
+                                                            ? 'bg-amber-600 text-white shadow-md shadow-amber-600/20'
+                                                            : 'bg-amber-500/5 text-amber-400/80 hover:bg-amber-500/10 border border-amber-500/10'
+                                                    }`}
+                                                >
+                                                    <span>🛠️ صيانة</span>
+                                                    <span className="text-[10px] font-mono">
+                                                        ({circles.filter(c => c.isMaintenance).length})
+                                                    </span>
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* Active filter summary notice */}
+                                        {(searchQuery || circleStatusFilter !== 'all') && (
+                                            <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#105541]/10 text-gray-400">
+                                                <span>
+                                                    نتائج التصفية: <b className="text-emerald-400">{circleViewMode === 'active' ? processedCircles.length : processedArchivedCircles.length}</b> حلقة
+                                                </span>
+                                                <button
+                                                    onClick={() => {
+                                                        setSearchQuery('');
+                                                        setCircleStatusFilter('all');
+                                                    }}
+                                                    className="text-amber-400 hover:underline font-bold"
+                                                >
+                                                    إعادة ضبط الفلاتر 🔄
+                                                </button>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Active Circles View */}
