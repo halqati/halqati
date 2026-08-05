@@ -440,7 +440,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ managementId,
             addToast("يجب الاتصال بالإنترنت لحذف الحلقات", 'error');
             return;
         }
-        if (!window.confirm('هل أنت متأكد من حذف هذه الحلقة؟ سيتم نقلها للأرشيف ولن تفقد بياناتها.')) return;
+        if (!window.confirm('هل أنت متأكد من حذف هذه الحلقة نهائياً وبشكل كامل؟ سيتم إزالة جميع بياناتها ولن يتمكن المعلمون أو المشرفون من الوصول إليها.')) return;
         try {
             const targetCircle = circles.find(c => c.id === circleId);
             if (targetCircle) {
@@ -453,7 +453,7 @@ const ManagementDashboard: React.FC<ManagementDashboardProps> = ({ managementId,
                 });
             }
             await deleteDoc(doc(db, 'circles', circleId));
-            addToast('تم حذف الحلقة ونقلها لأرشيف المطور بنجاح', 'success');
+            addToast('💥 تم حذف الحلقة نهائياً وبشكل كامل بنجاح', 'success');
         } catch (error) {
             addToast('فشل حذف الحلقة', 'error');
         }

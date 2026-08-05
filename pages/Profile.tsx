@@ -357,6 +357,18 @@ const Profile: React.FC<ProfileProps> = ({
                 
                 for (const circle of allCircles) {
                     if (circle.ownerId === uid) {
+                        // Backup to archived_circles silently before deleting from active circles
+                        try {
+                            await setDoc(doc(db, 'archived_circles', circle.id), {
+                                id: circle.id,
+                                archivedAt: Date.now(),
+                                circleData: circle,
+                                archivedByName: userProfile?.displayName || 'مالك الحساب الحساب المحذوف',
+                                reason: 'account_deletion'
+                            });
+                        } catch (err) {
+                            console.error("Error backing up circle during account deletion:", err);
+                        }
                         batch.delete(doc(db, 'circles', circle.id));
                     }
                 }

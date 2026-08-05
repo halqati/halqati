@@ -1150,7 +1150,7 @@ const DeveloperDashboard: React.FC<DeveloperDashboardProps> = ({ userProfile, ad
                     });
                 }
                 await deleteDoc(doc(db, 'circles', circleId));
-                addToast(`📦 تم حذف حلقة (${circleName}) ونقل نسخة كاملة لأرشيف المطور بنجاح`, 'success');
+                addToast(`💥 تم الحذف النهائي والكامل لحلقة (${circleName}) وجميع بياناتها بنجاح`, 'success');
             }
             setSelectedCircle(null);
             setSelectedArchivedCircle(null);
