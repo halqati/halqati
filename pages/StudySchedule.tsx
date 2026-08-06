@@ -147,7 +147,7 @@ const StudySchedule: React.FC<StudyScheduleProps> = ({
             <meta charset="utf-8">
             <title>الجدول الدراسي - ${activeCircle.circle || 'الحلقة'}</title>
             <style>
-              @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
+              @import url('/fonts/google-fonts.css');
               * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Tajawal', sans-serif; }
               body { padding: 28px; background: #ffffff; color: #1e293b; direction: rtl; }
               .header { text-align: center; border-bottom: 2px solid #105541; padding-bottom: 16px; margin-bottom: 20px; }

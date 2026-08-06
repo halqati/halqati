@@ -156,7 +156,7 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
     // Load Tajawal font dynamically for exact PDF matching
     useEffect(() => {
         const link = document.createElement('link');
-        link.href = 'https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap';
+        link.href = '/fonts/google-fonts.css';
         link.rel = 'stylesheet';
         document.head.appendChild(link);
         return () => {

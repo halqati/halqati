@@ -55,10 +55,10 @@ const cacheSingleFont = async (name: string, url: string) => {
         }
         const cssResponse = await fetch(url);
         const cssText = await cssResponse.text();
-        const fontUrlMatch = cssText.match(/url\((https:\/\/[^)]+)\)/);
+        const fontUrlMatch = cssText.match(/url\(([^)]+)\)/);
         if (!fontUrlMatch) return;
         
-        const fontUrl = fontUrlMatch[1];
+        const fontUrl = fontUrlMatch[1].replace(/['"]/g, '');
         const fontResponse = await fetch(fontUrl);
         const fontBlob = await fontResponse.blob();
         
@@ -89,11 +89,11 @@ const cacheSingleFont = async (name: string, url: string) => {
 
 const cacheAllFonts = async () => {
     const fontsToCache = [
-        { name: 'Amiri Quran', url: 'https://fonts.googleapis.com/css2?family=Amiri+Quran&display=swap' },
-        { name: 'Scheherazade New', url: 'https://fonts.googleapis.com/css2?family=Scheherazade+New&display=swap' },
-        { name: 'Noto Naskh Arabic', url: 'https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic&display=swap' },
-        { name: 'Reem Kufi', url: 'https://fonts.googleapis.com/css2?family=Reem+Kufi&display=swap' },
-        { name: 'Tajawal', url: 'https://fonts.googleapis.com/css2?family=Tajawal&display=swap' }
+        { name: 'Amiri Quran', url: '/fonts/google-fonts.css' },
+        { name: 'Scheherazade New', url: '/fonts/google-fonts.css' },
+        { name: 'Noto Naskh Arabic', url: '/fonts/google-fonts.css' },
+        { name: 'Reem Kufi', url: '/fonts/google-fonts.css' },
+        { name: 'Tajawal', url: '/fonts/google-fonts.css' }
     ];
     for (const font of fontsToCache) {
         await cacheSingleFont(font.name, font.url);
