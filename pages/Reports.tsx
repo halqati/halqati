@@ -153,19 +153,16 @@ const Reports: React.FC<ReportsProps> = ({ onBack, activeCircle }) => {
         return activeCircle.teacher || 'المعلم';
     };
 
-    // Load Tajawal font dynamically for exact PDF matching
+    // Ensure Google fonts link exists in head for exact PDF matching
     useEffect(() => {
-        const link = document.createElement('link');
-        link.href = './fonts/google-fonts.css';
-        link.rel = 'stylesheet';
-        document.head.appendChild(link);
-        return () => {
-            try {
-                document.head.removeChild(link);
-            } catch (err) {
-                // Ignore if already removed
-            }
-        };
+        const fontLinkId = 'app-google-fonts-css';
+        if (!document.getElementById(fontLinkId)) {
+            const link = document.createElement('link');
+            link.id = fontLinkId;
+            link.href = '/fonts/google-fonts.css';
+            link.rel = 'stylesheet';
+            document.head.appendChild(link);
+        }
     }, []);
 
     const showToast = (message: string, type: 'success' | 'error' | 'info' = 'success') => {

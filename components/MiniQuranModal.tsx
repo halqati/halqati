@@ -29,11 +29,11 @@ interface MiniQuranModalProps {
 
 const FONT_OPTIONS = [
     { value: "kfgqpc", label: "خطوط مجمع الملك فهد (رموز الصفحات)" },
-    { value: "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif", label: "خط مصحف المدينة (الأميري)" },
-    { value: "'Scheherazade New Cached', 'Scheherazade New', serif", label: "خط شهرزاد الجديد" },
-    { value: "'Noto Naskh Arabic Cached', 'Noto Naskh Arabic', sans-serif", label: "خط النسخ" },
-    { value: "'Reem Kufi Cached', 'Reem Kufi', sans-serif", label: "خط الكوفي" },
-    { value: "'Tajawal Cached', 'Tajawal', sans-serif", label: "خط النظام" }
+    { value: "'Amiri Quran', 'Amiri', serif", label: "خط مصحف المدينة (الأميري)" },
+    { value: "'Scheherazade New', serif", label: "خط شهرزاد الجديد" },
+    { value: "'Noto Naskh Arabic', sans-serif", label: "خط النسخ" },
+    { value: "'Reem Kufi', sans-serif", label: "خط الكوفي" },
+    { value: "'Tajawal', sans-serif", label: "خط النظام" }
 ];
 
 export function getJuzNameArabic(juzNum: number): string {
@@ -47,58 +47,6 @@ export function getJuzNameArabic(juzNum: number): string {
     ];
     return names[juzNum] || `الجزء ${juzNum}`;
 }
-
-const cacheSingleFont = async (name: string, url: string) => {
-    try {
-        if (localStorage.getItem(`quran_font_base64_${name}`)) {
-            return; // Already cached!
-        }
-        const cssResponse = await fetch(url);
-        const cssText = await cssResponse.text();
-        const fontUrlMatch = cssText.match(/url\(([^)]+)\)/);
-        if (!fontUrlMatch) return;
-        
-        const fontUrl = fontUrlMatch[1].replace(/['"]/g, '');
-        const fontResponse = await fetch(fontUrl);
-        const fontBlob = await fontResponse.blob();
-        
-        const reader = new FileReader();
-        reader.onloadend = () => {
-            const base64data = reader.result as string;
-            localStorage.setItem(`quran_font_base64_${name}`, base64data);
-            
-            const styleId = 'injected-quran-fonts-style';
-            let styleEl = document.getElementById(styleId) as HTMLStyleElement;
-            if (styleEl) {
-                styleEl.innerHTML += `
-@font-face {
-  font-family: '${name} Cached';
-  src: url(${base64data}) format('truetype');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
-`;
-            }
-        };
-        reader.readAsDataURL(fontBlob);
-    } catch (err) {
-        console.error('Failed to cache font:', name, err);
-    }
-};
-
-const cacheAllFonts = async () => {
-    const fontsToCache = [
-        { name: 'Amiri Quran', url: './fonts/google-fonts.css' },
-        { name: 'Scheherazade New', url: './fonts/google-fonts.css' },
-        { name: 'Noto Naskh Arabic', url: './fonts/google-fonts.css' },
-        { name: 'Reem Kufi', url: './fonts/google-fonts.css' },
-        { name: 'Tajawal', url: './fonts/google-fonts.css' }
-    ];
-    for (const font of fontsToCache) {
-        await cacheSingleFont(font.name, font.url);
-    }
-};
 
 export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     isOpen,
@@ -121,7 +69,12 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     
     // Preferences loaded from localStorage
     const [fontFamily, setFontFamily] = useState<string>(() => {
-        return localStorage.getItem('quran_font_family') || "'Amiri Quran Cached', 'Amiri Quran', 'Amiri', serif";
+        const saved = localStorage.getItem('quran_font_family');
+        if (saved) {
+            const cleaned = saved.replace(/'?[A-Za-z0-9\s]+ Cached'?,?\s*/g, '').trim();
+            if (cleaned) return cleaned;
+        }
+        return "'Amiri Quran', 'Amiri', serif";
     });
     const [fontSize, setFontSize] = useState<number>(() => {
         return parseInt(localStorage.getItem('quran_font_size') || '22');
@@ -138,42 +91,14 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
     const [pagesV2Data, setPagesV2Data] = useState<{ [key: number]: any }>({});
     const [loadingV2, setLoadingV2] = useState<boolean>(false);
 
-    // Dynamic style injection for offline Cached fonts on mount
+    // Clear legacy base64 font items from localStorage to prevent memory bloat
     useEffect(() => {
-        const styleId = 'injected-quran-fonts-style';
-        let styleEl = document.getElementById(styleId) as HTMLStyleElement;
-        if (!styleEl) {
-            styleEl = document.createElement('style');
-            styleEl.id = styleId;
-            document.head.appendChild(styleEl);
-        }
-
-        let cssContent = '';
         const fontNames = ['Amiri Quran', 'Scheherazade New', 'Noto Naskh Arabic', 'Reem Kufi', 'Tajawal'];
         fontNames.forEach(name => {
-            const cached = localStorage.getItem(`quran_font_base64_${name}`);
-            if (cached) {
-                cssContent += `
-@font-face {
-  font-family: '${name} Cached';
-  src: url(${cached}) format('truetype');
-  font-weight: normal;
-  font-style: normal;
-  font-display: swap;
-}
-`;
-            }
+            localStorage.removeItem(`quran_font_base64_${name}`);
         });
-        styleEl.innerHTML = cssContent;
-
-        // Perform background pre-caching of all fonts 1.5 seconds after loading
-        const timer = setTimeout(() => {
-            if (navigator.onLine) {
-                cacheAllFonts();
-            }
-        }, 1500);
-
-        return () => clearTimeout(timer);
+        const styleEl = document.getElementById('injected-quran-fonts-style');
+        if (styleEl) styleEl.remove();
     }, []);
 
     // Offline / Caching State
@@ -875,8 +800,6 @@ export const MiniQuranModal: React.FC<MiniQuranModalProps> = ({
                 setDownloadProgress(progress);
             });
             if (success) {
-                // Pre-cache all Google Fonts as well!
-                await cacheAllFonts();
                 setIsOfflineReady(true);
                 // Trigger celebratory bubble burst
                 triggerBubbleBurst();
