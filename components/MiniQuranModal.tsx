@@ -89,11 +89,11 @@ const cacheSingleFont = async (name: string, url: string) => {
 
 const cacheAllFonts = async () => {
     const fontsToCache = [
-        { name: 'Amiri Quran', url: '/fonts/google-fonts.css' },
-        { name: 'Scheherazade New', url: '/fonts/google-fonts.css' },
-        { name: 'Noto Naskh Arabic', url: '/fonts/google-fonts.css' },
-        { name: 'Reem Kufi', url: '/fonts/google-fonts.css' },
-        { name: 'Tajawal', url: '/fonts/google-fonts.css' }
+        { name: 'Amiri Quran', url: './fonts/google-fonts.css' },
+        { name: 'Scheherazade New', url: './fonts/google-fonts.css' },
+        { name: 'Noto Naskh Arabic', url: './fonts/google-fonts.css' },
+        { name: 'Reem Kufi', url: './fonts/google-fonts.css' },
+        { name: 'Tajawal', url: './fonts/google-fonts.css' }
     ];
     for (const font of fontsToCache) {
         await cacheSingleFont(font.name, font.url);
